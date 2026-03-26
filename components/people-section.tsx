@@ -29,17 +29,15 @@ import {
   Search,
 } from "lucide-react";
 
+import {
+  PersonEditorSheet,
+  type PersonDraft,
+  type PersonRecord,
+  type PersonStatus,
+} from "@/components/person-editor-sheet";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import {
   Table,
   TableBody,
@@ -50,26 +48,12 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
-type PersonStatus = "Ready" | "Pending pickup" | "Draft" | "Imported";
-
-type PersonRecord = {
-  id: string;
-  name: string;
-  role: string;
-  address: string;
-  pickup: string;
-  email: string;
-  status: PersonStatus;
-};
-
-type PersonDraft = Omit<PersonRecord, "id">;
 type BrowserFileSystemHandle = {
   kind: "file" | "directory";
   getFile?: () => Promise<File>;
 };
 
 const defaultDropPrompt = "Drop a contact card from macOS Contacts between rows or import a .vcf file.";
-const statusOptions: PersonStatus[] = ["Ready", "Pending pickup", "Draft", "Imported"];
 const vCardTransferTypes = [
   "text/vcard",
   "text/x-vcard",
@@ -1090,116 +1074,19 @@ export function PeopleSection() {
         </div>
       </div>
 
-      <Sheet
+      <PersonEditorSheet
+        draft={editorDraft}
+        mode={editorMode}
         open={Boolean(editorDraft)}
-        onOpenChange={(open) => {
-          if (!open) {
-            clearAddPersonQuery();
-            setEditorMode(null);
-            setEditingPersonId(null);
-            setEditorDraft(null);
-          }
+        onClose={() => {
+          clearAddPersonQuery();
+          setEditorMode(null);
+          setEditingPersonId(null);
+          setEditorDraft(null);
         }}
-      >
-        <SheetContent side="right" className="w-full sm:max-w-[480px]">
-          <SheetHeader>
-            <SheetTitle>{editorMode === "create" ? "Add person" : "Edit person"}</SheetTitle>
-            <SheetDescription>
-              {editorMode === "create"
-                ? "Create a local person record. This will become the create flow later."
-                : "Update the selected contact in local state. This will become the CRUD surface later."}
-            </SheetDescription>
-          </SheetHeader>
-
-          {editorDraft ? (
-            <div className="flex flex-1 flex-col gap-5 px-4 pb-4">
-              <Field label="Name">
-                <Input
-                  value={editorDraft.name}
-                  onChange={(event) =>
-                    setEditorDraft((current) => (current ? { ...current, name: event.target.value } : current))
-                  }
-                />
-              </Field>
-              <Field label="Role">
-                <Input
-                  value={editorDraft.role}
-                  onChange={(event) =>
-                    setEditorDraft((current) => (current ? { ...current, role: event.target.value } : current))
-                  }
-                />
-              </Field>
-              <Field label="Address">
-                <Input
-                  value={editorDraft.address}
-                  onChange={(event) =>
-                    setEditorDraft((current) => (current ? { ...current, address: event.target.value } : current))
-                  }
-                />
-              </Field>
-              <Field label="Pickup">
-                <Input
-                  value={editorDraft.pickup}
-                  onChange={(event) =>
-                    setEditorDraft((current) => (current ? { ...current, pickup: event.target.value } : current))
-                  }
-                />
-              </Field>
-              <Field label="Email">
-                <Input
-                  value={editorDraft.email}
-                  onChange={(event) =>
-                    setEditorDraft((current) => (current ? { ...current, email: event.target.value } : current))
-                  }
-                />
-              </Field>
-
-              <div>
-                <p className="text-[12px] font-semibold tracking-[0.12em] text-[#777772] uppercase">
-                  Status
-                </p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {statusOptions.map((status) => (
-                    <Button
-                      key={status}
-                      type="button"
-                      variant={editorDraft.status === status ? "default" : "outline"}
-                      size="sm"
-                      className={cn(
-                        editorDraft.status !== status &&
-                        "border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef]",
-                      )}
-                      onClick={() =>
-                        setEditorDraft((current) => (current ? { ...current, status } : current))
-                      }
-                    >
-                      {status}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          <SheetFooter className="border-t border-[#ecece8] bg-[#fcfcfa]">
-            <Button
-              variant="outline"
-              className="border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef]"
-              onClick={() => {
-                clearAddPersonQuery();
-                setEditorMode(null);
-                setEditingPersonId(null);
-                setEditorDraft(null);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button onClick={saveEditedPerson}>
-              {editorMode === "create" ? "Add person" : "Save changes"}
-            </Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
+        onSave={saveEditedPerson}
+        setDraft={setEditorDraft}
+      />
     </>
   );
 }
@@ -1216,22 +1103,5 @@ function FragmentRow({
       {before}
       {row}
     </>
-  );
-}
-
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="flex flex-col gap-2">
-      <span className="text-[12px] font-semibold tracking-[0.12em] text-[#777772] uppercase">
-        {label}
-      </span>
-      {children}
-    </label>
   );
 }
