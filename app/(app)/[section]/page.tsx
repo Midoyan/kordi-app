@@ -1,0 +1,530 @@
+import { notFound } from "next/navigation";
+import { Car, MapPin, Plus, Route, Users } from "lucide-react";
+
+import { appSectionMap, appSections, type AppSectionSlug } from "@/lib/app-sections";
+
+type SectionPageProps = {
+  params: Promise<{
+    section: string;
+  }>;
+};
+
+export function generateStaticParams() {
+  return appSections.map((section) => ({
+    section: section.slug,
+  }));
+}
+
+const sectionActionLabels: Record<AppSectionSlug, string> = {
+  dashboard: "Create route",
+  "route-builder": "Add route",
+  people: "Add person",
+  vehicles: "Add vehicle",
+  locations: "Add location",
+  schedule: "Add time block",
+  settings: "Add setting",
+};
+
+type PanelProps = {
+  title: string;
+  description?: string;
+  actionLabel?: string;
+  children?: React.ReactNode;
+  className?: string;
+};
+
+function ActionButton({ label }: { label: string }) {
+  return (
+    <button
+      type="button"
+      className="inline-flex items-center gap-2 rounded-md border border-[#1f1f1d] bg-[#1f1f1d] px-3 py-2 text-[13px] font-medium text-white transition-colors hover:bg-[#343431]"
+    >
+      <Plus className="size-4" />
+      {label}
+    </button>
+  );
+}
+
+function Panel({ title, description, actionLabel, children, className }: PanelProps) {
+  return (
+    <section
+      className={`rounded-xl border border-[#e3e3df] bg-white p-5 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.45)] ${className ?? ""}`}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-[15px] font-semibold text-[#1d1d1b]">{title}</h2>
+          {description ? (
+            <p className="mt-1 text-[13px] leading-6 text-[#6b6b67]">{description}</p>
+          ) : null}
+        </div>
+        {actionLabel ? <ActionButton label={actionLabel} /> : null}
+      </div>
+      <div className="mt-5">{children}</div>
+    </section>
+  );
+}
+
+function EmptyTable({
+  columns,
+  message,
+  cta,
+}: {
+  columns: string[];
+  message: string;
+  cta: string;
+}) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-[#e7e7e4]">
+      <div className="grid min-h-10 items-center border-b border-[#ecece8] bg-[#f7f7f4] px-4 text-[11px] font-semibold tracking-[0.12em] text-[#777772] uppercase" style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))` }}>
+        {columns.map((column) => (
+          <span key={column}>{column}</span>
+        ))}
+      </div>
+      <div className="flex min-h-28 flex-col items-center justify-center gap-2 px-4 py-6 text-center">
+        <p className="text-[14px] font-medium text-[#1d1d1b]">{message}</p>
+        <button
+          type="button"
+          className="rounded-md border border-[#dbdbd6] px-3 py-1.5 text-[13px] text-[#43433f] transition-colors hover:bg-[#f3f3ef]"
+        >
+          {cta}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function StatTile({
+  icon: Icon,
+  title,
+  cta,
+}: {
+  icon: typeof Route;
+  title: string;
+  cta: string;
+}) {
+  return (
+    <div className="rounded-lg border border-[#e7e7e4] bg-[#fbfbf8] p-4">
+      <Icon className="size-4 text-[#4b4b46]" />
+      <p className="mt-3 text-[14px] font-medium text-[#1d1d1b]">{title}</p>
+      <button
+        type="button"
+        className="mt-4 rounded-md border border-[#dbdbd6] px-3 py-1.5 text-[13px] text-[#43433f] transition-colors hover:bg-white"
+      >
+        {cta}
+      </button>
+    </div>
+  );
+}
+
+function EmptyList({
+  items,
+}: {
+  items: Array<{
+    title: string;
+    description: string;
+    cta?: string;
+  }>;
+}) {
+  return (
+    <div className="space-y-3">
+      {items.map((item) => (
+        <div
+          key={item.title}
+          className="flex items-center justify-between gap-3 rounded-lg border border-[#e7e7e4] px-4 py-3"
+        >
+          <div>
+            <p className="text-[14px] font-medium text-[#1d1d1b]">{item.title}</p>
+            <p className="mt-1 text-[13px] text-[#6b6b67]">{item.description}</p>
+          </div>
+          {item.cta ? (
+            <button
+              type="button"
+              className="rounded-md border border-[#dbdbd6] px-3 py-1.5 text-[13px] text-[#43433f] transition-colors hover:bg-[#f3f3ef]"
+            >
+              {item.cta}
+            </button>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DashboardView() {
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+      <Panel
+        title="Workspace setup"
+        description="Start building the workspace by adding the first route, rider, and vehicle."
+      >
+        <div className="grid gap-3 sm:grid-cols-3">
+          <StatTile icon={Route} title="Routes" cta="Add route" />
+          <StatTile icon={Users} title="People" cta="Add person" />
+          <StatTile icon={Car} title="Vehicles" cta="Add vehicle" />
+        </div>
+      </Panel>
+      <Panel
+        title="Today"
+        description="This panel can hold live operational status once data is connected."
+      >
+        <EmptyList
+          items={[
+            {
+              title: "No routes scheduled yet",
+              description: "Create the first route to begin planning pickups.",
+              cta: "Add route",
+            },
+            {
+              title: "No active dispatch notes",
+              description: "Notes and alerts will appear here when operations start.",
+            },
+          ]}
+        />
+      </Panel>
+      <Panel
+        title="Upcoming runs"
+        description="A route list or dispatch table can live here."
+        className="lg:col-span-2"
+      >
+        <EmptyTable
+          columns={["Route", "Vehicle", "People", "Departure", "Status"]}
+          message="No runs have been created yet."
+          cta="Create first route"
+        />
+      </Panel>
+    </div>
+  );
+}
+
+function RouteBuilderView() {
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
+      <Panel
+        title="Routes"
+        description="Build routes, then connect stops, vehicles, and pickup order."
+        actionLabel="Add route"
+      >
+        <EmptyTable
+          columns={["Route", "Stops", "Vehicle", "Window", "Status"]}
+          message="No routes yet."
+          cta="Add route"
+        />
+      </Panel>
+      <Panel
+        title="Route details"
+        description="Pick a route or create one to start shaping its stop sequence."
+      >
+        <EmptyList
+          items={[
+            {
+              title: "No route selected",
+              description: "Choose a route from the list or add a new one.",
+            },
+            {
+              title: "Pickup sequence",
+              description: "Stops and timing details will appear here.",
+              cta: "Add pickup stop",
+            },
+          ]}
+        />
+      </Panel>
+      <Panel
+        title="Stops"
+        description="Use this list for pickup points, order, and timing constraints."
+        className="lg:col-span-2"
+      >
+        <EmptyTable
+          columns={["Stop", "Location", "Pickup window", "Assigned people", "Notes"]}
+          message="No stops added yet."
+          cta="Add pickup stop"
+        />
+      </Panel>
+    </div>
+  );
+}
+
+function PeopleView() {
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
+      <Panel
+        title="People"
+        description="Store riders, assignments, and pickup requirements."
+        actionLabel="Add person"
+      >
+        <EmptyTable
+          columns={["Name", "Role", "Pickup", "Contact", "Status"]}
+          message="No people added yet."
+          cta="Add first person"
+        />
+      </Panel>
+      <Panel
+        title="Assignment notes"
+        description="Use this area for rider notes, tags, or transport requirements."
+      >
+        <EmptyList
+          items={[
+            {
+              title: "No assignment notes",
+              description: "Pickup constraints and reminders can live here.",
+              cta: "Add note",
+            },
+            {
+              title: "No groups yet",
+              description: "Create crew or team groups when you need them.",
+              cta: "Add group",
+            },
+          ]}
+        />
+      </Panel>
+    </div>
+  );
+}
+
+function VehiclesView() {
+  return (
+    <div className="space-y-4">
+      <Panel
+        title="Vehicles"
+        description="Track your available fleet, seating, and assigned drivers."
+        actionLabel="Add vehicle"
+      >
+        <div className="space-y-3">
+          <div className="flex flex-col gap-4 rounded-lg border border-[#d6d6d1] px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="flex size-12 items-center justify-center rounded-md border border-[#e2e2dd] bg-[#f7f7f4]">
+                <Car className="size-5 text-[#1d1d1b]" />
+              </div>
+              <div>
+                <p className="text-[18px] font-semibold tracking-tight text-[#1d1d1b]">
+                  Add new van
+                </p>
+                <p className="mt-1 text-[13px] text-[#6b6b67]">
+                  Create the first vehicle record and assign its driver, capacity, and status.
+                </p>
+              </div>
+            </div>
+            <div className="grid gap-4 text-[13px] text-[#3d3d39] sm:grid-cols-3 lg:min-w-[420px]">
+              <div>
+                <p className="text-[11px] font-semibold tracking-[0.12em] text-[#7a7a74] uppercase">
+                  Driver
+                </p>
+                <p className="mt-1">Unassigned</p>
+              </div>
+              <div>
+                <p className="text-[11px] font-semibold tracking-[0.12em] text-[#7a7a74] uppercase">
+                  Capacity
+                </p>
+                <p className="mt-1">Not set</p>
+              </div>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-semibold tracking-[0.12em] text-[#7a7a74] uppercase">
+                    Status
+                  </p>
+                  <p className="mt-1">Pending setup</p>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-md border border-[#dbdbd6] px-3 py-1.5 text-[13px] text-[#43433f] transition-colors hover:bg-[#f3f3ef]"
+                >
+                  Add vehicle
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Panel>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Panel title="Availability" description="Vehicle availability and maintenance blocks can be managed here.">
+          <EmptyTable
+            columns={["Vehicle", "Date", "Type", "Notes"]}
+            message="No availability rules yet."
+            cta="Add availability"
+          />
+        </Panel>
+        <Panel title="Assignments" description="Link vehicles to routes and shifts from this panel.">
+          <EmptyList
+            items={[
+              {
+                title: "No active assignments",
+                description: "Vehicle allocations will appear here once routes exist.",
+                cta: "Assign vehicle",
+              },
+            ]}
+          />
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+function LocationsView() {
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+      <Panel
+        title="Locations"
+        description="Save pickup points, venues, and shared destination records."
+        actionLabel="Add location"
+      >
+        <EmptyTable
+          columns={["Name", "Type", "Address", "Zone", "Notes"]}
+          message="No locations added yet."
+          cta="Add first location"
+        />
+      </Panel>
+      <Panel title="Map area" description="A map or geocoding preview can live in this panel.">
+        <div className="flex min-h-72 items-center justify-center rounded-lg border border-dashed border-[#d9d9d4] bg-[#fafaf7]">
+          <div className="text-center">
+            <MapPin className="mx-auto size-5 text-[#4b4b46]" />
+            <p className="mt-3 text-[14px] font-medium text-[#1d1d1b]">No locations to show yet</p>
+            <p className="mt-1 text-[13px] text-[#6b6b67]">Add a location to start building the map view.</p>
+          </div>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function ScheduleView() {
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+      <Panel
+        title="Day schedule"
+        description="Lay out pickup windows, departures, and operational blocks."
+        actionLabel="Add time block"
+      >
+        <div className="grid gap-3 md:grid-cols-3">
+          {["Morning", "Midday", "Evening"].map((period) => (
+            <div key={period} className="rounded-lg border border-[#e7e7e4] bg-[#fbfbf8] p-4">
+              <p className="text-[13px] font-semibold text-[#1d1d1b]">{period}</p>
+              <p className="mt-2 text-[13px] text-[#6b6b67]">No time blocks yet.</p>
+              <button
+                type="button"
+                className="mt-4 rounded-md border border-[#dbdbd6] px-3 py-1.5 text-[13px] text-[#43433f] transition-colors hover:bg-white"
+              >
+                Add block
+              </button>
+            </div>
+          ))}
+        </div>
+      </Panel>
+      <Panel title="Dispatch notes" description="Use this space for notes, warnings, and same-day changes.">
+        <EmptyList
+          items={[
+            {
+              title: "No notes yet",
+              description: "Dispatch notes and exceptions will appear here.",
+              cta: "Add note",
+            },
+            {
+              title: "No changes pending",
+              description: "Schedule updates can be reviewed from this panel.",
+            },
+          ]}
+        />
+      </Panel>
+      <Panel title="Schedule list" description="A more detailed schedule table can replace this placeholder later." className="lg:col-span-2">
+        <EmptyTable
+          columns={["Time", "Route", "Vehicle", "Location", "Notes"]}
+          message="No schedule items yet."
+          cta="Add schedule item"
+        />
+      </Panel>
+    </div>
+  );
+}
+
+function SettingsView() {
+  return (
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <Panel title="Workspace" description="Basic workspace settings and operational defaults.">
+        <EmptyList
+          items={[
+            {
+              title: "General settings",
+              description: "Set workspace name, timezone, and dispatch defaults.",
+              cta: "Configure",
+            },
+          ]}
+        />
+      </Panel>
+      <Panel title="Roles & access" description="Permissions and team access can be managed here.">
+        <EmptyList
+          items={[
+            {
+              title: "No custom roles yet",
+              description: "Create access levels for dispatchers, drivers, and coordinators.",
+              cta: "Add role",
+            },
+          ]}
+        />
+      </Panel>
+      <Panel title="Notifications" description="Choose how alerts and updates should be delivered.">
+        <EmptyList
+          items={[
+            {
+              title: "No notification rules",
+              description: "Set up reminders and transport alerts for the team.",
+              cta: "Add rule",
+            },
+          ]}
+        />
+      </Panel>
+    </div>
+  );
+}
+
+function renderSectionBody(section: AppSectionSlug) {
+  switch (section) {
+    case "dashboard":
+      return <DashboardView />;
+    case "route-builder":
+      return <RouteBuilderView />;
+    case "people":
+      return <PeopleView />;
+    case "vehicles":
+      return <VehiclesView />;
+    case "locations":
+      return <LocationsView />;
+    case "schedule":
+      return <ScheduleView />;
+    case "settings":
+      return <SettingsView />;
+    default:
+      return null;
+  }
+}
+
+export default async function SectionPage({ params }: SectionPageProps) {
+  const { section } = await params;
+  const currentSection = appSectionMap.get(section as AppSectionSlug);
+
+  if (!currentSection) {
+    notFound();
+  }
+
+  return (
+    <section className="flex flex-1 flex-col px-4 py-5 md:px-6 md:py-6">
+      <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4">
+        <div className="rounded-xl border border-[#e3e3df] bg-white px-5 py-5 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.45)] md:px-6">
+          <p className="text-[11px] font-semibold tracking-[0.14em] text-[#777772] uppercase">
+            {currentSection.eyebrow}
+          </p>
+          <div className="mt-3 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div className="max-w-3xl">
+              <h1 className="text-[28px] font-semibold tracking-tight text-[#1d1d1b] md:text-[34px]">
+                {currentSection.title}
+              </h1>
+              <p className="mt-2 max-w-2xl text-[14px] leading-6 text-[#6b6b67]">
+                {currentSection.description}
+              </p>
+            </div>
+            <ActionButton label={sectionActionLabels[currentSection.slug]} />
+          </div>
+        </div>
+
+        {renderSectionBody(currentSection.slug)}
+      </div>
+    </section>
+  );
+}
