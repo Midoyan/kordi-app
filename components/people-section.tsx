@@ -8,6 +8,9 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  type Cell,
+  type CellContext,
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   flexRender,
@@ -15,6 +18,10 @@ import {
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
+  type Header,
+  type HeaderContext,
+  type HeaderGroup,
+  type Row,
   useReactTable,
   type ColumnDef,
   type RowSelectionState,
@@ -39,6 +46,14 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
   Table,
   TableBody,
   TableCell,
@@ -48,6 +63,22 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
+type PersonStatus = "Ready" | "Pending pickup" | "Draft" | "Imported";
+
+type PersonRecord = {
+  id: string;
+  name: string;
+  role: string;
+  address: string;
+  pickup: string;
+  email: string;
+  status: PersonStatus;
+};
+
+type PersonDraft = Omit<PersonRecord, "id">;
+type CheckboxState = boolean | "indeterminate";
+
+const statusOptions: PersonStatus[] = ["Ready", "Pending pickup", "Draft", "Imported"];
 type BrowserFileSystemHandle = {
   kind: "file" | "directory";
   getFile?: () => Promise<File>;
@@ -109,13 +140,14 @@ function statusClasses(status: PersonStatus) {
   }
 }
 
-function createEmptyPerson(): PersonDraft {
+function createDraftPerson(count: number): PersonRecord {
   return {
-    name: "",
-    role: "",
-    address: "",
-    pickup: "",
-    email: "",
+    id: `person-draft-${Date.now()}`,
+    name: `New person ${count}`,
+    role: "Role pending",
+    address: "Address pending",
+    pickup: "Pickup pending",
+    email: "email@pending.local",
     status: "Draft",
   };
 }
@@ -534,7 +566,7 @@ export function PeopleSection() {
     {
       id: "select",
       size: 4,
-      header: ({ table }) => (
+      header: ({ table }: HeaderContext<PersonRecord, unknown>) => (
         <div className="flex items-center justify-center">
           <Checkbox
             checked={
@@ -544,16 +576,16 @@ export function PeopleSection() {
                   ? "indeterminate"
                   : false
             }
-            onCheckedChange={(checked) => table.toggleAllPageRowsSelected(checked)}
+            onCheckedChange={(checked: CheckboxState) => table.toggleAllPageRowsSelected(checked)}
             aria-label="Select all visible people"
           />
         </div>
       ),
-      cell: ({ row }) => (
+      cell: ({ row }: CellContext<PersonRecord, unknown>) => (
         <div className="flex items-start justify-center pt-1">
           <Checkbox
             checked={row.getIsSelected()}
-            onCheckedChange={(checked) => row.toggleSelected(checked)}
+            onCheckedChange={(checked: CheckboxState) => row.toggleSelected(checked)}
             aria-label={`Select ${row.original.name}`}
           />
         </div>
@@ -563,7 +595,7 @@ export function PeopleSection() {
     },
     {
       accessorKey: "name",
-      header: ({ column }) => (
+      header: ({ column }: HeaderContext<PersonRecord, unknown>) => (
         <ColumnHeader
           label="Name"
           canSort={column.getCanSort()}
@@ -571,7 +603,7 @@ export function PeopleSection() {
           onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         />
       ),
-      cell: ({ row }) => (
+      cell: ({ row }: CellContext<PersonRecord, unknown>) => (
         <div className="space-y-1">
           <p className="text-[15px] font-semibold tracking-tight text-[#1d1d1b]">
             {row.original.name}
@@ -584,7 +616,7 @@ export function PeopleSection() {
     },
     {
       accessorKey: "address",
-      header: ({ column }) => (
+      header: ({ column }: HeaderContext<PersonRecord, unknown>) => (
         <ColumnHeader
           label="Address"
           canSort={false}
@@ -592,7 +624,7 @@ export function PeopleSection() {
           onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         />
       ),
-      cell: ({ row }) => (
+      cell: ({ row }: CellContext<PersonRecord, unknown>) => (
         <div className="flex items-start gap-2">
           {/* <MapPin size={14} className="mt-1 text-[#91918a]" /> */}
           <p className="whitespace-normal text-[13px] leading-6 text-[#43433f]">{row.original.address}</p>
@@ -601,7 +633,7 @@ export function PeopleSection() {
     },
     {
       accessorKey: "pickup",
-      header: ({ column }) => (
+      header: ({ column }: HeaderContext<PersonRecord, unknown>) => (
         <ColumnHeader
           label="Pickup"
           canSort={column.getCanSort()}
@@ -609,7 +641,7 @@ export function PeopleSection() {
           onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         />
       ),
-      cell: ({ row }) => (
+      cell: ({ row }: CellContext<PersonRecord, unknown>) => (
         <p className="whitespace-normal text-[13px] leading-6 text-[#43433f]">
           {row.original.pickup}
         </p>
@@ -617,7 +649,7 @@ export function PeopleSection() {
     },
     {
       accessorKey: "email",
-      header: ({ column }) => (
+      header: ({ column }: HeaderContext<PersonRecord, unknown>) => (
         <ColumnHeader
           label="Contact"
           canSort={column.getCanSort()}
@@ -625,7 +657,7 @@ export function PeopleSection() {
           onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         />
       ),
-      cell: ({ row }) => (
+      cell: ({ row }: CellContext<PersonRecord, unknown>) => (
         <div className="flex items-start gap-2">
           <p className="whitespace-normal text-[13px] leading-6 text-[#43433f]">{row.original.email}</p>
         </div>
@@ -633,7 +665,7 @@ export function PeopleSection() {
     },
     {
       accessorKey: "status",
-      header: ({ column }) => (
+      header: ({ column }: HeaderContext<PersonRecord, unknown>) => (
         <ColumnHeader
           label="Status"
           canSort={column.getCanSort()}
@@ -641,7 +673,7 @@ export function PeopleSection() {
           onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         />
       ),
-      cell: ({ row }) => (
+      cell: ({ row }: CellContext<PersonRecord, unknown>) => (
         <div>
           <span
             className={cn(
@@ -663,7 +695,7 @@ export function PeopleSection() {
           Actions
         </div>
       ),
-      cell: ({ row }) => (
+      cell: ({ row }: CellContext<PersonRecord, unknown>) => (
         <div className="flex justify-start">
           <Button
             variant="ghost"
@@ -680,7 +712,7 @@ export function PeopleSection() {
   ];
 
   // eslint-disable-next-line react-hooks/incompatible-library
-  const table = useReactTable({
+  const table = useReactTable<PersonRecord>({
     data: people,
     columns,
     state: {
@@ -692,7 +724,7 @@ export function PeopleSection() {
     onSortingChange: setSorting,
     onColumnVisibilityChange: setColumnVisibility,
     onRowSelectionChange: setRowSelection,
-    globalFilterFn: (row, _columnId, filterValue) => {
+    globalFilterFn: (row: Row<PersonRecord>, _columnId: string, filterValue: string) => {
       const searchValue = String(filterValue ?? "").trim().toLowerCase();
 
       if (!searchValue) {
@@ -707,7 +739,12 @@ export function PeopleSection() {
     getPaginationRowModel: getPaginationRowModel(),
   });
 
-  const visibleRows = table.getRowModel().rows;
+  const visibleRows: Row<PersonRecord>[] = table.getRowModel().rows;
+
+  const addDraftPersonRow = () => {
+    setPeople((currentPeople) => [createDraftPerson(currentPeople.length + 1), ...currentPeople]);
+    setLastImportNote("Added a local draft row. Open the row action to edit it in a sheet.");
+  };
 
   const mergeImportedPeople = (payloads: string[], insertionIndexOverride?: number | null) => {
     const importedPeople = payloads.flatMap((payload) => parseVCardPayload(payload));
@@ -903,9 +940,9 @@ export function PeopleSection() {
               <div className="mt-3 overflow-hidden rounded-xl border border-[#ecece8]">
                 <Table className="table-fixed">
                   <TableHeader className="bg-[#a0a01e]">
-                    {table.getHeaderGroups().map((headerGroup) => (
+                    {table.getHeaderGroups().map((headerGroup: HeaderGroup<PersonRecord>) => (
                       <TableRow key={headerGroup.id} className="border-[#ecece8] hover:bg-transparent">
-                        {headerGroup.headers.map((header) => (
+                        {headerGroup.headers.map((header: Header<PersonRecord, unknown>) => (
                           <TableHead
                             key={header.id}
                             className={cn(
@@ -935,7 +972,7 @@ export function PeopleSection() {
                       </TableRow>
                     ) : (
                       <>
-                        {visibleRows.map((row, rowIndex) => (
+                        {visibleRows.map((row: Row<PersonRecord>, rowIndex: number) => (
                           <FragmentRow
                             key={row.id}
                             before={
@@ -963,7 +1000,7 @@ export function PeopleSection() {
                                 )}
                                 onDragOver={(event) => onDragOverRow(event, rowIndex)}
                               >
-                                {row.getVisibleCells().map((cell) => (
+                                {row.getVisibleCells().map((cell: Cell<PersonRecord, unknown>) => (
                                   <TableCell
                                     key={cell.id}
                                     className={cn(

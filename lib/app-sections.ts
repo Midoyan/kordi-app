@@ -8,6 +8,14 @@ export const appSections = [
       "Track route health, vehicle readiness, and pickup pressure from one place.",
   },
   {
+    slug: "map",
+    label: "Live Map",
+    eyebrow: "LiveMap",
+    title: "Daily transport controlsd",
+    description:
+      "Track route health, vesdhicle readiness, and pickup pressure from one place.",
+  },
+  {
     slug: "route-builder",
     label: "Route Builder",
     eyebrow: "Planning",
@@ -27,9 +35,9 @@ export const appSections = [
     slug: "vehicles",
     label: "Vehicles",
     eyebrow: "Fleet",
-    title: "Monitor capacity and readiness",
+    title: "Keep fleet readiness visible",
     description:
-      "Keep every van, car, or shuttle mapped to the jobs that need it most.",
+      "Track capacity, driver ownership, and service readiness without cluttering the route workflow.",
   },
   {
     slug: "locations",
