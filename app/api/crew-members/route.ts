@@ -1,4 +1,4 @@
-import { createClient } from "@/utils/supabase/server";
+import { createClient } from "@/lib/server";
 
 export async function GET() {
     const supabase = await createClient()

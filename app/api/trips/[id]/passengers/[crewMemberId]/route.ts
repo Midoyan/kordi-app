@@ -1,4 +1,4 @@
-import { createClient } from "@/utils/supabase/server";
+import { createClient } from "@/lib/server";
 
 type RouteContext = {
     params: Promise<{ id: string; crewMemberId: string }>;
