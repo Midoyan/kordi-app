@@ -29,11 +29,9 @@ export type PersonRecord = {
 
 export type PersonDraft = Omit<PersonRecord, "id">;
 
-type PersonEditorMode = "create" | "edit" | null;
-
 type PersonEditorSheetProps = {
   draft: PersonDraft | null;
-  mode: PersonEditorMode;
+  mode: "create" | "edit" | null;
   open: boolean;
   onClose: () => void;
   onSave: () => void;
@@ -151,8 +149,8 @@ export function PersonEditorSheet({
           <SheetTitle>{mode === "create" ? "Add person" : "Edit person"}</SheetTitle>
           <SheetDescription>
             {mode === "create"
-              ? "Create a local person record. This will become the create flow later."
-              : "Update the selected contact in local state. This will become the CRUD surface later."}
+              ? "Create a local person record with structured contact details."
+              : "Update the selected contact in local state without leaving the roster."}
           </SheetDescription>
         </SheetHeader>
 
@@ -168,13 +166,14 @@ export function PersonEditorSheet({
               <Field label="Name">
                 <Input
                   name="name"
+                  autoComplete="name"
                   value={draft.name}
                   onChange={(event) => updateDraftField("name", event.target.value)}
                 />
               </Field>
               <Field label="Role">
                 <Input
-                  name="role"
+                  name="organization-title"
                   value={draft.role}
                   onChange={(event) => updateDraftField("role", event.target.value)}
                 />
@@ -190,8 +189,8 @@ export function PersonEditorSheet({
                     }}
                   >
                     <Input
-                      autoComplete="street-address"
                       name="address"
+                      autoComplete="street-address"
                       value={draft.address}
                       onKeyDown={onAddressKeyDown}
                       onChange={(event) => updateDraftField("address", event.target.value)}
@@ -199,8 +198,8 @@ export function PersonEditorSheet({
                   </AddressAutofill>
                 ) : (
                   <Input
-                    autoComplete="street-address"
                     name="address"
+                    autoComplete="street-address"
                     value={draft.address}
                     onKeyDown={onAddressKeyDown}
                     onChange={(event) => updateDraftField("address", event.target.value)}
@@ -216,8 +215,8 @@ export function PersonEditorSheet({
               </Field>
               <Field label="Email">
                 <Input
-                  autoComplete="email"
                   name="email"
+                  autoComplete="email"
                   value={draft.email}
                   onChange={(event) => updateDraftField("email", event.target.value)}
                 />
