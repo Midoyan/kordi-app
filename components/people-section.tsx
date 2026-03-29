@@ -8,11 +8,10 @@ import {
   useRef,
   useState,
 } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   type Cell,
   type CellContext,
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import {
   flexRender,
   getCoreRowModel,
   getFilteredRowModel,
@@ -46,14 +45,6 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import {
   Table,
   TableBody,
   TableCell,
@@ -63,22 +54,6 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
-type PersonStatus = "Ready" | "Pending pickup" | "Draft" | "Imported";
-
-type PersonRecord = {
-  id: string;
-  name: string;
-  role: string;
-  address: string;
-  pickup: string;
-  email: string;
-  status: PersonStatus;
-};
-
-type PersonDraft = Omit<PersonRecord, "id">;
-type CheckboxState = boolean | "indeterminate";
-
-const statusOptions: PersonStatus[] = ["Ready", "Pending pickup", "Draft", "Imported"];
 type BrowserFileSystemHandle = {
   kind: "file" | "directory";
   getFile?: () => Promise<File>;
@@ -140,14 +115,13 @@ function statusClasses(status: PersonStatus) {
   }
 }
 
-function createDraftPerson(count: number): PersonRecord {
+function createEmptyPerson(): PersonDraft {
   return {
-    id: `person-draft-${Date.now()}`,
-    name: `New person ${count}`,
-    role: "Role pending",
-    address: "Address pending",
-    pickup: "Pickup pending",
-    email: "email@pending.local",
+    name: "",
+    role: "",
+    address: "",
+    pickup: "",
+    email: "",
     status: "Draft",
   };
 }
@@ -576,7 +550,7 @@ export function PeopleSection() {
                   ? "indeterminate"
                   : false
             }
-            onCheckedChange={(checked: CheckboxState) => table.toggleAllPageRowsSelected(checked)}
+            onCheckedChange={(checked) => table.toggleAllPageRowsSelected(checked)}
             aria-label="Select all visible people"
           />
         </div>
@@ -585,7 +559,7 @@ export function PeopleSection() {
         <div className="flex items-start justify-center pt-1">
           <Checkbox
             checked={row.getIsSelected()}
-            onCheckedChange={(checked: CheckboxState) => row.toggleSelected(checked)}
+            onCheckedChange={(checked) => row.toggleSelected(checked)}
             aria-label={`Select ${row.original.name}`}
           />
         </div>
@@ -740,11 +714,6 @@ export function PeopleSection() {
   });
 
   const visibleRows: Row<PersonRecord>[] = table.getRowModel().rows;
-
-  const addDraftPersonRow = () => {
-    setPeople((currentPeople) => [createDraftPerson(currentPeople.length + 1), ...currentPeople]);
-    setLastImportNote("Added a local draft row. Open the row action to edit it in a sheet.");
-  };
 
   const mergeImportedPeople = (payloads: string[], insertionIndexOverride?: number | null) => {
     const importedPeople = payloads.flatMap((payload) => parseVCardPayload(payload));
@@ -967,7 +936,7 @@ export function PeopleSection() {
                           colSpan={table.getVisibleLeafColumns().length}
                           className="py-14 text-center text-[13px] text-[#6b6b67]"
                         >
-                          No matching people yet. Drop a vCard, import a `.vcf`, or add a draft row.
+                          No matching people yet. Drop a vCard, import a `.vcf`, or add a person.
                         </TableCell>
                       </TableRow>
                     ) : (
