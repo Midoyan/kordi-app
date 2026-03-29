@@ -137,12 +137,20 @@
     justify-content: center !important;
     align-items: center !important;
     gap: 0 !important;
-    padding: 0.5rem !important;
     border: 0 !important;
     background: transparent !important;
     border-radius: 10px !important;
     box-shadow: none !important;
     color: #5c5c57 !important;
+  }
+
+  [data-collapsible="icon"] [data-kordi-shell="brand-button"] {
+    padding: 0.5rem !important;
+  }
+
+  [data-collapsible="icon"] [data-kordi-shell="auth-button"] {
+    padding: 0 !important;
+    overflow: hidden !important;
   }
 
   [data-collapsible="icon"] [data-kordi-shell="brand-button"]:hover,
