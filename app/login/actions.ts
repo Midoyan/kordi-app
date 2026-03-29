@@ -19,3 +19,12 @@ export async function signInAsDispatcher() {
 
   redirect("/dashboard");
 }
+
+export async function signOut() {
+  const cookieStore = await cookies();
+
+  cookieStore.delete("kordi_user_name");
+  cookieStore.delete("kordi_user_email");
+
+  redirect("/login");
+}

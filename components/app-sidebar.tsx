@@ -11,10 +11,10 @@ import {
   MapPin,
   Route,
   Settings,
-  UserRound,
   Users,
 } from "lucide-react";
 
+import { SidebarUserNav } from "@/components/sidebar-user-nav";
 import type { AuthUser } from "@/lib/auth";
 import { appSections } from "@/lib/app-sections";
 import { cn } from "@/lib/utils";
@@ -104,27 +104,9 @@ export function AppSidebar({ user }: AppSidebarProps) {
 
       <SidebarSeparator className="bg-[#e4e4e1]" />
 
-      <SidebarFooter className="p-3 group-data-[collapsible=icon]:px-2">
+      <SidebarFooter className="group-data-[collapsible=icon]">
         {user ? (
-          <Link
-            href="/settings"
-            aria-label="User settings"
-            data-kordi-shell="auth-button"
-            className="flex items-center gap-2 rounded-lg border border-[#e3e3df] bg-white px-2.5 py-2.5 text-[#1d1d1b] transition-colors hover:bg-[#f3f3ef]"
-          >
-            <div
-              data-kordi-shell="auth-icon"
-              className="flex size-8 items-center justify-center rounded-md bg-[#ecece8] text-[#1d1d1b]"
-            >
-              <UserRound className="size-4" />
-            </div>
-            <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-              <p className="truncate text-[13px] font-medium">{user.name}</p>
-              <p className="truncate text-[11px] text-[#6b6b67]">
-                {user.email ?? "Signed in"}
-              </p>
-            </div>
-          </Link>
+          <SidebarUserNav user={user} />
         ) : (
           <Link
             href="/login"
