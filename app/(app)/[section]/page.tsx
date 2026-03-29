@@ -429,6 +429,9 @@ export default async function SectionPage({ params }: SectionPageProps) {
     notFound();
   }
 
+  const actionHref =
+    currentSection.slug === "people" ? `/${currentSection.slug}?add-person=1` : undefined;
+
   return (
     <section className="flex flex-1 flex-col px-4 py-5 md:px-6 md:py-6">
       <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4">

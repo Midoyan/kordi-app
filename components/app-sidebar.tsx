@@ -28,6 +28,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
   SidebarSeparator,
+  useSidebar,
 } from "@/components/ui/sidebar";
 
 const sectionIcons = {
@@ -47,6 +48,8 @@ type AppSidebarProps = {
 
 export function AppSidebar({ user }: AppSidebarProps) {
   const pathname = usePathname();
+  const { state } = useSidebar();
+  const isCollapsed = state === "collapsed";
 
   return (
     <Sidebar className="border-r border-[#e4e4e1] bg-[#f7f7f4]" collapsible="icon">

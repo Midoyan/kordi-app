@@ -11,6 +11,8 @@ import {
 import {
   type Cell,
   type CellContext,
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import {
   flexRender,
   getCoreRowModel,
   getFilteredRowModel,
@@ -32,9 +34,14 @@ import {
   PencilLine,
   Plus,
   Search,
-  Users,
 } from "lucide-react";
 
+import {
+  PersonEditorSheet,
+  type PersonDraft,
+  type PersonRecord,
+  type PersonStatus,
+} from "@/components/person-editor-sheet";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -72,6 +79,21 @@ type PersonDraft = Omit<PersonRecord, "id">;
 type CheckboxState = boolean | "indeterminate";
 
 const statusOptions: PersonStatus[] = ["Ready", "Pending pickup", "Draft", "Imported"];
+type BrowserFileSystemHandle = {
+  kind: "file" | "directory";
+  getFile?: () => Promise<File>;
+};
+
+const defaultDropPrompt = "Drop a contact card from macOS Contacts between rows or import a .vcf file.";
+const vCardTransferTypes = [
+  "text/vcard",
+  "text/x-vcard",
+  "text/plain",
+  "text",
+  "public.vcard",
+  "public.utf8-plain-text",
+  "com.apple.traditional-mac-plain-text",
+] as const;
 
 const initialPeople: PersonRecord[] = [
   {
@@ -250,34 +272,111 @@ function parseVCardPayload(payload: string) {
   return matches.map((card, index) => parseVCardEntry(card, index));
 }
 
+function extractVCardText(payload: string) {
+  const normalizedPayload = payload.trim();
+
+  if (!normalizedPayload) {
+    return null;
+  }
+
+  return normalizedPayload.toUpperCase().includes("BEGIN:VCARD") ? normalizedPayload : null;
+}
+
 async function readDroppedVCardPayloads(dataTransfer: DataTransfer) {
-  const payloads: string[] = [];
+  const payloadSet = new Set<string>();
+
+  const appendPayload = (payload: string | null | undefined) => {
+    const normalizedPayload = payload ? extractVCardText(payload) : null;
+
+    if (normalizedPayload) {
+      payloadSet.add(normalizedPayload);
+    }
+  };
+
+  const fileReadTasks: Array<Promise<string>> = [];
+  const stringReadTasks: Array<Promise<string>> = [];
+  const handleReadTasks: Array<Promise<string | null>> = [];
+
+  for (const transferType of dataTransfer.types) {
+    const text = dataTransfer.getData(transferType);
+    appendPayload(text);
+  }
+
+  for (const transferType of vCardTransferTypes) {
+    const text = dataTransfer.getData(transferType);
+    appendPayload(text);
+  }
 
   for (const file of Array.from(dataTransfer.files)) {
     if (
       file.type === "text/vcard" ||
+      file.type === "public.vcard" ||
       file.name.toLowerCase().endsWith(".vcf") ||
       file.type === "text/x-vcard"
     ) {
-      payloads.push(await file.text());
+      fileReadTasks.push(file.text());
     }
   }
 
   for (const item of Array.from(dataTransfer.items)) {
-    if (item.kind !== "string") {
-      continue;
+    if (item.kind === "file") {
+      const file = item.getAsFile();
+
+      if (
+        file &&
+        (file.name.toLowerCase().endsWith(".vcf") ||
+          /vcard/i.test(file.type) ||
+          /vcard/i.test(item.type))
+      ) {
+        fileReadTasks.push(file.text());
+      }
+
+      if ("getAsFileSystemHandle" in item && typeof item.getAsFileSystemHandle === "function") {
+        const handlePromise = item
+          .getAsFileSystemHandle()
+          .then(async (handle: BrowserFileSystemHandle | null) => {
+            if (!handle || handle.kind !== "file" || typeof handle.getFile !== "function") {
+              return null;
+            }
+
+            const handleFile = await handle.getFile();
+
+            if (
+              handleFile.name.toLowerCase().endsWith(".vcf") ||
+              /vcard/i.test(handleFile.type) ||
+              /vcard/i.test(item.type)
+            ) {
+              return handleFile.text();
+            }
+
+            return null;
+          })
+          .catch(() => null);
+
+        handleReadTasks.push(handlePromise);
+      }
     }
 
-    const text = await new Promise<string>((resolve) => {
-      item.getAsString((value) => resolve(value));
-    });
-
-    if (text.toUpperCase().includes("BEGIN:VCARD")) {
-      payloads.push(text);
+    if (item.kind === "string") {
+      stringReadTasks.push(new Promise<string>((resolve) => {
+        item.getAsString((value) => resolve(value));
+      }));
     }
   }
 
-  return payloads;
+  for (const payload of await Promise.all(fileReadTasks)) {
+    appendPayload(payload);
+  }
+
+  for (const payload of await Promise.all(stringReadTasks)) {
+    appendPayload(payload);
+  }
+
+  for (const payload of await Promise.all(handleReadTasks)) {
+    appendPayload(payload);
+  }
+
+  return Array.from(payloadSet);
 }
 
 function insertAtVisibleIndex(
@@ -402,6 +501,9 @@ function PeoplePanel({
 }
 
 export function PeopleSection() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [people, setPeople] = useState(initialPeople);
   const [query, setQuery] = useState("");
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -409,9 +511,8 @@ export function PeopleSection() {
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [isDragging, setIsDragging] = useState(false);
   const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
-  const [lastImportNote, setLastImportNote] = useState(
-    "Drop a contact card from macOS Contacts between rows or import a .vcf file.",
-  );
+  const [lastImportNote, setLastImportNote] = useState<string | null>(null);
+  const [editorMode, setEditorMode] = useState<"create" | "edit" | null>(null);
   const [editingPersonId, setEditingPersonId] = useState<string | null>(null);
   const [editorDraft, setEditorDraft] = useState<PersonDraft | null>(null);
   const [recentlyInsertedIds, setRecentlyInsertedIds] = useState<string[]>([]);
@@ -427,9 +528,38 @@ export function PeopleSection() {
     };
   }, []);
 
+  useEffect(() => {
+    if (searchParams.get("add-person") !== "1") {
+      return;
+    }
+
+    setEditorMode("create");
+    setEditingPersonId(null);
+    setEditorDraft(createEmptyPerson());
+  }, [searchParams]);
+
+  const clearAddPersonQuery = () => {
+    if (searchParams.get("add-person") !== "1") {
+      return;
+    }
+
+    const nextSearchParams = new URLSearchParams(searchParams.toString());
+    nextSearchParams.delete("add-person");
+    const nextQuery = nextSearchParams.toString();
+    router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false });
+  };
+
   const openEditor = (person: PersonRecord) => {
+    setEditorMode("edit");
     setEditingPersonId(person.id);
     setEditorDraft(toDraft(person));
+  };
+
+  const openCreateEditor = () => {
+    setEditorMode("create");
+    setEditingPersonId(null);
+    setEditorDraft(createEmptyPerson());
+    clearAddPersonQuery();
   };
 
   const columns: ColumnDef<PersonRecord>[] = [
@@ -624,7 +754,7 @@ export function PeopleSection() {
       return;
     }
 
-    const visibleIds = table.getRowModel().rows.map((row: Row<PersonRecord>) => row.original.id);
+    const visibleIds = table.getRowModel().rows.map((row) => row.original.id);
 
     setPeople((currentPeople) =>
       insertAtVisibleIndex(
@@ -663,6 +793,13 @@ export function PeopleSection() {
 
     if (visibleRows.length === 0) {
       setDropTargetIndex(0);
+      return;
+    }
+
+    if (dropTargetIndex === null) {
+      const bounds = event.currentTarget.getBoundingClientRect();
+      const insertionIndex = event.clientY < bounds.top + bounds.height / 2 ? 0 : visibleRows.length;
+      setDropTargetIndex(insertionIndex);
     }
   };
 
@@ -694,15 +831,29 @@ export function PeopleSection() {
   };
 
   const saveEditedPerson = () => {
-    if (!editingPersonId || !editorDraft) {
+    if (!editorDraft) {
       return;
     }
 
-    setPeople((currentPeople) =>
-      currentPeople.map((person) =>
-        person.id === editingPersonId ? { ...person, ...editorDraft } : person,
-      ),
-    );
+    if (editorMode === "create") {
+      setPeople((currentPeople) => [
+        {
+          id: `person-created-${Date.now()}`,
+          ...editorDraft,
+        },
+        ...currentPeople,
+      ]);
+      setLastImportNote("Added a new person to the local roster.");
+    } else if (editingPersonId) {
+      setPeople((currentPeople) =>
+        currentPeople.map((person) =>
+          person.id === editingPersonId ? { ...person, ...editorDraft } : person,
+        ),
+      );
+    }
+
+    clearAddPersonQuery();
+    setEditorMode(null);
     setEditingPersonId(null);
     setEditorDraft(null);
   };
@@ -751,10 +902,10 @@ export function PeopleSection() {
                   variant="outline"
                   size="sm"
                   className="border-[#dbdbd6] bg-[#fafaf7] text-[#1d1d1b] hover:bg-[#f1f1ed]"
-                  onClick={addDraftPersonRow}
+                  onClick={openCreateEditor}
                 >
                   <Plus />
-                  Add draft
+                  Add person
                 </Button>
               </div>
             </div>
@@ -768,6 +919,23 @@ export function PeopleSection() {
               onDragOver={onDragOverTable}
               onDragLeave={onDragLeaveTable}
             >
+              <div
+                className={cn(
+                  "rounded-lg border border-dashed px-4 py-3 text-[12px] leading-5 transition-colors",
+                  isDragging
+                    ? "border-[#90a8ff] bg-[#eef3ff] text-[#3556a8]"
+                    : "border-[#d8d8d3] bg-[#fcfcfa] text-[#6b6b67]",
+                )}
+              >
+                <p className="font-medium text-[#1d1d1b]">
+                  {isDragging ? "Release to import this vCard." : defaultDropPrompt}
+                </p>
+                {lastImportNote ? (
+                  <p className="mt-1 text-[11px] leading-5 text-[#6b6b67]">
+                    {lastImportNote}
+                  </p>
+                ) : null}
+              </div>
 
               <div className="mt-3 overflow-hidden rounded-xl border border-[#ecece8]">
                 <Table className="table-fixed">
@@ -797,7 +965,7 @@ export function PeopleSection() {
                       <TableRow className="hover:bg-transparent">
                         <TableCell
                           colSpan={table.getVisibleLeafColumns().length}
-                          className="px-4 py-14 text-center text-[13px] text-[#6b6b67]"
+                          className="py-14 text-center text-[13px] text-[#6b6b67]"
                         >
                           No matching people yet. Drop a vCard, import a `.vcf`, or add a draft row.
                         </TableCell>
@@ -943,108 +1111,19 @@ export function PeopleSection() {
         </div>
       </div>
 
-      <Sheet
-        open={Boolean(editingPersonId)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setEditingPersonId(null);
-            setEditorDraft(null);
-          }
+      <PersonEditorSheet
+        draft={editorDraft}
+        mode={editorMode}
+        open={Boolean(editorDraft)}
+        onClose={() => {
+          clearAddPersonQuery();
+          setEditorMode(null);
+          setEditingPersonId(null);
+          setEditorDraft(null);
         }}
-      >
-        <SheetContent side="right" className="w-full sm:max-w-[480px]">
-          <SheetHeader>
-            <SheetTitle>Edit person</SheetTitle>
-            <SheetDescription>
-              Update the selected contact in local state. This will become the CRUD surface later.
-            </SheetDescription>
-          </SheetHeader>
-
-          {editorDraft ? (
-            <div className="flex flex-1 flex-col gap-5 px-4 pb-4">
-              <Field label="Name">
-                <Input
-                  value={editorDraft.name}
-                  onChange={(event) =>
-                    setEditorDraft((current) => (current ? { ...current, name: event.target.value } : current))
-                  }
-                />
-              </Field>
-              <Field label="Role">
-                <Input
-                  value={editorDraft.role}
-                  onChange={(event) =>
-                    setEditorDraft((current) => (current ? { ...current, role: event.target.value } : current))
-                  }
-                />
-              </Field>
-              <Field label="Address">
-                <Input
-                  value={editorDraft.address}
-                  onChange={(event) =>
-                    setEditorDraft((current) => (current ? { ...current, address: event.target.value } : current))
-                  }
-                />
-              </Field>
-              <Field label="Pickup">
-                <Input
-                  value={editorDraft.pickup}
-                  onChange={(event) =>
-                    setEditorDraft((current) => (current ? { ...current, pickup: event.target.value } : current))
-                  }
-                />
-              </Field>
-              <Field label="Email">
-                <Input
-                  value={editorDraft.email}
-                  onChange={(event) =>
-                    setEditorDraft((current) => (current ? { ...current, email: event.target.value } : current))
-                  }
-                />
-              </Field>
-
-              <div>
-                <p className="text-[12px] font-semibold tracking-[0.12em] text-[#777772] uppercase">
-                  Status
-                </p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {statusOptions.map((status) => (
-                    <Button
-                      key={status}
-                      type="button"
-                      variant={editorDraft.status === status ? "default" : "outline"}
-                      size="sm"
-                      className={cn(
-                        editorDraft.status !== status &&
-                        "border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef]",
-                      )}
-                      onClick={() =>
-                        setEditorDraft((current) => (current ? { ...current, status } : current))
-                      }
-                    >
-                      {status}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          <SheetFooter className="border-t border-[#ecece8] bg-[#fcfcfa]">
-            <Button
-              variant="outline"
-              className="border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef]"
-              onClick={() => {
-                setEditingPersonId(null);
-                setEditorDraft(null);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button onClick={saveEditedPerson}>Save changes</Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
+        onSave={saveEditedPerson}
+        setDraft={setEditorDraft}
+      />
     </>
   );
 }
@@ -1061,22 +1140,5 @@ function FragmentRow({
       {before}
       {row}
     </>
-  );
-}
-
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="flex flex-col gap-2">
-      <span className="text-[12px] font-semibold tracking-[0.12em] text-[#777772] uppercase">
-        {label}
-      </span>
-      {children}
-    </label>
   );
 }
