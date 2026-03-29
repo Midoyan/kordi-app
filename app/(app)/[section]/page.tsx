@@ -1,6 +1,8 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Car, MapPin, Plus, Route, Users } from "lucide-react";
 
+import { PeopleSection } from "@/components/people-section";
 import { appSectionMap, appSections, type AppSectionSlug } from "@/lib/app-sections";
 
 type SectionPageProps = {
@@ -33,11 +35,23 @@ type PanelProps = {
   className?: string;
 };
 
-function ActionButton({ label }: { label: string }) {
+function ActionButton({ label, href }: { label: string; href?: string }) {
+  const className =
+    "inline-flex items-center gap-2 rounded-md border border-[#1f1f1d] bg-[#1f1f1d] px-3 py-2 text-[13px] font-medium text-white transition-colors hover:bg-[#343431]";
+
+  if (href) {
+    return (
+      <Link href={href} className={className}>
+        <Plus className="size-4" />
+        {label}
+      </Link>
+    );
+  }
+
   return (
     <button
       type="button"
-      className="inline-flex items-center gap-2 rounded-md border border-[#1f1f1d] bg-[#1f1f1d] px-3 py-2 text-[13px] font-medium text-white transition-colors hover:bg-[#343431]"
+      className={className}
     >
       <Plus className="size-4" />
       {label}
@@ -244,40 +258,7 @@ function RouteBuilderView() {
 }
 
 function PeopleView() {
-  return (
-    <div className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
-      <Panel
-        title="People"
-        description="Store riders, assignments, and pickup requirements."
-        actionLabel="Add person"
-      >
-        <EmptyTable
-          columns={["Name", "Role", "Pickup", "Contact", "Status"]}
-          message="No people added yet."
-          cta="Add first person"
-        />
-      </Panel>
-      <Panel
-        title="Assignment notes"
-        description="Use this area for rider notes, tags, or transport requirements."
-      >
-        <EmptyList
-          items={[
-            {
-              title: "No assignment notes",
-              description: "Pickup constraints and reminders can live here.",
-              cta: "Add note",
-            },
-            {
-              title: "No groups yet",
-              description: "Create crew or team groups when you need them.",
-              cta: "Add group",
-            },
-          ]}
-        />
-      </Panel>
-    </div>
-  );
+  return <PeopleSection />;
 }
 
 function VehiclesView() {
@@ -503,6 +484,9 @@ export default async function SectionPage({ params }: SectionPageProps) {
     notFound();
   }
 
+  const actionHref =
+    currentSection.slug === "people" ? `/${currentSection.slug}?add-person=1` : undefined;
+
   return (
     <section className="flex flex-1 flex-col px-4 py-5 md:px-6 md:py-6">
       <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4">
@@ -519,7 +503,7 @@ export default async function SectionPage({ params }: SectionPageProps) {
                 {currentSection.description}
               </p>
             </div>
-            <ActionButton label={sectionActionLabels[currentSection.slug]} />
+            <ActionButton label={sectionActionLabels[currentSection.slug]} href={actionHref} />
           </div>
         </div>
 

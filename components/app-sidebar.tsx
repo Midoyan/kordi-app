@@ -27,6 +27,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
   SidebarSeparator,
+  useSidebar,
 } from "@/components/ui/sidebar";
 
 const sectionIcons = {
@@ -45,15 +46,32 @@ type AppSidebarProps = {
 
 export function AppSidebar({ user }: AppSidebarProps) {
   const pathname = usePathname();
+  const { state } = useSidebar();
+  const isCollapsed = state === "collapsed";
 
   return (
-    <Sidebar className="border-r border-[#e4e4e1] bg-[#f7f7f4]" collapsible="icon">
+    <Sidebar className="border-r border-[#ef0000] bg-[#f7f7f4]" collapsible="icon">
       <SidebarHeader className="gap-3 px-3 py-3">
         <Link
           href="/dashboard"
-          className="flex items-center gap-2 rounded-lg border border-[#e3e3df] bg-white px-2.5 py-2.5 transition-colors hover:bg-[#f3f3ef]"
+          aria-label="Kordi dashboard"
+          data-kordi-shell="brand-button"
+          className={cn(
+            "flex items-center rounded-lg transition-colors",
+            isCollapsed
+              ? "h-8 w-8 justify-center gap-0 rounded-[10px] border border-transparent bg-transparent p-0 text-[#5c5c57] hover:bg-[#ecece8] hover:text-[#181816]"
+              : "gap-2 border border-[#e3e3df] bg-white px-2.5 py-2.5 hover:bg-[#f3f3ef]",
+          )}
         >
-          <div className="flex size-8 items-center justify-center rounded-md bg-[#1d1d1b] text-white">
+          <div
+            data-kordi-shell="brand-icon"
+            className={cn(
+              "flex size-8 items-center justify-center",
+              isCollapsed
+                ? "rounded-[8px] bg-[#ff4db8] text-[#181816]"
+                : "rounded-md bg-[#1d1d1b] text-white",
+            )}
+          >
             <Route className="size-4" />
           </div>
           <div className="min-w-0 group-data-[collapsible=icon]:hidden">
@@ -101,9 +119,24 @@ export function AppSidebar({ user }: AppSidebarProps) {
         {user ? (
           <Link
             href="/settings"
-            className="flex items-center gap-2 rounded-lg border border-[#e3e3df] bg-white px-2.5 py-2.5 text-[#1d1d1b] transition-colors hover:bg-[#f3f3ef]"
+            aria-label="User settings"
+            data-kordi-shell="auth-button"
+            className={cn(
+              "flex items-center rounded-lg text-[#1d1d1b] transition-colors",
+              isCollapsed
+                ? "h-8 w-8 justify-center gap-0 rounded-[10px] border border-transparent bg-transparent p-0 hover:bg-[#ecece8]"
+                : "gap-2 border border-[#e3e3df] bg-white px-2.5 py-2.5 hover:bg-[#f3f3ef]",
+            )}
           >
-            <div className="flex size-8 items-center justify-center rounded-md bg-[#ecece8] text-[#1d1d1b]">
+            <div
+              data-kordi-shell="auth-icon"
+              className={cn(
+                "flex size-8 items-center justify-center",
+                isCollapsed
+                  ? "rounded-[8px] bg-transparent text-[#1d1d1b]"
+                  : "rounded-md bg-[#e8e9ec] text-[#1d1d1b]",
+              )}
+            >
               <UserRound className="size-4" />
             </div>
             <div className="min-w-0 group-data-[collapsible=icon]:hidden">
@@ -116,9 +149,16 @@ export function AppSidebar({ user }: AppSidebarProps) {
         ) : (
           <Link
             href="/login"
-            className="flex items-center justify-center gap-2 rounded-lg bg-[#1d1d1b] px-3 py-2.5 text-[13px] font-medium text-white transition-colors hover:bg-[#2c2c29]"
+            aria-label="Login"
+            data-kordi-shell="auth-button"
+            className={cn(
+              "flex items-center justify-center rounded-lg text-[13px] font-medium transition-colors",
+              isCollapsed
+                ? "h-8 w-8 gap-0 rounded-[10px] bg-[#1d1d1b] p-0 text-white hover:bg-[#2c2c29]"
+                : "gap-2 bg-[#1d1d1b] px-3 py-2.5 text-white hover:bg-[#2c2c29]",
+            )}
           >
-            <LogIn className="size-4" />
+            <LogIn data-kordi-shell="login-icon" className="size-4" />
             <span className="group-data-[collapsible=icon]:hidden">Login</span>
           </Link>
         )}
