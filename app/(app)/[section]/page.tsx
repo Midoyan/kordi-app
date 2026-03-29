@@ -1,6 +1,9 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Car, MapPin, Plus, Route, Users } from "lucide-react";
 
+import { PeopleWorkspace } from "@/components/people-workspace";
+import { VehiclesPage } from "@/components/vehicles-page";
 import { appSectionMap, appSections, type AppSectionSlug } from "@/lib/app-sections";
 
 type SectionPageProps = {
@@ -20,6 +23,7 @@ const sectionActionLabels: Record<AppSectionSlug, string> = {
   "route-builder": "Add route",
   people: "Add person",
   vehicles: "Add vehicle",
+  map: "Start tracking",
   locations: "Add location",
   schedule: "Add time block",
   settings: "Add setting",
@@ -33,12 +37,21 @@ type PanelProps = {
   className?: string;
 };
 
-function ActionButton({ label }: { label: string }) {
+function ActionButton({ label, href }: { label: string; href?: string }) {
+  const className =
+    "inline-flex items-center gap-2 rounded-md border border-[#1f1f1d] bg-[#1f1f1d] px-3 py-2 text-[13px] font-medium text-white transition-colors hover:bg-[#343431]";
+
+  if (href) {
+    return (
+      <Link href={href} className={className}>
+        <Plus className="size-4" />
+        {label}
+      </Link>
+    );
+  }
+
   return (
-    <button
-      type="button"
-      className="inline-flex items-center gap-2 rounded-md border border-[#1f1f1d] bg-[#1f1f1d] px-3 py-2 text-[13px] font-medium text-white transition-colors hover:bg-[#343431]"
-    >
+    <button type="button" className={className}>
       <Plus className="size-4" />
       {label}
     </button>
@@ -244,116 +257,27 @@ function RouteBuilderView() {
 }
 
 function PeopleView() {
-  return (
-    <div className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
-      <Panel
-        title="People"
-        description="Store riders, assignments, and pickup requirements."
-        actionLabel="Add person"
-      >
-        <EmptyTable
-          columns={["Name", "Role", "Pickup", "Contact", "Status"]}
-          message="No people added yet."
-          cta="Add first person"
-        />
-      </Panel>
-      <Panel
-        title="Assignment notes"
-        description="Use this area for rider notes, tags, or transport requirements."
-      >
-        <EmptyList
-          items={[
-            {
-              title: "No assignment notes",
-              description: "Pickup constraints and reminders can live here.",
-              cta: "Add note",
-            },
-            {
-              title: "No groups yet",
-              description: "Create crew or team groups when you need them.",
-              cta: "Add group",
-            },
-          ]}
-        />
-      </Panel>
-    </div>
-  );
+  return <PeopleWorkspace />;
 }
 
 function VehiclesView() {
+  return <VehiclesPage />;
+}
+
+function MapView() {
   return (
-    <div className="space-y-4">
+    <div className="grid gap-4">
       <Panel
-        title="Vehicles"
-        description="Track your available fleet, seating, and assigned drivers."
-        actionLabel="Add vehicle"
+        title="Live Map"
+        description="Real-time vehicle and route tracking with dispatch status."
       >
-        <div className="space-y-3">
-          <div className="flex flex-col gap-4 rounded-lg border border-[#d6d6d1] px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-start gap-3">
-              <div className="flex size-12 items-center justify-center rounded-md border border-[#e2e2dd] bg-[#f7f7f4]">
-                <Car className="size-5 text-[#1d1d1b]" />
-              </div>
-              <div>
-                <p className="text-[18px] font-semibold tracking-tight text-[#1d1d1b]">
-                  Add new van
-                </p>
-                <p className="mt-1 text-[13px] text-[#6b6b67]">
-                  Create the first vehicle record and assign its driver, capacity, and status.
-                </p>
-              </div>
-            </div>
-            <div className="grid gap-4 text-[13px] text-[#3d3d39] sm:grid-cols-3 lg:min-w-[420px]">
-              <div>
-                <p className="text-[11px] font-semibold tracking-[0.12em] text-[#7a7a74] uppercase">
-                  Driver
-                </p>
-                <p className="mt-1">Unassigned</p>
-              </div>
-              <div>
-                <p className="text-[11px] font-semibold tracking-[0.12em] text-[#7a7a74] uppercase">
-                  Capacity
-                </p>
-                <p className="mt-1">Not set</p>
-              </div>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[11px] font-semibold tracking-[0.12em] text-[#7a7a74] uppercase">
-                    Status
-                  </p>
-                  <p className="mt-1">Pending setup</p>
-                </div>
-                <button
-                  type="button"
-                  className="rounded-md border border-[#dbdbd6] px-3 py-1.5 text-[13px] text-[#43433f] transition-colors hover:bg-[#f3f3ef]"
-                >
-                  Add vehicle
-                </button>
-              </div>
-            </div>
+        <div className="flex min-h-screen items-center justify-center rounded-lg border border-[#e7e7e4] bg-[#fbfbf8]">
+          <div className="text-center">
+            <p className="text-[14px] font-medium text-[#1d1d1b]">Map will load here</p>
+            <p className="mt-1 text-[13px] text-[#6b6b67]">Integration pending.</p>
           </div>
         </div>
       </Panel>
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Panel title="Availability" description="Vehicle availability and maintenance blocks can be managed here.">
-          <EmptyTable
-            columns={["Vehicle", "Date", "Type", "Notes"]}
-            message="No availability rules yet."
-            cta="Add availability"
-          />
-        </Panel>
-        <Panel title="Assignments" description="Link vehicles to routes and shifts from this panel.">
-          <EmptyList
-            items={[
-              {
-                title: "No active assignments",
-                description: "Vehicle allocations will appear here once routes exist.",
-                cta: "Assign vehicle",
-              },
-            ]}
-          />
-        </Panel>
-      </div>
     </div>
   );
 }
@@ -484,6 +408,8 @@ function renderSectionBody(section: AppSectionSlug) {
       return <PeopleView />;
     case "vehicles":
       return <VehiclesView />;
+    case "map":
+      return <MapView />;
     case "locations":
       return <LocationsView />;
     case "schedule":
@@ -519,7 +445,14 @@ export default async function SectionPage({ params }: SectionPageProps) {
                 {currentSection.description}
               </p>
             </div>
-            <ActionButton label={sectionActionLabels[currentSection.slug]} />
+            <ActionButton
+              label={sectionActionLabels[currentSection.slug]}
+              href={
+                currentSection.slug === "vehicles"
+                  ? `/${currentSection.slug}?sheet=add-vehicle`
+                  : undefined
+              }
+            />
           </div>
         </div>
 
