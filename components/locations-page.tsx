@@ -1,11 +1,12 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Building2, MapPin, Plus, Route } from "lucide-react";
-import { type FormEvent, type ReactNode, useState } from "react";
+import { Building2, MapPin, Plus, Route, X } from "lucide-react";
+import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from "react";
 
 import { AddressAutofillInput } from "@/components/address-autofill-input";
 import { EditorSheetLayout } from "@/components/editor-sheet-layout";
+import { LocationMapPreview } from "@/components/location-map-preview";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SheetFooter } from "@/components/ui/sheet";
@@ -49,6 +50,8 @@ const demoSuggestionBias = {
     lat: 52.521918,
   },
 } as const;
+
+const mapboxToken = (process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN ?? "").trim();
 
 const demoLocationForms: LocationForm[] = [
   {
@@ -251,18 +254,43 @@ export function LocationsPage() {
     locations.map((location) => location.zone.trim()).filter(Boolean),
   ).size;
   const latestLocation = locations[0];
+  const isDirty = Object.values(form).some((value) => value.trim().length > 0);
 
-  function setSheetOpen(open: boolean) {
-    router.replace(buildSheetHref(pathname, new URLSearchParams(searchParams.toString()), open), {
-      scroll: false,
-    });
+  const setSheetOpen = useCallback(
+    (open: boolean, forceClose = false) => {
+      if (!open && !forceClose && isDirty) {
+        return;
+      }
 
-    if (!open) {
-      setForm(initialForm);
-      setFieldErrors({});
-      setSubmitMessage(null);
+      router.replace(buildSheetHref(pathname, new URLSearchParams(searchParams.toString()), open), {
+        scroll: false,
+      });
+
+      if (!open) {
+        setForm(initialForm);
+        setFieldErrors({});
+        setSubmitMessage(null);
+      }
+    },
+    [isDirty, pathname, router, searchParams],
+  );
+
+  useEffect(() => {
+    if (!isSheetOpen) {
+      return;
     }
-  }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSheetOpen(false, true); // TODO: add confirmation dialog if isDirty
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isSheetOpen, setSheetOpen]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -289,7 +317,7 @@ export function LocationsPage() {
       ...current,
     ]);
 
-    setSheetOpen(false);
+    setSheetOpen(false, true);
   }
 
   function randomizeForm() {
@@ -391,12 +419,25 @@ export function LocationsPage() {
 
       <EditorSheetLayout
         open={isSheetOpen}
-        onOpenChange={setSheetOpen}
+        onOpenChange={(open) => setSheetOpen(open)}
         title="Add location"
         description="Save a reusable stop with type, address, and routing notes for the team."
+        showCloseButton={false}
+        headerActions={
+          <Button
+            type="button"
+            variant="ghost"
+            className="shrink-0"
+            size="icon-sm"
+            onClick={() => setSheetOpen(false, true)}
+          >
+            <X />
+            <span className="sr-only">Close</span>
+          </Button>
+        }
       >
-          <form className="flex flex-1 flex-col" onSubmit={handleSubmit}>
-            <div className="space-y-4 overflow-y-auto px-5 py-5">
+          <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit}>
+            <div className="min-h-0 space-y-4 overflow-y-auto px-5 py-5">
               {submitMessage ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[13px] text-amber-800">
                   {submitMessage}
@@ -472,6 +513,14 @@ export function LocationsPage() {
                 />
               </Field>
 
+              <Field label="Map">
+                <LocationMapPreview
+                  address={form.address}
+                  accessToken={mapboxToken}
+                  proximity={demoSuggestionBias.proximity}
+                />
+              </Field>
+
               <Field label="Notes">
                 <textarea
                   value={form.notes}
@@ -492,7 +541,7 @@ export function LocationsPage() {
                   Randomize demo
                 </Button>
                 <div className="flex items-center gap-2">
-                  <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>
+                  <Button type="button" variant="outline" onClick={() => setSheetOpen(false, true)}>
                     Cancel
                   </Button>
                   <Button type="submit">Save location</Button>

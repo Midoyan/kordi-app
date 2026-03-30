@@ -290,41 +290,6 @@ function LocationsView() {
 function ScheduleView() {
   return (
     <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-      <Panel
-        title="Day schedule"
-        description="Lay out pickup windows, departures, and operational blocks."
-        actionLabel="Add time block"
-      >
-        <div className="grid gap-3 md:grid-cols-3">
-          {["Morning", "Midday", "Evening"].map((period) => (
-            <div key={period} className="rounded-lg border border-[#e7e7e4] bg-[#fbfbf8] p-4">
-              <p className="text-[13px] font-semibold text-[#1d1d1b]">{period}</p>
-              <p className="mt-2 text-[13px] text-[#6b6b67]">No time blocks yet.</p>
-              <button
-                type="button"
-                className="mt-4 rounded-md border border-[#dbdbd6] px-3 py-1.5 text-[13px] text-[#43433f] transition-colors hover:bg-white"
-              >
-                Add block
-              </button>
-            </div>
-          ))}
-        </div>
-      </Panel>
-      <Panel title="Dispatch notes" description="Use this space for notes, warnings, and same-day changes.">
-        <EmptyList
-          items={[
-            {
-              title: "No notes yet",
-              description: "Dispatch notes and exceptions will appear here.",
-              cta: "Add note",
-            },
-            {
-              title: "No changes pending",
-              description: "Schedule updates can be reviewed from this panel.",
-            },
-          ]}
-        />
-      </Panel>
       <Panel title="Schedule list" description="A more detailed schedule table can replace this placeholder later." className="lg:col-span-2">
         <EmptyTable
           columns={["Time", "Route", "Vehicle", "Location", "Notes"]}
