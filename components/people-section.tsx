@@ -939,7 +939,7 @@ export function PeopleSection() {
                           colSpan={table.getVisibleLeafColumns().length}
                           className="py-14 text-center text-[13px] text-[#6b6b67]"
                         >
-                          No matching people yet. Drop a vCard, import a `.vcf`, or add a draft row.
+                          No matching people yet. Drop a vCard, import a `.vcf`, or add a person.
                         </TableCell>
                       </TableRow>
                     ) : (
