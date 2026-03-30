@@ -4,6 +4,7 @@ import { Car, Plus, Route, Users } from "lucide-react";
 
 import { LocationsPage } from "@/components/locations-page";
 import { PeopleSection } from "@/components/people-section";
+import { ScheduleSection } from "@/components/schedule-section";
 import { VehiclesPage } from "@/components/vehicles-page";
 import { appSectionMap, appSections, type AppSectionSlug } from "@/lib/app-sections";
 
@@ -290,12 +291,12 @@ function LocationsView() {
 function ScheduleView() {
   return (
     <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-      <Panel title="Schedule list" description="A more detailed schedule table can replace this placeholder later." className="lg:col-span-2">
-        <EmptyTable
-          columns={["Time", "Route", "Vehicle", "Location", "Notes"]}
-          message="No schedule items yet."
-          cta="Add schedule item"
-        />
+      <Panel
+        title="Schedule list"
+        description="Editable schedule rows now replace the empty placeholder table."
+        className="lg:col-span-2"
+      >
+        <ScheduleSection />
       </Panel>
     </div>
   );
@@ -380,6 +381,9 @@ export default async function SectionPage({ params }: SectionPageProps) {
         : currentSection.slug === "locations"
           ? `/${currentSection.slug}?sheet=add-location`
           : undefined;
+
+          // TODO: actionHref logic can be improved and centralized as more sections and actions are added, 
+          // but this works for now given the current scope of actions needed.
 
   return (
     <section className="flex flex-1 flex-col px-4 py-5 md:px-6 md:py-6">
