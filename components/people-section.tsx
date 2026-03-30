@@ -8,9 +8,6 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  type Cell,
-  type CellContext,
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   flexRender,
@@ -18,15 +15,17 @@ import {
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
+  type Cell,
+  type CellContext,
+  type ColumnDef,
   type Header,
   type HeaderContext,
   type HeaderGroup,
   type Row,
-  useReactTable,
-  type ColumnDef,
   type RowSelectionState,
   type SortingState,
   type VisibilityState,
+  useReactTable,
 } from "@tanstack/react-table";
 import {
   ArrowUpDown,
@@ -46,14 +45,6 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import {
   Table,
   TableBody,
   TableCell,
@@ -63,22 +54,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
-type PersonStatus = "Ready" | "Pending pickup" | "Draft" | "Imported";
-
-type PersonRecord = {
-  id: string;
-  name: string;
-  role: string;
-  address: string;
-  pickup: string;
-  email: string;
-  status: PersonStatus;
-};
-
-type PersonDraft = Omit<PersonRecord, "id">;
 type CheckboxState = boolean | "indeterminate";
-
-const statusOptions: PersonStatus[] = ["Ready", "Pending pickup", "Draft", "Imported"];
 type BrowserFileSystemHandle = {
   kind: "file" | "directory";
   getFile?: () => Promise<File>;
@@ -140,18 +116,6 @@ function statusClasses(status: PersonStatus) {
   }
 }
 
-function createDraftPerson(count: number): PersonRecord {
-  return {
-    id: `person-draft-${Date.now()}`,
-    name: `New person ${count}`,
-    role: "Role pending",
-    address: "Address pending",
-    pickup: "Pickup pending",
-    email: "email@pending.local",
-    status: "Draft",
-  };
-}
-
 function toDraft(person: PersonRecord): PersonDraft {
   return {
     name: person.name,
@@ -160,6 +124,17 @@ function toDraft(person: PersonRecord): PersonDraft {
     pickup: person.pickup,
     email: person.email,
     status: person.status,
+  };
+}
+
+function createEmptyPerson(): PersonDraft {
+  return {
+    name: "",
+    role: "",
+    address: "",
+    pickup: "",
+    email: "",
+    status: "Draft",
   };
 }
 
@@ -740,11 +715,6 @@ export function PeopleSection() {
   });
 
   const visibleRows: Row<PersonRecord>[] = table.getRowModel().rows;
-
-  const addDraftPersonRow = () => {
-    setPeople((currentPeople) => [createDraftPerson(currentPeople.length + 1), ...currentPeople]);
-    setLastImportNote("Added a local draft row. Open the row action to edit it in a sheet.");
-  };
 
   const mergeImportedPeople = (payloads: string[], insertionIndexOverride?: number | null) => {
     const importedPeople = payloads.flatMap((payload) => parseVCardPayload(payload));

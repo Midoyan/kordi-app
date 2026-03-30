@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Car, MapPin, Plus, Route, Users } from "lucide-react";
+import { Car, Plus, Route, Users } from "lucide-react";
 
-import { PeopleWorkspace } from "@/components/people-workspace";
+import { LocationsPage } from "@/components/locations-page";
+import { PeopleSection } from "@/components/people-section";
 import { VehiclesPage } from "@/components/vehicles-page";
 import { appSectionMap, appSections, type AppSectionSlug } from "@/lib/app-sections";
 
@@ -257,7 +258,7 @@ function RouteBuilderView() {
 }
 
 function PeopleView() {
-  return <PeopleWorkspace />;
+  return <PeopleSection />;
 }
 
 function VehiclesView() {
@@ -283,30 +284,7 @@ function MapView() {
 }
 
 function LocationsView() {
-  return (
-    <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-      <Panel
-        title="Locations"
-        description="Save pickup points, venues, and shared destination records."
-        actionLabel="Add location"
-      >
-        <EmptyTable
-          columns={["Name", "Type", "Address", "Zone", "Notes"]}
-          message="No locations added yet."
-          cta="Add first location"
-        />
-      </Panel>
-      <Panel title="Map area" description="A map or geocoding preview can live in this panel.">
-        <div className="flex min-h-72 items-center justify-center rounded-lg border border-dashed border-[#d9d9d4] bg-[#fafaf7]">
-          <div className="text-center">
-            <MapPin className="mx-auto size-5 text-[#4b4b46]" />
-            <p className="mt-3 text-[14px] font-medium text-[#1d1d1b]">No locations to show yet</p>
-            <p className="mt-1 text-[13px] text-[#6b6b67]">Add a location to start building the map view.</p>
-          </div>
-        </div>
-      </Panel>
-    </div>
-  );
+  return <LocationsPage />;
 }
 
 function ScheduleView() {
@@ -430,7 +408,13 @@ export default async function SectionPage({ params }: SectionPageProps) {
   }
 
   const actionHref =
-    currentSection.slug === "people" ? `/${currentSection.slug}?add-person=1` : undefined;
+    currentSection.slug === "people"
+      ? `/${currentSection.slug}?add-person=1`
+      : currentSection.slug === "vehicles"
+        ? `/${currentSection.slug}?sheet=add-vehicle`
+        : currentSection.slug === "locations"
+          ? `/${currentSection.slug}?sheet=add-location`
+          : undefined;
 
   return (
     <section className="flex flex-1 flex-col px-4 py-5 md:px-6 md:py-6">
@@ -450,11 +434,7 @@ export default async function SectionPage({ params }: SectionPageProps) {
             </div>
             <ActionButton
               label={sectionActionLabels[currentSection.slug]}
-              href={
-                currentSection.slug === "vehicles"
-                  ? `/${currentSection.slug}?sheet=add-vehicle`
-                  : undefined
-              }
+              href={actionHref}
             />
           </div>
         </div>
