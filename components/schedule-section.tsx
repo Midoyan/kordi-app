@@ -40,17 +40,17 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
-  RefreshCcw,
   Settings2,
   Star,
   Trash2,
 } from "lucide-react"
 
-import type { RecalculatedScheduleStop, ScheduleStopInput } from "@/lib/schedule-recalculation"
+import type { RecalculatedScheduleStop } from "@/lib/schedule-recalculation"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { ScheduleRoutingControls } from "@/components/schedule-routing-controls"
 import { Separator } from "@/components/ui/separator"
 import {
   Sheet,
@@ -77,6 +77,23 @@ type ScheduleItem = {
   endDestination: string
   arrival: string
   favorite: boolean
+}
+
+type PendingScheduleUpdate = {
+  pickupTime: string
+  arrival: string
+  revealOrder: number
+  animationToken: number
+}
+
+type PositionChange = {
+  from: number
+  to: number
+}
+
+type RouteTone = {
+  rail: string
+  wash: string
 }
 
 const festivalDestination = "Festival Grounds, Flughafen Tempelhof, 12101 Berlin"
@@ -128,6 +145,65 @@ const initialScheduleItems: ScheduleItem[] = [
     favorite: false,
   },
 ]
+
+function orderScheduleItems(items: ScheduleItem[], orderIds: number[]) {
+  const itemById = new Map(items.map((item) => [item.id, item]))
+
+  return orderIds
+    .map((id) => itemById.get(id))
+    .filter((item): item is ScheduleItem => Boolean(item))
+}
+
+function areOrdersEqual(first: number[], second: number[]) {
+  if (first.length !== second.length) {
+    return false
+  }
+
+  return first.every((id, index) => id === second[index])
+}
+
+function buildRouteTone(index: number, total: number): RouteTone {
+  const denominator = Math.max(total - 1, 1)
+  const progress = index / denominator
+  const lightness = 84 - progress * 24
+
+  return {
+    rail: `hsl(214 44% ${Math.round(lightness)}%)`,
+    wash: `hsl(214 48% ${Math.round(lightness + 8)}% / 0.24)`,
+  }
+}
+
+function splitAddressLabel(value: string) {
+  const [primaryPart, ...secondaryParts] = value.split(",")
+
+  return {
+    primary: primaryPart?.trim() ?? value,
+    secondary: secondaryParts.join(",").trim(),
+  }
+}
+
+function StackedAddressText({
+  value,
+  muted = false,
+}: {
+  value: string
+  muted?: boolean
+}) {
+  const { primary, secondary } = splitAddressLabel(value)
+
+  return (
+    <span className="block min-w-0">
+      <span className={cn("block truncate text-[#000000]", muted && "text-[#5f5f59]")}>
+        {primary}
+      </span>
+      {secondary ? (
+        <span className="mt-0 block truncate text-[11px] leading-4 text-[#5b5b55]">
+          {secondary}
+        </span>
+      ) : null}
+    </span>
+  )
+}
 
 function SortableHeader({
   label,
@@ -320,6 +396,46 @@ function DragHandle({
   )
 }
 
+function AnimatedScheduleTime({
+  confirmedValue,
+  pendingValue,
+  revealOrder,
+  animationToken,
+}: {
+  confirmedValue: string
+  pendingValue?: string
+  revealOrder?: number
+  animationToken?: number
+}) {
+  if (!pendingValue || pendingValue === confirmedValue) {
+    return (
+      <span className="font-[450] tabular-nums text-[#1d1d1b]">
+        {confirmedValue}
+      </span>
+    )
+  }
+
+  return (
+    <span
+      key={`${animationToken ?? 0}-${pendingValue}`}
+      className="inline-flex min-w-0 items-center gap-2 whitespace-nowrap tabular-nums"
+    >
+      <span
+        className="schedule-time-strike text-[#30302c] line-through decoration-[#b8b4aa]"
+        style={{ animationDelay: `${(revealOrder ?? 0) * 120}ms` }}
+      >
+        {confirmedValue}
+      </span>
+      <span
+        className="schedule-time-reveal inline-flex min-w-[3rem] rounded-md bg-[#ecf3ff] px-.5 py-0.5 text-[12.5px] font-semibold text-[#335f9f] shadow-[inset_0_0_0_1px_rgba(79,107,189,0.12)]"
+        style={{ animationDelay: `${(revealOrder ?? 0) * 120}ms` }}
+      >
+        {pendingValue}
+      </span>
+    </span>
+  )
+}
+
 function SortableRow({
   row,
   onOpenEditor,
@@ -327,6 +443,8 @@ function SortableRow({
   onFavorite,
   onDelete,
   onClearSorting,
+  pendingUpdate,
+  routeTone,
 }: {
   row: Row<ScheduleItem>
   onOpenEditor: (item: ScheduleItem) => void
@@ -334,6 +452,8 @@ function SortableRow({
   onFavorite: (item: ScheduleItem) => void
   onDelete: (item: ScheduleItem) => void
   onClearSorting: () => void
+  pendingUpdate?: PendingScheduleUpdate
+  routeTone?: RouteTone
 }) {
   const { transform, transition, setNodeRef, isDragging, attributes, listeners } =
     useSortable({
@@ -345,8 +465,12 @@ function SortableRow({
       ref={setNodeRef}
       data-state={row.getIsSelected() ? "selected" : undefined}
       data-dragging={isDragging}
-      className="relative border-[#f0f0ec] hover:bg-[#fafaf7] data-[state=selected]:bg-[#f7f9ff] data-[dragging=true]:z-10 data-[dragging=true]:opacity-85"
+      data-recalculated={pendingUpdate ? "true" : undefined}
+      className="relative border-[#f0f0ec] hover:bg-[#fafaf7] data-[state=selected]:bg-[#f7f9ff] data-[dragging=true]:z-10 data-[dragging=true]:opacity-85 data-[recalculated=true]:bg-[#f8fbff]"
       style={{
+        backgroundImage: routeTone
+          ? `linear-gradient(90deg, ${routeTone.rail} 0px, ${routeTone.rail} 6px, ${routeTone.wash} 6px, ${routeTone.wash} 74px, transparent 150px)`
+          : undefined,
         transform: CSS.Transform.toString(transform),
         transition,
       }}
@@ -396,6 +520,10 @@ function SortableRow({
 
 export function ScheduleSection() {
   const [data, setData] = React.useState(initialScheduleItems)
+  const [pendingUpdates, setPendingUpdates] = React.useState<Record<number, PendingScheduleUpdate>>(
+    {}
+  )
+  const [pendingOrder, setPendingOrder] = React.useState<number[] | null>(null)
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({})
   const [sorting, setSorting] = React.useState<SortingState>([])
@@ -403,13 +531,36 @@ export function ScheduleSection() {
   const [sheetOpen, setSheetOpen] = React.useState(false)
   const [draft, setDraft] = React.useState<ScheduleItem | null>(null)
   const [recalculateError, setRecalculateError] = React.useState<string | null>(null)
-  const [isRecalculating, setIsRecalculating] = React.useState(false)
+  const [showOptimizedGradient, setShowOptimizedGradient] = React.useState(false)
   const sortableId = React.useId()
+  const animationTokenRef = React.useRef(0)
 
   const sensors = useSensors(
     useSensor(MouseSensor, {}),
     useSensor(TouchSensor, {}),
     useSensor(KeyboardSensor, {})
+  )
+
+  const displayData = React.useMemo(
+    () => (pendingOrder ? orderScheduleItems(data, pendingOrder) : data),
+    [data, pendingOrder]
+  )
+
+  const getVisibleItem = React.useCallback(
+    (item: ScheduleItem) => {
+      const pendingUpdate = pendingUpdates[item.id]
+
+      if (!pendingUpdate) {
+        return item
+      }
+
+      return {
+        ...item,
+        pickupTime: pendingUpdate.pickupTime,
+        arrival: pendingUpdate.arrival,
+      }
+    },
+    [pendingUpdates]
   )
 
   const updateItem = React.useCallback(
@@ -422,8 +573,11 @@ export function ScheduleSection() {
   )
 
   const activeItem = React.useMemo(
-    () => data.find((item) => item.id === activeId) ?? null,
-    [activeId, data]
+    () => {
+      const item = data.find((entry) => entry.id === activeId) ?? null
+      return item ? getVisibleItem(item) : null
+    },
+    [activeId, data, getVisibleItem]
   )
 
   React.useEffect(() => {
@@ -436,90 +590,191 @@ export function ScheduleSection() {
 
   const openEditor = React.useCallback((item: ScheduleItem) => {
     setActiveId(item.id)
-    setDraft(item)
+    setDraft(getVisibleItem(item))
     setSheetOpen(true)
-  }, [])
+  }, [getVisibleItem])
 
   const dataIds = React.useMemo<UniqueIdentifier[]>(
-    () => data.map(({ id }) => id),
-    [data]
+    () => displayData.map(({ id }) => id),
+    [displayData]
   )
-
-  const routeDebugText = React.useMemo(() => {
-    const pickupChain = data.map((item) => item.pickupAddress).join(" > ")
-    const finalDestination = data[data.length - 1]?.endDestination || festivalDestination
-    return `${pickupChain} > ${finalDestination}`
-  }, [data])
 
   const finalArrivalTime = React.useMemo(
     () =>
-      data[data.length - 1]?.arrival.trim() ||
-      data.find((item) => item.arrival.trim())?.arrival.trim() ||
+      displayData[displayData.length - 1]?.arrival.trim() ||
+      displayData.find((item) => item.arrival.trim())?.arrival.trim() ||
       "",
-    [data]
+    [displayData]
   )
 
-  const handleRecalculate = React.useCallback(() => {
-    const stops: ScheduleStopInput[] = data.map((item) => ({
-      id: item.id,
-      pickupAddress: item.pickupAddress,
-      endDestination: item.endDestination,
-    }))
+  const pendingChangeCount = React.useMemo(
+    () => Object.keys(pendingUpdates).length,
+    [pendingUpdates]
+  )
+  const routeTones = React.useMemo<Record<number, RouteTone>>(
+    () =>
+      data.reduce<Record<number, RouteTone>>((accumulator, item, index) => {
+        accumulator[item.id] = buildRouteTone(index, data.length)
+        return accumulator
+      }, {}),
+    [data]
+  )
+  const positionChanges = React.useMemo<Record<number, PositionChange>>(() => {
+    if (!pendingOrder) {
+      return {}
+    }
 
-    setRecalculateError(null)
-    setIsRecalculating(true)
+    const confirmedOrder = data.map((item) => item.id)
 
-    void (async () => {
-      try {
-        const response = await fetch("/api/schedule/recalculate", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            arrivalTime: finalArrivalTime,
-            stops,
-          }),
-        })
+    return pendingOrder.reduce<Record<number, PositionChange>>((accumulator, id, index) => {
+      const confirmedIndex = confirmedOrder.indexOf(id)
 
-        const payload = (await response.json()) as
-          | { error?: string; stops?: RecalculatedScheduleStop[] }
-          | undefined
+      if (confirmedIndex === -1 || confirmedIndex === index) {
+        return accumulator
+      }
 
-        if (!response.ok || !payload?.stops) {
-          throw new Error(payload?.error ?? "Unable to recalculate pickup times.")
+      accumulator[id] = {
+        from: confirmedIndex + 1,
+        to: index + 1,
+      }
+
+      return accumulator
+    }, {})
+  }, [data, pendingOrder])
+
+  const hasPendingRouteChange = pendingOrder !== null
+  const hasPendingChanges = pendingChangeCount > 0 || hasPendingRouteChange
+  const pendingSummary = React.useMemo(() => {
+    const parts: string[] = []
+
+    if (hasPendingRouteChange) {
+      parts.push("Optimized route order staged.")
+    }
+
+    if (pendingChangeCount > 0) {
+      parts.push(
+        `${pendingChangeCount} stop${pendingChangeCount === 1 ? "" : "s"} recalculated.`
+      )
+    }
+
+    parts.push("Review the staged route, then confirm when the run looks right.")
+
+    return parts.join(" ")
+  }, [hasPendingRouteChange, pendingChangeCount])
+
+  const confirmPendingChanges = React.useCallback(() => {
+    setData((current) =>
+      (pendingOrder ? orderScheduleItems(current, pendingOrder) : current).map((item) => {
+        const pendingUpdate = pendingUpdates[item.id]
+
+        if (!pendingUpdate) {
+          return item
         }
 
-        setData((current) =>
-          current.map((item) => {
-            const recalculatedStop = payload.stops?.find((stop) => stop.id === item.id)
-
-            if (!recalculatedStop) {
-              return item
-            }
-
-            return {
-              ...item,
-              pickupTime: recalculatedStop.pickupTime,
-              arrival: recalculatedStop.arrival,
-              endDestination: recalculatedStop.endDestination,
-            }
-          })
-        )
-      } catch (error) {
-        setRecalculateError(
-          error instanceof Error ? error.message : "Unable to recalculate pickup times."
-        )
-      } finally {
-        setIsRecalculating(false)
+        return {
+          ...item,
+          pickupTime: pendingUpdate.pickupTime,
+          arrival: pendingUpdate.arrival,
+        }
+      })
+    )
+    setPendingOrder(null)
+    setPendingUpdates({})
+    setShowOptimizedGradient(false)
+    setRecalculateError(null)
+    setDraft((current) => {
+      if (!current) {
+        return current
       }
-    })()
-  }, [data, finalArrivalTime])
+
+      const pendingUpdate = pendingUpdates[current.id]
+
+      if (!pendingUpdate) {
+        return current
+      }
+
+      return {
+        ...current,
+        pickupTime: pendingUpdate.pickupTime,
+        arrival: pendingUpdate.arrival,
+      }
+    })
+  }, [pendingOrder, pendingUpdates])
+
+  const handlePlanReady = React.useCallback(
+    (
+      plannedStops: RecalculatedScheduleStop[],
+      source: "optimize" | "recalculate"
+    ) => {
+      animationTokenRef.current += 1
+
+      const nextOrder = plannedStops.map((stop) => stop.id)
+      const confirmedOrder = data.map((item) => item.id)
+      const hasRouteChange = !areOrdersEqual(nextOrder, confirmedOrder)
+      const nextPendingUpdates = plannedStops.reduce<Record<number, PendingScheduleUpdate>>(
+        (accumulator, plannedStop, index) => {
+          const currentItem = data.find((item) => item.id === plannedStop.id)
+
+          if (!currentItem) {
+            return accumulator
+          }
+
+          if (
+            currentItem.pickupTime === plannedStop.pickupTime &&
+            currentItem.arrival === plannedStop.arrival
+          ) {
+            return accumulator
+          }
+
+          accumulator[plannedStop.id] = {
+            pickupTime: plannedStop.pickupTime,
+            arrival: plannedStop.arrival,
+            revealOrder: index,
+            animationToken: animationTokenRef.current,
+          }
+
+          return accumulator
+        },
+        {}
+      )
+
+      setPendingOrder(hasRouteChange ? nextOrder : null)
+      setPendingUpdates(nextPendingUpdates)
+      setShowOptimizedGradient(source === "optimize" && hasRouteChange)
+
+      return hasRouteChange || Object.keys(nextPendingUpdates).length > 0
+    },
+    [data]
+  )
 
   const handleDragEnd = React.useCallback((event: DragEndEvent) => {
     const { active, over } = event
 
     if (!over || active.id === over.id) {
+      return
+    }
+
+    if (pendingOrder) {
+      setPendingOrder((current) => {
+        if (!current) {
+          return current
+        }
+
+        const oldIndex = current.indexOf(Number(active.id))
+        const newIndex = current.indexOf(Number(over.id))
+
+        if (oldIndex === -1 || newIndex === -1) {
+          return current
+        }
+
+        const nextOrder = arrayMove(current, oldIndex, newIndex)
+        return areOrdersEqual(
+          nextOrder,
+          data.map((item) => item.id)
+        )
+          ? null
+          : nextOrder
+      })
       return
     }
 
@@ -534,7 +789,7 @@ export function ScheduleSection() {
 
       return arrayMove(current, oldIndex, newIndex)
     })
-  }, [])
+  }, [data, pendingOrder])
 
   const columns = React.useMemo<ColumnDef<ScheduleItem>[]>(
     () => [
@@ -573,6 +828,7 @@ export function ScheduleSection() {
       },
       {
         accessorKey: "passenger",
+        enableSorting: false,
         enableHiding: false,
         header: ({ column }) => (
           <SortableHeader
@@ -585,17 +841,25 @@ export function ScheduleSection() {
           <button
             type="button"
             onClick={() => openEditor(row.original)}
-            className="flex items-center gap-2 text-left text-[13px] font-medium text-[#1d1d1b] transition-colors hover:text-[#4f6bbd]"
+            className="flex flex-col items-start gap-1 text-left text-[13px] font-medium text-[#1d1d1b] transition-colors hover:text-[#4f6bbd]"
           >
-            <span>{row.original.passenger}</span>
-            {row.original.favorite ? (
-              <Star className="size-3.5 fill-[#b2952f] text-[#b2952f]" />
+            <span className="flex items-center gap-2">
+              <span>{row.original.passenger}</span>
+              {row.original.favorite ? (
+                <Star className="size-3.5 fill-[#b2952f] text-[#b2952f]" />
+              ) : null}
+            </span>
+            {positionChanges[row.original.id] ? (
+              <span className="inline-flex items-center rounded-full border border-[#d5dce9] bg-[#f4f7fb] px-2 py-0.5 text-[10px] font-semibold tracking-[0.08em] text-[#5d6b83] uppercase">
+                {positionChanges[row.original.id].from} → {positionChanges[row.original.id].to}
+              </span>
             ) : null}
           </button>
         ),
       },
       {
         accessorKey: "pickupAddress",
+        enableSorting: false,
         header: ({ column }) => (
           <SortableHeader
             label="Pickup Address"
@@ -603,9 +867,11 @@ export function ScheduleSection() {
             onToggle={() => column.toggleSorting(column.getIsSorted() === "asc")}
           />
         ),
+        cell: ({ row }) => <StackedAddressText value={row.original.pickupAddress} />,
       },
       {
         accessorKey: "pickupTime",
+        enableSorting: false,
         header: ({ column }) => (
           <SortableHeader
             label="PU Time"
@@ -613,22 +879,36 @@ export function ScheduleSection() {
             onToggle={() => column.toggleSorting(column.getIsSorted() === "asc")}
           />
         ),
+        cell: ({ row }) => {
+          const pendingUpdate = pendingUpdates[row.original.id]
+
+          return (
+            <AnimatedScheduleTime
+              confirmedValue={row.original.pickupTime}
+              pendingValue={pendingUpdate?.pickupTime}
+              revealOrder={pendingUpdate?.revealOrder}
+              animationToken={pendingUpdate?.animationToken}
+            />
+          )
+        },
       },
       {
         accessorKey: "endDestination",
+        enableSorting: false,
         header: ({ column }) => (
           <SortableHeader
-            label="End Destination"
+            label="Drop off"
             isSorted={column.getIsSorted()}
             onToggle={() => column.toggleSorting(column.getIsSorted() === "asc")}
           />
         ),
         cell: ({ row }) => (
-          <span className="text-[#5f5f59]">{row.original.endDestination}</span>
+          <StackedAddressText value={row.original.endDestination} muted />
         ),
       },
       {
         accessorKey: "arrival",
+        enableSorting: false,
         header: ({ column }) => (
           <SortableHeader
             label="Arrival"
@@ -636,6 +916,18 @@ export function ScheduleSection() {
             onToggle={() => column.toggleSorting(column.getIsSorted() === "asc")}
           />
         ),
+        cell: ({ row }) => {
+          const pendingUpdate = pendingUpdates[row.original.id]
+
+          return (
+            <AnimatedScheduleTime
+              confirmedValue={row.original.arrival}
+              pendingValue={pendingUpdate?.arrival}
+              revealOrder={pendingUpdate?.revealOrder}
+              animationToken={pendingUpdate?.animationToken}
+            />
+          )
+        },
       },
       {
         id: "actions",
@@ -645,11 +937,13 @@ export function ScheduleSection() {
         cell: () => null,
       },
     ],
-    [openEditor]
+    [openEditor, pendingUpdates, positionChanges]
   )
 
+  // TanStack Table is an intentional exception to the React Compiler lint rule here.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
-    data,
+    data: displayData,
     columns,
     state: {
       sorting,
@@ -680,17 +974,18 @@ export function ScheduleSection() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={isRecalculating || data.length === 0 || !finalArrivalTime}
-              className="border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef]"
-              onClick={handleRecalculate}
-            >
-              <RefreshCcw className={cn("size-4", isRecalculating && "animate-spin")} />
-              <span>Recalculate</span>
-            </Button>
+            <ScheduleRoutingControls
+              stops={displayData.map((item) => ({
+                id: item.id,
+                pickupAddress: item.pickupAddress,
+                endDestination: item.endDestination,
+              }))}
+              arrivalTime={finalArrivalTime}
+              hasPendingChanges={hasPendingChanges}
+              onConfirmChanges={confirmPendingChanges}
+              onErrorChange={setRecalculateError}
+              onPlanReady={handlePlanReady}
+            />
             <ColumnToggleMenu columns={visibleColumns} />
             <Button
               type="button"
@@ -763,6 +1058,8 @@ export function ScheduleSection() {
                       <SortableRow
                         key={row.id}
                         row={row}
+                        pendingUpdate={pendingUpdates[row.original.id]}
+                        routeTone={routeTones[row.original.id]}
                         onOpenEditor={openEditor}
                         onCopy={(item) => {
                           const nextId = Math.max(0, ...data.map((entry) => entry.id)) + 1
@@ -775,12 +1072,23 @@ export function ScheduleSection() {
                               favorite: false,
                             },
                           ])
+                          setPendingOrder((current) =>
+                            current ? [...current, nextId] : current
+                          )
                         }}
                         onFavorite={(item) =>
                           updateItem(item.id, "favorite", !item.favorite)
                         }
                         onDelete={(item) => {
                           setData((current) => current.filter((entry) => entry.id !== item.id))
+                          setPendingOrder((current) =>
+                            current ? current.filter((id) => id !== item.id) : current
+                          )
+                          setPendingUpdates((current) => {
+                            const next = { ...current }
+                            delete next[item.id]
+                            return next
+                          })
                           setRowSelection((current) => {
                             const next = { ...current }
                             delete next[item.id.toString()]
@@ -815,20 +1123,19 @@ export function ScheduleSection() {
           </p>
         </div>
 
+        {hasPendingChanges ? (
+          <div className="flex flex-col gap-2 rounded-lg border border-[#dfe7f4] bg-[linear-gradient(180deg,#f8fbff_0%,#f1f6ff_100%)] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+            <p className="text-[12px] leading-5 text-[#49628d]">
+              {pendingSummary}
+            </p>
+          </div>
+        ) : null}
+
         {recalculateError ? (
           <div className="rounded-lg border border-[#f3d7d7] bg-[#fff7f7] px-4 py-3">
             <p className="text-[12px] leading-5 text-[#9a4f4f]">{recalculateError}</p>
           </div>
         ) : null}
-
-        <div className="rounded-lg border border-dashed border-[#dddcd7] bg-[#fcfcfa] px-4 py-3">
-          <p className="text-[11px] font-semibold tracking-[0.12em] text-[#777772] uppercase">
-            Debug Route
-          </p>
-          <p className="mt-2 text-[12px] leading-6 text-[#4b4b46]">
-            {routeDebugText}
-          </p>
-        </div>
       </div>
 
       <Sheet
@@ -888,6 +1195,11 @@ export function ScheduleSection() {
                 setData((current) =>
                   current.map((item) => (item.id === draft.id ? draft : item))
                 )
+                setPendingUpdates((current) => {
+                  const next = { ...current }
+                  delete next[draft.id]
+                  return next
+                })
                 setSheetOpen(false)
                 setActiveId(null)
               }}
@@ -956,7 +1268,7 @@ export function ScheduleSection() {
 
               <div className="flex flex-col gap-2">
                 <label htmlFor="schedule-end-destination" className="text-[13px] font-medium text-[#1d1d1b]">
-                  End Destination
+                  Drop off
                 </label>
                 <Input
                   id="schedule-end-destination"

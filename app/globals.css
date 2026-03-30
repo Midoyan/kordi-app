@@ -130,6 +130,17 @@
 }
 
 @layer components {
+  .schedule-time-reveal {
+    animation: schedule-time-reveal 220ms cubic-bezier(0.2, 0, 0, 1) both;
+    will-change: opacity, transform;
+    justify-content: center;
+    place-items: center;
+  }
+
+  .schedule-time-strike {
+    animation: schedule-time-strike 220ms cubic-bezier(0.2, 0, 0, 1) both;
+  }
+
   [data-collapsible="icon"] [data-kordi-shell="brand-button"],
   [data-collapsible="icon"] [data-kordi-shell="auth-button"] {
     width: 2rem !important;
@@ -177,5 +188,29 @@
   [data-collapsible="icon"] [data-kordi-shell="auth-button"]:hover [data-kordi-shell="auth-icon"],
   [data-collapsible="icon"] [data-kordi-shell="auth-button"]:hover [data-kordi-shell="login-icon"] {
     color: #181816 !important;
+  }
+}
+
+@keyframes schedule-time-reveal {
+  0% {
+    opacity: 0;
+    transform: translate3d(-8px, 0, 0);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes schedule-time-strike {
+  0% {
+    opacity: 1;
+    text-decoration-color: transparent;
+  }
+
+  100% {
+    opacity: 0.78;
+    text-decoration-color: #b8b4aa;
   }
 }
