@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Car, MapPin, Plus, Route, Users } from "lucide-react";
+import { Car, Plus, Route, Users } from "lucide-react";
 
-import { PeopleWorkspace } from "@/components/people-workspace";
+import { LocationsPage } from "@/components/locations-page";
+import { PeopleSection } from "@/components/people-section";
+import { ScheduleSection } from "@/components/schedule-section";
 import { VehiclesPage } from "@/components/vehicles-page";
 import { appSectionMap, appSections, type AppSectionSlug } from "@/lib/app-sections";
 
@@ -257,7 +259,7 @@ function RouteBuilderView() {
 }
 
 function PeopleView() {
-  return <PeopleWorkspace />;
+  return <PeopleSection />;
 }
 
 function VehiclesView() {
@@ -283,76 +285,18 @@ function MapView() {
 }
 
 function LocationsView() {
-  return (
-    <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-      <Panel
-        title="Locations"
-        description="Save pickup points, venues, and shared destination records."
-        actionLabel="Add location"
-      >
-        <EmptyTable
-          columns={["Name", "Type", "Address", "Zone", "Notes"]}
-          message="No locations added yet."
-          cta="Add first location"
-        />
-      </Panel>
-      <Panel title="Map area" description="A map or geocoding preview can live in this panel.">
-        <div className="flex min-h-72 items-center justify-center rounded-lg border border-dashed border-[#d9d9d4] bg-[#fafaf7]">
-          <div className="text-center">
-            <MapPin className="mx-auto size-5 text-[#4b4b46]" />
-            <p className="mt-3 text-[14px] font-medium text-[#1d1d1b]">No locations to show yet</p>
-            <p className="mt-1 text-[13px] text-[#6b6b67]">Add a location to start building the map view.</p>
-          </div>
-        </div>
-      </Panel>
-    </div>
-  );
+  return <LocationsPage />;
 }
 
 function ScheduleView() {
   return (
     <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
       <Panel
-        title="Day schedule"
-        description="Lay out pickup windows, departures, and operational blocks."
-        actionLabel="Add time block"
+        title="Van 1"
+        description="Berlin pickup schedule for one van heading to the festival location."
+        className="lg:col-span-2"
       >
-        <div className="grid gap-3 md:grid-cols-3">
-          {["Morning", "Midday", "Evening"].map((period) => (
-            <div key={period} className="rounded-lg border border-[#e7e7e4] bg-[#fbfbf8] p-4">
-              <p className="text-[13px] font-semibold text-[#1d1d1b]">{period}</p>
-              <p className="mt-2 text-[13px] text-[#6b6b67]">No time blocks yet.</p>
-              <button
-                type="button"
-                className="mt-4 rounded-md border border-[#dbdbd6] px-3 py-1.5 text-[13px] text-[#43433f] transition-colors hover:bg-white"
-              >
-                Add block
-              </button>
-            </div>
-          ))}
-        </div>
-      </Panel>
-      <Panel title="Dispatch notes" description="Use this space for notes, warnings, and same-day changes.">
-        <EmptyList
-          items={[
-            {
-              title: "No notes yet",
-              description: "Dispatch notes and exceptions will appear here.",
-              cta: "Add note",
-            },
-            {
-              title: "No changes pending",
-              description: "Schedule updates can be reviewed from this panel.",
-            },
-          ]}
-        />
-      </Panel>
-      <Panel title="Schedule list" description="A more detailed schedule table can replace this placeholder later." className="lg:col-span-2">
-        <EmptyTable
-          columns={["Time", "Route", "Vehicle", "Location", "Notes"]}
-          message="No schedule items yet."
-          cta="Add schedule item"
-        />
+        <ScheduleSection />
       </Panel>
     </div>
   );
@@ -429,6 +373,18 @@ export default async function SectionPage({ params }: SectionPageProps) {
     notFound();
   }
 
+  const actionHref =
+    currentSection.slug === "people"
+      ? `/${currentSection.slug}?add-person=1`
+      : currentSection.slug === "vehicles"
+        ? `/${currentSection.slug}?sheet=add-vehicle`
+        : currentSection.slug === "locations"
+          ? `/${currentSection.slug}?sheet=add-location`
+          : undefined;
+
+          // TODO: actionHref logic can be improved and centralized as more sections and actions are added, 
+          // but this works for now given the current scope of actions needed.
+
   return (
     <section className="flex flex-1 flex-col px-4 py-5 md:px-6 md:py-6">
       <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4">
@@ -447,13 +403,7 @@ export default async function SectionPage({ params }: SectionPageProps) {
             </div>
             <ActionButton
               label={sectionActionLabels[currentSection.slug]}
-              href={
-                currentSection.slug === "people"
-                  ? `/${currentSection.slug}?add-person=1`
-                  : currentSection.slug === "vehicles"
-                    ? `/${currentSection.slug}?sheet=add-vehicle`
-                    : undefined
-              }
+              href={actionHref}
             />
           </div>
         </div>

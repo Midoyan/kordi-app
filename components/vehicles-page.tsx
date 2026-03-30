@@ -4,6 +4,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Car, Plus, UserRound, Wrench } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
 
+import { EditorSheetLayout } from "@/components/editor-sheet-layout";
 import { Button } from "@/components/ui/button";
 import {
   Combobox,
@@ -17,14 +18,7 @@ import {
   useComboboxAnchor,
 } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { SheetFooter } from "@/components/ui/sheet";
 import { demoPeople } from "@/lib/demo-people";
 
 type VehicleStatus = "Ready" | "Standby" | "Needs service";
@@ -73,6 +67,42 @@ const initialForm: VehicleForm = {
   status: "Ready",
   notes: "",
 };
+
+const demoVehicleForms: VehicleForm[] = [
+  {
+    name: "Sprinter 12",
+    make: "Mercedes-Benz",
+    color: "Black",
+    licensePlate: "8TRN214",
+    type: "Van",
+    capacity: "8",
+    driverId: demoPeople[0]?.id ?? "",
+    status: "Ready",
+    notes: "Stage door pickup. Keep rear cargo lane clear.",
+  },
+  {
+    name: "Shuttle North",
+    make: "Ford",
+    color: "Silver",
+    licensePlate: "9LAX552",
+    type: "Shuttle",
+    capacity: "12",
+    driverId: demoPeople[1]?.id ?? "",
+    status: "Standby",
+    notes: "Hotel loop until 11:00 AM.",
+  },
+  {
+    name: "Runner 03",
+    make: "Chevrolet",
+    color: "White",
+    licensePlate: "7KRD118",
+    type: "SUV",
+    capacity: "5",
+    driverId: demoPeople[2]?.id ?? "",
+    status: "Needs service",
+    notes: "Check tire pressure before dispatch.",
+  },
+];
 
 function statusTone(status: VehicleStatus) {
   switch (status) {
@@ -402,6 +432,13 @@ export function VehiclesPage() {
     setSheetOpen(false);
   }
 
+  function randomizeForm() {
+    const template = demoVehicleForms[Math.floor(Math.random() * demoVehicleForms.length)];
+    setForm(template);
+    setFieldErrors({});
+    setSubmitMessage(null);
+  }
+
   const latestVehicle = vehicles[0];
 
   return (
@@ -481,20 +518,12 @@ export function VehiclesPage() {
         </Panel>
       </div>
 
-      <Sheet open={isSheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent
-          side="right"
-          className="w-full border-[#e4e4e1] bg-[#fbfbf8] sm:max-w-[420px]"
-        >
-          <SheetHeader className="border-b border-[#e7e7e4] px-5 py-5">
-            <SheetTitle className="text-[20px] font-semibold tracking-tight text-[#1d1d1b]">
-              Add vehicle
-            </SheetTitle>
-            <SheetDescription className="mt-1 text-[13px] leading-6 text-[#6b6b67]">
-              Create a fleet record with capacity, driver ownership, and readiness status.
-            </SheetDescription>
-          </SheetHeader>
-
+      <EditorSheetLayout
+        open={isSheetOpen}
+        onOpenChange={setSheetOpen}
+        title="Add vehicle"
+        description="Create a fleet record with capacity, driver ownership, and readiness status."
+      >
           <form className="flex flex-1 flex-col" onSubmit={handleSubmit}>
             <div className="space-y-4 overflow-y-auto px-5 py-5">
               {submitMessage ? (
@@ -654,16 +683,20 @@ export function VehiclesPage() {
             </div>
 
             <SheetFooter className="border-t border-[#e7e7e4] bg-white/80 px-5 py-4">
-              <div className="flex w-full items-center justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>
-                  Cancel
+              <div className="flex w-full items-center justify-between gap-2">
+                <Button type="button" variant="outline" onClick={randomizeForm}>
+                  Randomize demo
                 </Button>
-                <Button type="submit">Save vehicle</Button>
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit">Save vehicle</Button>
+                </div>
               </div>
             </SheetFooter>
           </form>
-        </SheetContent>
-      </Sheet>
+      </EditorSheetLayout>
     </>
   );
 }

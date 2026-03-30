@@ -10,22 +10,22 @@ import {
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
-  type Cell,
-  type CellContext,
   flexRender,
   getCoreRowModel,
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
+  type Cell,
+  type CellContext,
+  type ColumnDef,
   type Header,
   type HeaderContext,
   type HeaderGroup,
   type Row,
-  useReactTable,
-  type ColumnDef,
   type RowSelectionState,
   type SortingState,
   type VisibilityState,
+  useReactTable,
 } from "@tanstack/react-table";
 import {
   ArrowUpDown,
@@ -54,6 +54,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
+type CheckboxState = boolean | "indeterminate";
 type BrowserFileSystemHandle = {
   kind: "file" | "directory";
   getFile?: () => Promise<File>;
@@ -115,17 +116,6 @@ function statusClasses(status: PersonStatus) {
   }
 }
 
-function createEmptyPerson(): PersonDraft {
-  return {
-    name: "",
-    role: "",
-    address: "",
-    pickup: "",
-    email: "",
-    status: "Draft",
-  };
-}
-
 function toDraft(person: PersonRecord): PersonDraft {
   return {
     name: person.name,
@@ -134,6 +124,17 @@ function toDraft(person: PersonRecord): PersonDraft {
     pickup: person.pickup,
     email: person.email,
     status: person.status,
+  };
+}
+
+function createEmptyPerson(): PersonDraft {
+  return {
+    name: "",
+    role: "",
+    address: "",
+    pickup: "",
+    email: "",
+    status: "Draft",
   };
 }
 
@@ -550,7 +551,9 @@ export function PeopleSection() {
                   ? "indeterminate"
                   : false
             }
-            onCheckedChange={(checked) => table.toggleAllPageRowsSelected(checked)}
+            onCheckedChange={(checked: CheckboxState) =>
+              table.toggleAllPageRowsSelected(checked === true)
+            }
             aria-label="Select all visible people"
           />
         </div>
@@ -559,7 +562,7 @@ export function PeopleSection() {
         <div className="flex items-start justify-center pt-1">
           <Checkbox
             checked={row.getIsSelected()}
-            onCheckedChange={(checked) => row.toggleSelected(checked)}
+            onCheckedChange={(checked: CheckboxState) => row.toggleSelected(checked === true)}
             aria-label={`Select ${row.original.name}`}
           />
         </div>
