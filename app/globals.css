@@ -1,6 +1,5 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "shadcn/tailwind.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -127,4 +126,63 @@
   html {
     @apply font-sans;
     }
+}
+
+@layer components {
+  [data-collapsible="icon"] [data-kordi-shell="brand-button"],
+  [data-collapsible="icon"] [data-kordi-shell="auth-button"] {
+    width: 2rem !important;
+    height: 2rem !important;
+    min-width: 2rem !important;
+    justify-content: center !important;
+    align-items: center !important;
+    gap: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    border-radius: 10px !important;
+    box-shadow: none !important;
+    color: #5c5c57 !important;
+  }
+
+  [data-collapsible="icon"] [data-kordi-shell="brand-button"] {
+    padding: 0.5rem !important;
+  }
+
+  [data-collapsible="icon"] [data-kordi-shell="auth-button"] {
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+
+  [data-collapsible="icon"] [data-kordi-shell="brand-button"]:hover,
+  [data-collapsible="icon"] [data-kordi-shell="auth-button"]:hover {
+    background: #ecece8 !important;
+  }
+
+  [data-collapsible="icon"] [data-kordi-shell="brand-icon"],
+  [data-collapsible="icon"] [data-kordi-shell="auth-icon"] {
+    width: auto !important;
+    height: auto !important;
+    min-width: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: inherit !important;
+    overflow: visible !important;
+  }
+
+  [data-collapsible="icon"] [data-kordi-shell="brand-icon"] svg,
+  [data-collapsible="icon"] [data-kordi-shell="auth-icon"] svg,
+  [data-collapsible="icon"] [data-kordi-shell="login-icon"] {
+    width: 15px !important;
+    height: 15px !important;
+    color: inherit !important;
+  }
+
+  [data-collapsible="icon"] [data-kordi-shell="brand-button"]:hover [data-kordi-shell="brand-icon"],
+  [data-collapsible="icon"] [data-kordi-shell="auth-button"]:hover [data-kordi-shell="auth-icon"],
+  [data-collapsible="icon"] [data-kordi-shell="auth-button"]:hover [data-kordi-shell="login-icon"] {
+    color: #181816 !important;
+  }
 }
