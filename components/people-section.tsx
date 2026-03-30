@@ -116,6 +116,17 @@ function statusClasses(status: PersonStatus) {
   }
 }
 
+function createEmptyPerson(): PersonDraft {
+  return {
+    name: "",
+    role: "",
+    address: "",
+    pickup: "",
+    email: "",
+    status: "Draft",
+  };
+}
+
 function toDraft(person: PersonRecord): PersonDraft {
   return {
     name: person.name,
@@ -551,7 +562,7 @@ export function PeopleSection() {
                   ? "indeterminate"
                   : false
             }
-            onCheckedChange={(checked: CheckboxState) => table.toggleAllPageRowsSelected(checked)}
+            onCheckedChange={(checked) => table.toggleAllPageRowsSelected(checked)}
             aria-label="Select all visible people"
           />
         </div>
@@ -560,7 +571,7 @@ export function PeopleSection() {
         <div className="flex items-start justify-center pt-1">
           <Checkbox
             checked={row.getIsSelected()}
-            onCheckedChange={(checked: CheckboxState) => row.toggleSelected(checked)}
+            onCheckedChange={(checked) => row.toggleSelected(checked)}
             aria-label={`Select ${row.original.name}`}
           />
         </div>
@@ -937,7 +948,7 @@ export function PeopleSection() {
                           colSpan={table.getVisibleLeafColumns().length}
                           className="py-14 text-center text-[13px] text-[#6b6b67]"
                         >
-                          No matching people yet. Drop a vCard, import a `.vcf`, or add a draft row.
+                          No matching people yet. Drop a vCard, import a `.vcf`, or add a person.
                         </TableCell>
                       </TableRow>
                     ) : (

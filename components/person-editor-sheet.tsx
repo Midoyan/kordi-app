@@ -23,11 +23,9 @@ export type PersonRecord = {
 
 export type PersonDraft = Omit<PersonRecord, "id">;
 
-type PersonEditorMode = "create" | "edit" | null;
-
 type PersonEditorSheetProps = {
   draft: PersonDraft | null;
-  mode: PersonEditorMode;
+  mode: "create" | "edit" | null;
   open: boolean;
   onClose: () => void;
   onSave: () => void;

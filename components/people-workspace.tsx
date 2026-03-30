@@ -1,8 +1,13 @@
 "use client";
 
-import { useDeferredValue, useState } from "react";
-import { AlertCircle, FileUp, MapPin, Plus, Search, Users } from "lucide-react";
+import { useCallback, useDeferredValue, useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { AlertCircle, MapPin, Plus, Search, Users } from "lucide-react";
 
+import {
+  PersonEditorSheet,
+  type PersonDraft,
+} from "@/components/person-editor-sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -130,40 +135,6 @@ const initialActivity: ActivityItem[] = [
   },
 ];
 
-const importTemplates = [
-  {
-    name: "Jonah Cruz",
-    role: "Merch lead",
-    address: "311 Rose Ave, Venice, CA",
-    pickup: "West lot, 2:05 PM",
-    email: "jonah@northlane.studio",
-  },
-  {
-    name: "Camila Rhodes",
-    role: "Backline",
-    address: "17 Prince St, New York, NY",
-    pickup: "Venue gate, 7:20 PM",
-    email: "camila@showflow.co",
-  },
-];
-
-const draftTemplates = [
-  {
-    name: "Ava Coleman",
-    role: "Guest",
-    address: "",
-    pickup: "Needs pickup plan",
-    email: "",
-  },
-  {
-    name: "Noah Bishop",
-    role: "Assistant",
-    address: "",
-    pickup: "Hotel lobby, 5:50 AM",
-    email: "",
-  },
-];
-
 const savedFilters: Array<{
   key: SavedFilterKey;
   label: string;
@@ -277,14 +248,17 @@ function slugify(value: string) {
 }
 
 export function PeopleWorkspace() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [people, setPeople] = useState(initialPeople);
   const [activity, setActivity] = useState(initialActivity);
   const [query, setQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<SavedFilterKey | null>(null);
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
   const [focusedPersonId, setFocusedPersonId] = useState<string | null>(null);
-  const [importCount, setImportCount] = useState(0);
-  const [draftCount, setDraftCount] = useState(0);
+  const [editorMode, setEditorMode] = useState<"create" | null>(null);
+  const [editorDraft, setEditorDraft] = useState<PersonDraft | null>(null);
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
 
   const filteredPeople = people.filter((person) => {
@@ -414,41 +388,68 @@ export function PeopleWorkspace() {
     );
   };
 
-  const addImportedPerson = () => {
-    const template = importTemplates[importCount % importTemplates.length];
-    const sortKey = Date.now();
-    const timeLabel = new Intl.DateTimeFormat("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-    }).format(new Date(sortKey));
-    const nextPerson: Person = {
-      id: `${slugify(template.name)}-${sortKey}`,
-      ...template,
-      status: "Imported",
-      source: "import",
-      addedBy: "you",
-      addedAt: sortKey,
-      updatedAt: sortKey,
-      timeLabel,
-    };
-
-    setPeople((current) => [nextPerson, ...current]);
-    setImportCount((count) => count + 1);
-    setFocusedPersonId(nextPerson.id);
-    appendActivity(`Imported ${template.name}`, "Added by you from vCard");
-  };
-
-  const addDraftPerson = () => {
-    const template = draftTemplates[draftCount % draftTemplates.length];
-    const sortKey = Date.now();
-    const timeLabel = new Intl.DateTimeFormat("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-    }).format(new Date(sortKey));
-    const nextPerson: Person = {
-      id: `${slugify(template.name)}-${sortKey}`,
-      ...template,
+  const openCreateEditor = useCallback(() => {
+    setEditorMode("create");
+    setEditorDraft({
+      name: "",
+      role: "",
+      address: "",
+      pickup: "",
+      email: "",
       status: "Draft",
+    });
+  }, []);
+
+  const clearAddPersonQuery = useCallback(() => {
+    if (searchParams.get("add-person") !== "1") {
+      return;
+    }
+
+    const nextSearchParams = new URLSearchParams(searchParams.toString());
+    nextSearchParams.delete("add-person");
+    const nextQuery = nextSearchParams.toString();
+    router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false });
+  }, [pathname, router, searchParams]);
+
+  useEffect(() => {
+    if (searchParams.get("add-person") !== "1") {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      openCreateEditor();
+      clearAddPersonQuery();
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [clearAddPersonQuery, openCreateEditor, searchParams]);
+
+  const closeEditor = useCallback(() => {
+    clearAddPersonQuery();
+    setEditorMode(null);
+    setEditorDraft(null);
+  }, [clearAddPersonQuery]);
+
+  const savePerson = useCallback(() => {
+    if (!editorDraft) {
+      return;
+    }
+
+    const sortKey = Date.now();
+    const timeLabel = new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(new Date(sortKey));
+    const normalizedName = editorDraft.name.trim() || "New person";
+
+    const nextPerson: Person = {
+      id: `${slugify(normalizedName)}-${sortKey}`,
+      name: normalizedName,
+      role: editorDraft.role.trim() || "Role pending",
+      address: editorDraft.address.trim() || "Address pending",
+      pickup: editorDraft.pickup.trim() || "Needs pickup plan",
+      email: editorDraft.email.trim() || "No email on card",
+      status: editorDraft.status,
       source: "manual",
       addedBy: "you",
       addedAt: sortKey,
@@ -457,10 +458,10 @@ export function PeopleWorkspace() {
     };
 
     setPeople((current) => [nextPerson, ...current]);
-    setDraftCount((count) => count + 1);
     setFocusedPersonId(nextPerson.id);
-    appendActivity(`Added ${template.name}`, "Draft row created by you");
-  };
+    appendActivity(`Added ${nextPerson.name}`, "Created by you from the people sheet");
+    closeEditor();
+  }, [closeEditor, editorDraft]);
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1.34fr_0.66fr]">
@@ -481,20 +482,11 @@ export function PeopleWorkspace() {
               <Button
                 variant="outline"
                 size="sm"
-                className="border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef]"
-                onClick={addImportedPerson}
-              >
-                <FileUp data-icon="inline-start" />
-                Import sample
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
                 className="border-[#dbdbd6] bg-[#fafaf7] text-[#1d1d1b] hover:bg-[#f1f1ed]"
-                onClick={addDraftPerson}
+                onClick={openCreateEditor}
               >
                 <Plus data-icon="inline-start" />
-                Add draft
+                Add person
               </Button>
             </div>
           </div>
@@ -751,6 +743,15 @@ export function PeopleWorkspace() {
           </div>
         </SurfacePanel>
       </div>
+
+      <PersonEditorSheet
+        draft={editorDraft}
+        mode={editorMode}
+        open={Boolean(editorDraft)}
+        onClose={closeEditor}
+        onSave={savePerson}
+        setDraft={setEditorDraft}
+      />
     </div>
   );
 }
