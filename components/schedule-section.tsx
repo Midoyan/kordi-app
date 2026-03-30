@@ -413,7 +413,6 @@ function PassengerCombobox({
         {selectedPeople.map((person) => (
           <ComboboxChip
             key={person.id}
-            value={person.id}
             className="h-5 rounded-sm px-1.5 text-[11px]"
           >
             {person.name}
@@ -1468,10 +1467,14 @@ export function ScheduleSection() {
     }
 
     const handlePointerDown = (event: MouseEvent) => {
-      if (contextMenuRef.current?.contains(event.target as Node)) {
+      const target = event.target
+      if (target instanceof Node && contextMenuRef.current?.contains(target)) {
         return
       }
 
+      setContextMenu(null)
+    }
+    const handleScroll = () => {
       setContextMenu(null)
     }
     const handleEscape = (event: KeyboardEvent) => {
@@ -1482,12 +1485,12 @@ export function ScheduleSection() {
 
     window.addEventListener("mousedown", handlePointerDown)
     window.addEventListener("keydown", handleEscape)
-    window.addEventListener("scroll", handlePointerDown, true)
+    window.addEventListener("scroll", handleScroll, true)
 
     return () => {
       window.removeEventListener("mousedown", handlePointerDown)
       window.removeEventListener("keydown", handleEscape)
-      window.removeEventListener("scroll", handlePointerDown, true)
+      window.removeEventListener("scroll", handleScroll, true)
     }
   }, [contextMenu])
 
