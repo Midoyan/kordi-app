@@ -10,7 +10,7 @@ type AddressProximity =
   | "ip"
   | { lng: number; lat: number }
   | { lon: number; lat: number }
-  | readonly [number, number];
+  | [number, number];
 
 type AddressAutofillInputProps = Omit<ComponentProps<typeof Input>, "value" | "onChange"> & {
   value: string;

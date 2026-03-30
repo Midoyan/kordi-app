@@ -551,7 +551,9 @@ export function PeopleSection() {
                   ? "indeterminate"
                   : false
             }
-            onCheckedChange={(checked: CheckboxState) => table.toggleAllPageRowsSelected(checked)}
+            onCheckedChange={(checked: CheckboxState) =>
+              table.toggleAllPageRowsSelected(checked === true)
+            }
             aria-label="Select all visible people"
           />
         </div>
@@ -560,7 +562,7 @@ export function PeopleSection() {
         <div className="flex items-start justify-center pt-1">
           <Checkbox
             checked={row.getIsSelected()}
-            onCheckedChange={(checked: CheckboxState) => row.toggleSelected(checked)}
+            onCheckedChange={(checked: CheckboxState) => row.toggleSelected(checked === true)}
             aria-label={`Select ${row.original.name}`}
           />
         </div>

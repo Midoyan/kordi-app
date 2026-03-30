@@ -292,8 +292,8 @@ function ScheduleView() {
   return (
     <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
       <Panel
-        title="Schedule list"
-        description="Editable schedule rows now replace the empty placeholder table."
+        title="Van 1"
+        description="Berlin pickup schedule for one van heading to the festival location."
         className="lg:col-span-2"
       >
         <ScheduleSection />

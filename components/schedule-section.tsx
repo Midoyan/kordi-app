@@ -33,21 +33,20 @@ import {
   type VisibilityState,
 } from "@tanstack/react-table"
 import {
-  CheckCircle2,
   ChevronDown,
   ChevronRight,
   Copy,
   GripVertical,
-  LoaderCircle,
   MoreHorizontal,
   Pencil,
   Plus,
+  RefreshCcw,
   Settings2,
   Star,
   Trash2,
 } from "lucide-react"
 
-import { useIsMobile } from "@/hooks/use-mobile"
+import type { RecalculatedScheduleStop, ScheduleStopInput } from "@/lib/schedule-recalculation"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -70,133 +69,80 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
-type ScheduleStatus = "Done" | "In Progress" | "Not Started"
-type ScheduleView = "outline" | "past-performance" | "key-personnel" | "focus-documents"
-
 type ScheduleItem = {
   id: number
-  header: string
-  type: string
-  status: ScheduleStatus
-  target: string
-  limit: string
-  reviewer: string
+  passenger: string
+  pickupAddress: string
+  pickupTime: string
+  endDestination: string
+  arrival: string
   favorite: boolean
 }
 
-const typeOptions = [
-  "Table of Contents",
-  "Executive Summary",
-  "Technical Approach",
-  "Design",
-  "Capabilities",
-  "Focus Documents",
-  "Narrative",
-  "Cover Page",
-] as const
-
-const reviewerOptions = [
-  "Assign reviewer",
-  "Eddie Lake",
-  "Jamik Tashpulatov",
-  "Emily Whalen",
-] as const
-
-const statusOptions: ScheduleStatus[] = ["Done", "In Progress", "Not Started"]
+const festivalDestination = "Festival Grounds, Flughafen Tempelhof, 12101 Berlin"
 
 const initialScheduleItems: ScheduleItem[] = [
   {
     id: 1,
-    header: "Outline",
-    type: "Table of Contents",
-    status: "Done",
-    target: "1 page",
-    limit: "1 page",
-    reviewer: "Eddie Lake",
+    passenger: "Lena Fischer",
+    pickupAddress: "Oderberger Str. 24, 10435 Berlin",
+    pickupTime: "14:05",
+    endDestination: festivalDestination,
+    arrival: "15:00",
     favorite: false,
   },
   {
     id: 2,
-    header: "Executive Summary",
-    type: "Executive Summary",
-    status: "In Progress",
-    target: "2 pages",
-    limit: "3 pages",
-    reviewer: "Jamik Tashpulatov",
-    favorite: false,
+    passenger: "Jonas Weber",
+    pickupAddress: "Skalitzer Str. 134, 10999 Berlin",
+    pickupTime: "14:14",
+    endDestination: festivalDestination,
+    arrival: "15:00",
+    favorite: true,
   },
   {
     id: 3,
-    header: "Technical Approach",
-    type: "Technical Approach",
-    status: "In Progress",
-    target: "8 pages",
-    limit: "10 pages",
-    reviewer: "Emily Whalen",
+    passenger: "Mia Schneider",
+    pickupAddress: "Warschauer Str. 43, 10243 Berlin",
+    pickupTime: "14:22",
+    endDestination: festivalDestination,
+    arrival: "15:00",
     favorite: false,
   },
   {
     id: 4,
-    header: "Past Performance",
-    type: "Capabilities",
-    status: "Not Started",
-    target: "3 projects",
-    limit: "5 projects",
-    reviewer: "Assign reviewer",
+    passenger: "Paul Neumann",
+    pickupAddress: "Turmstr. 75, 10551 Berlin",
+    pickupTime: "14:31",
+    endDestination: festivalDestination,
+    arrival: "15:00",
     favorite: false,
   },
   {
     id: 5,
-    header: "Key Personnel",
-    type: "Narrative",
-    status: "Done",
-    target: "2 resumes",
-    limit: "3 resumes",
-    reviewer: "Eddie Lake",
-    favorite: true,
-  },
-  {
-    id: 6,
-    header: "Focus Documents",
-    type: "Focus Documents",
-    status: "Not Started",
-    target: "6 files",
-    limit: "8 files",
-    reviewer: "Assign reviewer",
+    passenger: "Sofia Krause",
+    pickupAddress: "Schloßstr. 110, 12163 Berlin",
+    pickupTime: "14:42",
+    endDestination: festivalDestination,
+    arrival: "15:00",
     favorite: false,
   },
-]
-
-const viewOptions: Array<{
-  value: ScheduleView
-  label: string
-  matchHeader?: ScheduleItem["header"]
-}> = [
-  { value: "outline", label: "Outline" },
-  { value: "past-performance", label: "Past Performance", matchHeader: "Past Performance" },
-  { value: "key-personnel", label: "Key Personnel", matchHeader: "Key Personnel" },
-  { value: "focus-documents", label: "Focus Documents", matchHeader: "Focus Documents" },
 ]
 
 function SortableHeader({
   label,
   isSorted,
   onToggle,
-  align = "left",
 }: {
   label: string
   isSorted: false | "asc" | "desc"
   onToggle: () => void
-  align?: "left" | "right"
 }) {
   return (
     <button
       type="button"
       onClick={onToggle}
-      className={cn(
-        "flex w-full items-center gap-1.5 text-[11px] font-semibold tracking-[0.12em] text-[#777772] uppercase transition-colors hover:text-[#43433f]",
-        align === "right" && "justify-end"
-      )}
+      className="flex w-full items-center gap-1.5 text-[11px] font-semibold tracking-[0.12em] text-[#777772] uppercase transition-colors hover:text-[#43433f]"
     >
       <span>{label}</span>
       {isSorted === "asc" ? (
@@ -205,36 +151,6 @@ function SortableHeader({
         <ChevronRight className="size-3.5 rotate-90" />
       ) : null}
     </button>
-  )
-}
-
-function TypePill({ value }: { value: string }) {
-  return (
-    <span className="inline-flex rounded-full border border-[#dddcd7] bg-[#fafaf7] px-2.5 py-1 text-[12px] text-[#5f5f59]">
-      {value}
-    </span>
-  )
-}
-
-function StatusPill({ value }: { value: ScheduleStatus }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px]",
-        value === "Done"
-          ? "border-[#cfe5cb] bg-[#f1f8ef] text-[#35622e]"
-          : value === "In Progress"
-            ? "border-[#dddcd7] bg-[#fafaf7] text-[#5f5f59]"
-            : "border-[#e6ded1] bg-[#fbf7ef] text-[#7a6644]"
-      )}
-    >
-      {value === "Done" ? (
-        <CheckCircle2 className="size-3.5" />
-      ) : (
-        <LoaderCircle className="size-3.5" />
-      )}
-      {value}
-    </span>
   )
 }
 
@@ -349,7 +265,7 @@ function ActionMenu({
           }}
         >
           <Copy className="size-3.5" />
-          Make a copy
+          Duplicate
         </button>
         <button
           type="button"
@@ -382,12 +298,10 @@ function ActionMenu({
 function DragHandle({
   listeners,
   attributes,
-  disabled,
   onPointerDown,
 }: {
   listeners: ReturnType<typeof useSortable>["listeners"]
   attributes: ReturnType<typeof useSortable>["attributes"]
-  disabled?: boolean
   onPointerDown?: () => void
 }) {
   return (
@@ -396,7 +310,6 @@ function DragHandle({
       variant="ghost"
       size="icon-sm"
       className="text-[#b6b6b0] hover:bg-[#f3f3ef] hover:text-[#7a7a74]"
-      disabled={disabled}
       onPointerDown={onPointerDown}
       {...attributes}
       {...listeners}
@@ -481,83 +394,16 @@ function SortableRow({
   )
 }
 
-function ScheduleTabs({
-  activeView,
-  onChange,
-  counts,
-}: {
-  activeView: ScheduleView
-  onChange: (view: ScheduleView) => void
-  counts: Record<ScheduleView, number>
-}) {
-  const isMobile = useIsMobile()
-
-  if (isMobile) {
-    return (
-      <div className="w-full max-w-[15rem]">
-        <label htmlFor="schedule-view-selector" className="sr-only">
-          View
-        </label>
-        <select
-          id="schedule-view-selector"
-          value={activeView}
-          onChange={(event) => onChange(event.target.value as ScheduleView)}
-          className="h-9 w-full rounded-lg border border-[#dbdbd6] bg-white px-3 text-[13px] text-[#1d1d1b] outline-none transition-colors hover:bg-[#fafaf7] focus:border-[#cfcfca]"
-        >
-          {viewOptions.map((view) => (
-            <option key={view.value} value={view.value}>
-              {view.label}
-            </option>
-          ))}
-        </select>
-      </div>
-    )
-  }
-
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      {viewOptions.map((view) => {
-        const active = view.value === activeView
-
-        return (
-          <button
-            key={view.value}
-            type="button"
-            onClick={() => onChange(view.value)}
-            className={cn(
-              "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[12px] font-medium transition-colors",
-              active
-                ? "border-[#1f1f1d] bg-[#1f1f1d] text-white"
-                : "border-[#dbdbd6] bg-white text-[#4b4b46] hover:bg-[#f3f3ef]"
-            )}
-          >
-            <span>{view.label}</span>
-            {view.value !== "outline" ? (
-              <span
-                className={cn(
-                  "inline-flex min-w-5 items-center justify-center rounded-full px-1.5 text-[11px]",
-                  active ? "bg-white/15 text-white" : "bg-[#efefe9] text-[#6b6b67]"
-                )}
-              >
-                {counts[view.value]}
-              </span>
-            ) : null}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
 export function ScheduleSection() {
   const [data, setData] = React.useState(initialScheduleItems)
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({})
   const [sorting, setSorting] = React.useState<SortingState>([])
-  const [activeView, setActiveView] = React.useState<ScheduleView>("outline")
   const [activeId, setActiveId] = React.useState<number | null>(null)
   const [sheetOpen, setSheetOpen] = React.useState(false)
   const [draft, setDraft] = React.useState<ScheduleItem | null>(null)
+  const [recalculateError, setRecalculateError] = React.useState<string | null>(null)
+  const [isRecalculating, setIsRecalculating] = React.useState(false)
   const sortableId = React.useId()
 
   const sensors = useSensors(
@@ -594,65 +440,101 @@ export function ScheduleSection() {
     setSheetOpen(true)
   }, [])
 
-  const currentView = React.useMemo(
-    () => viewOptions.find((view) => view.value === activeView),
-    [activeView]
-  )
-
-  const tableData = React.useMemo(() => {
-    if (!currentView?.matchHeader) {
-      return data
-    }
-
-    return data.filter((item) => item.header === currentView.matchHeader)
-  }, [currentView, data])
-
   const dataIds = React.useMemo<UniqueIdentifier[]>(
-    () => tableData.map(({ id }) => id),
-    [tableData]
-  )
-
-  const viewCounts = React.useMemo(
-    () =>
-      viewOptions.reduce<Record<ScheduleView, number>>(
-        (acc, view) => {
-          acc[view.value] = view.matchHeader
-            ? data.filter((item) => item.header === view.matchHeader).length
-            : data.length
-          return acc
-        },
-        {
-          outline: data.length,
-          "past-performance": 0,
-          "key-personnel": 0,
-          "focus-documents": 0,
-        }
-      ),
+    () => data.map(({ id }) => id),
     [data]
   )
 
-  const handleDragEnd = React.useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event
+  const routeDebugText = React.useMemo(() => {
+    const pickupChain = data.map((item) => item.pickupAddress).join(" > ")
+    const finalDestination = data[data.length - 1]?.endDestination || festivalDestination
+    return `${pickupChain} > ${finalDestination}`
+  }, [data])
 
-      if (!over || active.id === over.id || activeView !== "outline") {
-        return
-      }
+  const finalArrivalTime = React.useMemo(
+    () =>
+      data[data.length - 1]?.arrival.trim() ||
+      data.find((item) => item.arrival.trim())?.arrival.trim() ||
+      "",
+    [data]
+  )
 
-      setData((current) => {
-        const allIds = current.map((item) => item.id)
-        const oldIndex = allIds.indexOf(Number(active.id))
-        const newIndex = allIds.indexOf(Number(over.id))
+  const handleRecalculate = React.useCallback(() => {
+    const stops: ScheduleStopInput[] = data.map((item) => ({
+      id: item.id,
+      pickupAddress: item.pickupAddress,
+      endDestination: item.endDestination,
+    }))
 
-        if (oldIndex === -1 || newIndex === -1) {
-          return current
+    setRecalculateError(null)
+    setIsRecalculating(true)
+
+    void (async () => {
+      try {
+        const response = await fetch("/api/schedule/recalculate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            arrivalTime: finalArrivalTime,
+            stops,
+          }),
+        })
+
+        const payload = (await response.json()) as
+          | { error?: string; stops?: RecalculatedScheduleStop[] }
+          | undefined
+
+        if (!response.ok || !payload?.stops) {
+          throw new Error(payload?.error ?? "Unable to recalculate pickup times.")
         }
 
-        return arrayMove(current, oldIndex, newIndex)
-      })
-    },
-    [activeView]
-  )
+        setData((current) =>
+          current.map((item) => {
+            const recalculatedStop = payload.stops?.find((stop) => stop.id === item.id)
+
+            if (!recalculatedStop) {
+              return item
+            }
+
+            return {
+              ...item,
+              pickupTime: recalculatedStop.pickupTime,
+              arrival: recalculatedStop.arrival,
+              endDestination: recalculatedStop.endDestination,
+            }
+          })
+        )
+      } catch (error) {
+        setRecalculateError(
+          error instanceof Error ? error.message : "Unable to recalculate pickup times."
+        )
+      } finally {
+        setIsRecalculating(false)
+      }
+    })()
+  }, [data, finalArrivalTime])
+
+  const handleDragEnd = React.useCallback((event: DragEndEvent) => {
+    const { active, over } = event
+
+    if (!over || active.id === over.id) {
+      return
+    }
+
+    setData((current) => {
+      const ids = current.map((item) => item.id)
+      const oldIndex = ids.indexOf(Number(active.id))
+      const newIndex = ids.indexOf(Number(over.id))
+
+      if (oldIndex === -1 || newIndex === -1) {
+        return current
+      }
+
+      return arrayMove(current, oldIndex, newIndex)
+    })
+  }, [])
 
   const columns = React.useMemo<ColumnDef<ScheduleItem>[]>(
     () => [
@@ -672,7 +554,7 @@ export function ScheduleSection() {
                 table.getIsAllRowsSelected() ||
                 (table.getIsSomeRowsSelected() ? "indeterminate" : false)
               }
-              onCheckedChange={(checked) => table.toggleAllRowsSelected(checked)}
+              onCheckedChange={(checked) => table.toggleAllRowsSelected(checked === true)}
               aria-label="Select all rows"
             />
           </div>
@@ -683,18 +565,18 @@ export function ScheduleSection() {
           <div className="flex items-center justify-center">
             <Checkbox
               checked={row.getIsSelected()}
-              onCheckedChange={(checked) => row.toggleSelected(checked)}
-              aria-label={`Select ${row.original.header}`}
+              onCheckedChange={(checked) => row.toggleSelected(checked === true)}
+              aria-label={`Select ${row.original.passenger}`}
             />
           </div>
         ),
       },
       {
-        accessorKey: "header",
+        accessorKey: "passenger",
         enableHiding: false,
         header: ({ column }) => (
           <SortableHeader
-            label="Header"
+            label="Passengers"
             isSorted={column.getIsSorted()}
             onToggle={() => column.toggleSorting(column.getIsSorted() === "asc")}
           />
@@ -705,7 +587,7 @@ export function ScheduleSection() {
             onClick={() => openEditor(row.original)}
             className="flex items-center gap-2 text-left text-[13px] font-medium text-[#1d1d1b] transition-colors hover:text-[#4f6bbd]"
           >
-            <span>{row.original.header}</span>
+            <span>{row.original.passenger}</span>
             {row.original.favorite ? (
               <Star className="size-3.5 fill-[#b2952f] text-[#b2952f]" />
             ) : null}
@@ -713,100 +595,47 @@ export function ScheduleSection() {
         ),
       },
       {
-        accessorKey: "type",
+        accessorKey: "pickupAddress",
         header: ({ column }) => (
           <SortableHeader
-            label="Section Type"
+            label="Pickup Address"
             isSorted={column.getIsSorted()}
             onToggle={() => column.toggleSorting(column.getIsSorted() === "asc")}
           />
         ),
-        cell: ({ row }) => <TypePill value={row.original.type} />,
       },
       {
-        accessorKey: "status",
+        accessorKey: "pickupTime",
         header: ({ column }) => (
           <SortableHeader
-            label="Status"
+            label="PU Time"
             isSorted={column.getIsSorted()}
             onToggle={() => column.toggleSorting(column.getIsSorted() === "asc")}
           />
         ),
-        cell: ({ row }) => <StatusPill value={row.original.status} />,
       },
       {
-        accessorKey: "target",
+        accessorKey: "endDestination",
         header: ({ column }) => (
           <SortableHeader
-            label="Target"
+            label="End Destination"
             isSorted={column.getIsSorted()}
             onToggle={() => column.toggleSorting(column.getIsSorted() === "asc")}
-            align="right"
           />
         ),
         cell: ({ row }) => (
-          <div className="flex justify-end">
-            <Input
-              value={row.original.target}
-              onChange={(event) => updateItem(row.original.id, "target", event.target.value)}
-              className="h-8 w-24 border-transparent bg-transparent text-right shadow-none hover:border-[#d7d7d2] hover:bg-[#f7f7f4] focus-visible:border-[#d2d2cc] focus-visible:ring-0"
-              aria-label={`${row.original.header} target`}
-            />
-          </div>
+          <span className="text-[#5f5f59]">{row.original.endDestination}</span>
         ),
       },
       {
-        accessorKey: "limit",
+        accessorKey: "arrival",
         header: ({ column }) => (
           <SortableHeader
-            label="Limit"
-            isSorted={column.getIsSorted()}
-            onToggle={() => column.toggleSorting(column.getIsSorted() === "asc")}
-            align="right"
-          />
-        ),
-        cell: ({ row }) => (
-          <div className="flex justify-end">
-            <Input
-              value={row.original.limit}
-              onChange={(event) => updateItem(row.original.id, "limit", event.target.value)}
-              className="h-8 w-24 border-transparent bg-transparent text-right shadow-none hover:border-[#d7d7d2] hover:bg-[#f7f7f4] focus-visible:border-[#d2d2cc] focus-visible:ring-0"
-              aria-label={`${row.original.header} limit`}
-            />
-          </div>
-        ),
-      },
-      {
-        accessorKey: "reviewer",
-        header: ({ column }) => (
-          <SortableHeader
-            label="Reviewer"
+            label="Arrival"
             isSorted={column.getIsSorted()}
             onToggle={() => column.toggleSorting(column.getIsSorted() === "asc")}
           />
         ),
-        cell: ({ row }) => {
-          const isAssigned = row.original.reviewer !== "Assign reviewer"
-
-          if (isAssigned) {
-            return row.original.reviewer
-          }
-
-          return (
-            <select
-              value={row.original.reviewer}
-              onChange={(event) => updateItem(row.original.id, "reviewer", event.target.value)}
-              className="h-8 rounded-lg border border-[#dbdbd6] bg-white px-2.5 text-[13px] text-[#1d1d1b] outline-none transition-colors hover:bg-[#fafaf7] focus:border-[#cfcfca]"
-              aria-label={`${row.original.header} reviewer`}
-            >
-              {reviewerOptions.map((reviewer) => (
-                <option key={reviewer} value={reviewer}>
-                  {reviewer}
-                </option>
-              ))}
-            </select>
-          )
-        },
       },
       {
         id: "actions",
@@ -816,13 +645,11 @@ export function ScheduleSection() {
         cell: () => null,
       },
     ],
-    [openEditor, updateItem]
+    [openEditor]
   )
 
-  // TanStack Table is an intentional exception to the React Compiler lint rule here.
-  // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
-    data: tableData,
+    data,
     columns,
     state: {
       sorting,
@@ -846,12 +673,24 @@ export function ScheduleSection() {
     <>
       <div className="space-y-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <ScheduleTabs
-            activeView={activeView}
-            onChange={setActiveView}
-            counts={viewCounts}
-          />
+          <div>
+            <p className="text-[18px] font-semibold text-[#1d1d1b]">Van 1</p>
+            <p className="mt-1 text-[13px] leading-6 text-[#6b6b67]">
+              Berlin pickup run for 5 passengers headed to the same festival destination.
+            </p>
+          </div>
           <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isRecalculating || data.length === 0 || !finalArrivalTime}
+              className="border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef]"
+              onClick={handleRecalculate}
+            >
+              <RefreshCcw className={cn("size-4", isRecalculating && "animate-spin")} />
+              <span>Recalculate</span>
+            </Button>
             <ColumnToggleMenu columns={visibleColumns} />
             <Button
               type="button"
@@ -861,7 +700,7 @@ export function ScheduleSection() {
               className="border-[#dbdbd6] bg-[#fafaf7] text-[#1d1d1b] hover:bg-[#f1f1ed]"
             >
               <Plus className="size-4" />
-              <span className="hidden lg:inline">Add Section</span>
+              <span className="hidden lg:inline">Add Stop</span>
               <span className="lg:hidden">Add</span>
             </Button>
           </div>
@@ -889,12 +728,11 @@ export function ScheduleSection() {
                           "h-11 border-b border-[#ecece8] bg-[#f7f7f4] px-3 align-middle",
                           header.column.id === "drag" && "w-10",
                           header.column.id === "select" && "w-11",
-                          header.column.id === "header" && "w-[20%]",
-                          header.column.id === "type" && "w-[18%]",
-                          header.column.id === "status" && "w-[14%]",
-                          header.column.id === "target" && "w-[11%]",
-                          header.column.id === "limit" && "w-[11%]",
-                          header.column.id === "reviewer" && "w-[16%]",
+                          header.column.id === "passenger" && "w-[16%]",
+                          header.column.id === "pickupAddress" && "w-[27%]",
+                          header.column.id === "pickupTime" && "w-[11%]",
+                          header.column.id === "endDestination" && "w-[28%]",
+                          header.column.id === "arrival" && "w-[10%]",
                           header.column.id === "actions" && "w-14"
                         )}
                       >
@@ -933,7 +771,7 @@ export function ScheduleSection() {
                             {
                               ...item,
                               id: nextId,
-                              header: `${item.header} Copy`,
+                              passenger: `${item.passenger} Copy`,
                               favorite: false,
                             },
                           ])
@@ -973,7 +811,22 @@ export function ScheduleSection() {
             {table.getSelectedRowModel().rows.length} of {table.getRowModel().rows.length} row(s) selected.
           </p>
           <p className="text-[12px] leading-5 text-[#6b6b67]">
-            This now uses the same center-based DnD pattern as your sample. Pagination is still omitted per your earlier requirement.
+            Drag to set stop order, then recalculate to backfill pickup times from the final arrival.
+          </p>
+        </div>
+
+        {recalculateError ? (
+          <div className="rounded-lg border border-[#f3d7d7] bg-[#fff7f7] px-4 py-3">
+            <p className="text-[12px] leading-5 text-[#9a4f4f]">{recalculateError}</p>
+          </div>
+        ) : null}
+
+        <div className="rounded-lg border border-dashed border-[#dddcd7] bg-[#fcfcfa] px-4 py-3">
+          <p className="text-[11px] font-semibold tracking-[0.12em] text-[#777772] uppercase">
+            Debug Route
+          </p>
+          <p className="mt-2 text-[12px] leading-6 text-[#4b4b46]">
+            {routeDebugText}
           </p>
         </div>
       </div>
@@ -989,34 +842,34 @@ export function ScheduleSection() {
       >
         <SheetContent side="right" className="w-full border-l border-[#ecece8] bg-white sm:max-w-xl">
           <SheetHeader className="gap-1 border-b border-[#ecece8] px-6 py-5">
-            <SheetTitle>{draft?.header ?? "Section details"}</SheetTitle>
+            <SheetTitle>{draft?.passenger ?? "Passenger details"}</SheetTitle>
             <SheetDescription>
-              Review and update the copied section details without leaving the schedule table.
+              Edit the pickup stop for Van 1 without leaving the schedule table.
             </SheetDescription>
           </SheetHeader>
 
           <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-6 py-5">
             <div className="rounded-xl border border-[#ecece8] bg-[#fbfbf8] p-4">
               <p className="text-[12px] font-semibold tracking-[0.12em] text-[#777772] uppercase">
-                Section snapshot
+                Stop snapshot
               </p>
               <div className="mt-3 grid gap-3 sm:grid-cols-3">
                 <div className="rounded-lg border border-[#e7e7e4] bg-white px-3 py-2">
-                  <p className="text-[11px] text-[#777772] uppercase">Status</p>
-                  <div className="mt-2">
-                    {draft ? <StatusPill value={draft.status} /> : null}
-                  </div>
-                </div>
-                <div className="rounded-lg border border-[#e7e7e4] bg-white px-3 py-2">
-                  <p className="text-[11px] text-[#777772] uppercase">Target</p>
+                  <p className="text-[11px] text-[#777772] uppercase">Pickup</p>
                   <p className="mt-2 text-[13px] font-medium text-[#1d1d1b]">
-                    {draft?.target ?? "0"}
+                    {draft?.pickupTime ?? "--:--"}
                   </p>
                 </div>
                 <div className="rounded-lg border border-[#e7e7e4] bg-white px-3 py-2">
-                  <p className="text-[11px] text-[#777772] uppercase">Limit</p>
+                  <p className="text-[11px] text-[#777772] uppercase">Arrival</p>
                   <p className="mt-2 text-[13px] font-medium text-[#1d1d1b]">
-                    {draft?.limit ?? "0"}
+                    {draft?.arrival ?? "--:--"}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-[#e7e7e4] bg-white px-3 py-2">
+                  <p className="text-[11px] text-[#777772] uppercase">Destination</p>
+                  <p className="mt-2 text-[13px] font-medium text-[#1d1d1b]">
+                    Tempelhof
                   </p>
                 </div>
               </div>
@@ -1040,15 +893,30 @@ export function ScheduleSection() {
               }}
             >
               <div className="flex flex-col gap-2">
-                <label htmlFor="schedule-header" className="text-[13px] font-medium text-[#1d1d1b]">
-                  Header
+                <label htmlFor="schedule-passenger" className="text-[13px] font-medium text-[#1d1d1b]">
+                  Passenger
                 </label>
                 <Input
-                  id="schedule-header"
-                  value={draft?.header ?? ""}
+                  id="schedule-passenger"
+                  value={draft?.passenger ?? ""}
                   onChange={(event) =>
                     setDraft((current) =>
-                      current ? { ...current, header: event.target.value } : current
+                      current ? { ...current, passenger: event.target.value } : current
+                    )
+                  }
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label htmlFor="schedule-pickup-address" className="text-[13px] font-medium text-[#1d1d1b]">
+                  Pickup Address
+                </label>
+                <Input
+                  id="schedule-pickup-address"
+                  value={draft?.pickupAddress ?? ""}
+                  onChange={(event) =>
+                    setDraft((current) =>
+                      current ? { ...current, pickupAddress: event.target.value } : current
                     )
                   }
                 />
@@ -1056,78 +924,30 @@ export function ScheduleSection() {
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="flex flex-col gap-2">
-                  <label htmlFor="schedule-type" className="text-[13px] font-medium text-[#1d1d1b]">
-                    Type
-                  </label>
-                  <select
-                    id="schedule-type"
-                    value={draft?.type ?? typeOptions[0]}
-                    onChange={(event) =>
-                      setDraft((current) =>
-                        current ? { ...current, type: event.target.value } : current
-                      )
-                    }
-                    className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-[13px] text-[#1d1d1b] outline-none focus:border-ring"
-                  >
-                    {typeOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <label htmlFor="schedule-status" className="text-[13px] font-medium text-[#1d1d1b]">
-                    Status
-                  </label>
-                  <select
-                    id="schedule-status"
-                    value={draft?.status ?? statusOptions[0]}
-                    onChange={(event) =>
-                      setDraft((current) =>
-                        current
-                          ? { ...current, status: event.target.value as ScheduleStatus }
-                          : current
-                      )
-                    }
-                    className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-[13px] text-[#1d1d1b] outline-none focus:border-ring"
-                  >
-                    {statusOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="flex flex-col gap-2">
-                  <label htmlFor="schedule-target" className="text-[13px] font-medium text-[#1d1d1b]">
-                    Target
+                  <label htmlFor="schedule-pickup-time" className="text-[13px] font-medium text-[#1d1d1b]">
+                    PU Time
                   </label>
                   <Input
-                    id="schedule-target"
-                    value={draft?.target ?? ""}
+                    id="schedule-pickup-time"
+                    value={draft?.pickupTime ?? ""}
                     onChange={(event) =>
                       setDraft((current) =>
-                        current ? { ...current, target: event.target.value } : current
+                        current ? { ...current, pickupTime: event.target.value } : current
                       )
                     }
                   />
                 </div>
 
                 <div className="flex flex-col gap-2">
-                  <label htmlFor="schedule-limit" className="text-[13px] font-medium text-[#1d1d1b]">
-                    Limit
+                  <label htmlFor="schedule-arrival" className="text-[13px] font-medium text-[#1d1d1b]">
+                    Arrival
                   </label>
                   <Input
-                    id="schedule-limit"
-                    value={draft?.limit ?? ""}
+                    id="schedule-arrival"
+                    value={draft?.arrival ?? ""}
                     onChange={(event) =>
                       setDraft((current) =>
-                        current ? { ...current, limit: event.target.value } : current
+                        current ? { ...current, arrival: event.target.value } : current
                       )
                     }
                   />
@@ -1135,25 +955,18 @@ export function ScheduleSection() {
               </div>
 
               <div className="flex flex-col gap-2">
-                <label htmlFor="schedule-reviewer" className="text-[13px] font-medium text-[#1d1d1b]">
-                  Reviewer
+                <label htmlFor="schedule-end-destination" className="text-[13px] font-medium text-[#1d1d1b]">
+                  End Destination
                 </label>
-                <select
-                  id="schedule-reviewer"
-                  value={draft?.reviewer ?? reviewerOptions[0]}
+                <Input
+                  id="schedule-end-destination"
+                  value={draft?.endDestination ?? ""}
                   onChange={(event) =>
                     setDraft((current) =>
-                      current ? { ...current, reviewer: event.target.value } : current
+                      current ? { ...current, endDestination: event.target.value } : current
                     )
                   }
-                  className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-[13px] text-[#1d1d1b] outline-none focus:border-ring"
-                >
-                  {reviewerOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
 
               <SheetFooter className="px-0 pt-2">
