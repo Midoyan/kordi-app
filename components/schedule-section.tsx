@@ -2,22 +2,12 @@
 
 import * as React from "react"
 import {
-  closestCenter,
-  DndContext,
-  KeyboardSensor,
-  MouseSensor,
-  TouchSensor,
-  useSensor,
-  useSensors,
   type DragEndEvent,
   type UniqueIdentifier,
 } from "@dnd-kit/core"
-import { restrictToVerticalAxis } from "@dnd-kit/modifiers"
 import {
   arrayMove,
-  SortableContext,
   useSortable,
-  verticalListSortingStrategy,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import {
@@ -25,7 +15,6 @@ import {
   getCoreRowModel,
   getSortedRowModel,
   useReactTable,
-  type Column,
   type ColumnDef,
   type Row,
   type RowSelectionState,
@@ -33,14 +22,12 @@ import {
   type VisibilityState,
 } from "@tanstack/react-table"
 import {
-  ChevronDown,
   ChevronRight,
   Copy,
   GripVertical,
   MoreHorizontal,
   Pencil,
   Plus,
-  Settings2,
   Star,
   Trash2,
 } from "lucide-react"
@@ -76,14 +63,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { TableCell, TableRow } from "@/components/ui/table"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+  WorkspaceColumnToggleMenu,
+  WorkspaceDataTable,
+} from "@/components/workspace-data-table"
 
 type ScheduleItem = {
   id: number
@@ -413,7 +397,6 @@ function PassengerCombobox({
         {selectedPeople.map((person) => (
           <ComboboxChip
             key={person.id}
-            value={person.id}
             className="h-5 rounded-sm px-1.5 text-[11px]"
           >
             {person.name}
@@ -575,63 +558,6 @@ function SortableHeader({
         <ChevronRight className="size-3.5 rotate-90" />
       ) : null}
     </button>
-  )
-}
-
-function ColumnToggleMenu({
-  columns,
-}: {
-  columns: Column<ScheduleItem, unknown>[]
-}) {
-  const [open, setOpen] = React.useState(false)
-  const ref = React.useRef<HTMLDivElement | null>(null)
-
-  React.useEffect(() => {
-    if (!open) {
-      return
-    }
-
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!ref.current?.contains(event.target as Node)) {
-        setOpen(false)
-      }
-    }
-
-    document.addEventListener("mousedown", handlePointerDown)
-    return () => document.removeEventListener("mousedown", handlePointerDown)
-  }, [open])
-
-  return (
-    <div ref={ref} className="relative">
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef]"
-        onClick={() => setOpen((current) => !current)}
-      >
-        <Settings2 className="size-4" />
-        <span className="hidden lg:inline">Customize Columns</span>
-        <span className="lg:hidden">Columns</span>
-        <ChevronDown className="size-4" />
-      </Button>
-      {open ? (
-        <div className="absolute right-0 z-20 mt-2 min-w-52 rounded-xl border border-[#e3e3df] bg-white p-2 shadow-[0_18px_40px_-24px_rgba(15,23,42,0.45)]">
-          {columns.map((column) => (
-            <label
-              key={column.id}
-              className="flex cursor-pointer items-center justify-between gap-3 rounded-lg px-3 py-2 text-[13px] text-[#1d1d1b] hover:bg-[#f7f7f4]"
-            >
-              <span className="capitalize">{column.id.replaceAll("-", " ")}</span>
-              <Checkbox
-                checked={column.getIsVisible()}
-                onCheckedChange={(checked) => column.toggleVisibility(checked)}
-              />
-            </label>
-          ))}
-        </div>
-      ) : null}
-    </div>
   )
 }
 
@@ -896,12 +822,6 @@ export function ScheduleSection() {
   const animationTokenRef = React.useRef(0)
   const lastSelectedRowIdRef = React.useRef<string | null>(null)
   const contextMenuRef = React.useRef<HTMLDivElement | null>(null)
-
-  const sensors = useSensors(
-    useSensor(MouseSensor, {}),
-    useSensor(TouchSensor, {}),
-    useSensor(KeyboardSensor, {})
-  )
 
   const displayData = React.useMemo(
     () => (pendingOrder ? orderScheduleItems(data, pendingOrder) : data),
@@ -1468,10 +1388,14 @@ export function ScheduleSection() {
     }
 
     const handlePointerDown = (event: MouseEvent) => {
-      if (contextMenuRef.current?.contains(event.target as Node)) {
+      const target = event.target
+      if (target instanceof Node && contextMenuRef.current?.contains(target)) {
         return
       }
 
+      setContextMenu(null)
+    }
+    const handleScroll = () => {
       setContextMenu(null)
     }
     const handleEscape = (event: KeyboardEvent) => {
@@ -1482,12 +1406,12 @@ export function ScheduleSection() {
 
     window.addEventListener("mousedown", handlePointerDown)
     window.addEventListener("keydown", handleEscape)
-    window.addEventListener("scroll", handlePointerDown, true)
+    window.addEventListener("scroll", handleScroll, true)
 
     return () => {
       window.removeEventListener("mousedown", handlePointerDown)
       window.removeEventListener("keydown", handleEscape)
-      window.removeEventListener("scroll", handlePointerDown, true)
+      window.removeEventListener("scroll", handleScroll, true)
     }
   }, [contextMenu])
 
@@ -1497,194 +1421,160 @@ export function ScheduleSection() {
 
   return (
     <>
-      <div className="space-y-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-[18px] font-semibold text-[#1d1d1b]">Van 1</p>
-            <p className="mt-1 text-[13px] leading-6 text-[#6b6b67]">
-              Berlin pickup run for 5 passengers headed to the same festival destination.
-            </p>
+      <WorkspaceDataTable
+        table={table}
+        dataIds={dataIds}
+        sortable
+        sortableId={sortableId}
+        onDragEnd={handleDragEnd}
+        tableClassName="table-fixed"
+        headerClassName="bg-[#f7f7f4]"
+        headerRowClassName="border-[#ecece8] hover:bg-transparent"
+        getHeadClassName={(columnId) =>
+          cn(
+            "h-11 border-b border-[#ecece8] bg-[#f7f7f4] px-3 align-middle",
+            columnId === "drag" && "w-10",
+            columnId === "select" && "w-11",
+            columnId === "passengerIds" && "w-[18%]",
+            columnId === "pickupAddress" && "w-[27%]",
+            columnId === "pickupTime" && "w-[11%]",
+            columnId === "endDestination" && "w-[26%]",
+            columnId === "arrival" && "w-[10%]",
+            columnId === "actions" && "w-14"
+          )
+        }
+        toolbar={(
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-[18px] font-semibold text-[#1d1d1b]">Van 1</p>
+              <p className="mt-1 text-[13px] leading-6 text-[#6b6b67]">
+                Berlin pickup run for 5 passengers headed to the same festival destination.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <ScheduleRoutingControls
+                stops={displayData.map((item) => ({
+                  id: item.id,
+                  pickupAddress: item.pickupAddress,
+                  endDestination: item.endDestination,
+                }))}
+                arrivalTime={finalArrivalTime}
+                hasPendingChanges={hasPendingChanges}
+                onConfirmChanges={confirmPendingChanges}
+                onErrorChange={setRecalculateError}
+                onPlanReady={handlePlanReady}
+              />
+              <WorkspaceColumnToggleMenu columns={visibleColumns} />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled
+                className="border-[#dbdbd6] bg-[#fafaf7] text-[#1d1d1b] hover:bg-[#f1f1ed]"
+              >
+                <Plus className="size-4" />
+                <span className="hidden lg:inline">Add Stop</span>
+                <span className="lg:hidden">Add</span>
+              </Button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <ScheduleRoutingControls
-              stops={displayData.map((item) => ({
-                id: item.id,
-                pickupAddress: item.pickupAddress,
-                endDestination: item.endDestination,
-              }))}
-              arrivalTime={finalArrivalTime}
-              hasPendingChanges={hasPendingChanges}
-              onConfirmChanges={confirmPendingChanges}
-              onErrorChange={setRecalculateError}
-              onPlanReady={handlePlanReady}
-            />
-            <ColumnToggleMenu columns={visibleColumns} />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled
-              className="border-[#dbdbd6] bg-[#fafaf7] text-[#1d1d1b] hover:bg-[#f1f1ed]"
-            >
-              <Plus className="size-4" />
-              <span className="hidden lg:inline">Add Stop</span>
-              <span className="lg:hidden">Add</span>
-            </Button>
-          </div>
-        </div>
+        )}
+        footer={(
+          <>
+            <div className="flex flex-col gap-3 rounded-lg border border-[#f1f1ed] bg-[#fcfcfa] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+              <p className="text-[12px] leading-5 text-[#6b6b67]">
+                {table.getSelectedRowModel().rows.length} of {table.getRowModel().rows.length} row(s) selected.
+              </p>
+              <p className="text-[12px] leading-5 text-[#6b6b67]">
+                Drag to set stop order, then recalculate to backfill pickup times from the final arrival.
+              </p>
+            </div>
 
-        <div className="overflow-hidden rounded-xl border border-[#ecece8]">
-          <DndContext
-            id={sortableId}
-            collisionDetection={closestCenter}
-            modifiers={[restrictToVerticalAxis]}
-            sensors={sensors}
-            onDragEnd={handleDragEnd}
-          >
-            <Table className="table-fixed">
-              <TableHeader className="bg-[#f7f7f4]">
-                {table.getHeaderGroups().map((headerGroup) => (
-                  <TableRow
-                    key={headerGroup.id}
-                    className="border-[#ecece8] hover:bg-transparent"
-                  >
-                    {headerGroup.headers.map((header) => (
-                      <TableHead
-                        key={header.id}
-                        className={cn(
-                          "h-11 border-b border-[#ecece8] bg-[#f7f7f4] px-3 align-middle",
-                          header.column.id === "drag" && "w-10",
-                          header.column.id === "select" && "w-11",
-                          header.column.id === "passengerIds" && "w-[18%]",
-                          header.column.id === "pickupAddress" && "w-[27%]",
-                          header.column.id === "pickupTime" && "w-[11%]",
-                          header.column.id === "endDestination" && "w-[26%]",
-                          header.column.id === "arrival" && "w-[10%]",
-                          header.column.id === "actions" && "w-14"
-                        )}
-                      >
-                        {header.isPlaceholder
-                          ? null
-                          : flexRender(header.column.columnDef.header, header.getContext())}
-                      </TableHead>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableHeader>
-              <TableBody>
-                {table.getRowModel().rows.length === 0 ? (
-                  <TableRow className="hover:bg-transparent">
-                    <TableCell
-                      colSpan={table.getVisibleLeafColumns().length}
-                      className="py-14 text-center text-[13px] text-[#6b6b67]"
-                    >
-                      No schedule items yet.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  <SortableContext
-                    items={dataIds}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    {table.getRowModel().rows.map((row) => (
-                      <SortableRow
-                        key={row.id}
-                        row={row}
-                        pendingUpdate={pendingUpdates[row.original.id]}
-                        routeTone={routeTones[row.original.id]}
-                        showRouteTone={showOptimizedGradient}
-                        onOpenEditor={openEditor}
-                        onCopy={(item) => {
-                          const nextId = Math.max(0, ...data.map((entry) => entry.id)) + 1
-                          setData((current) => [
-                            ...current,
-                            {
-                              ...item,
-                              id: nextId,
-                              passengerIds: [...item.passengerIds],
-                              favorite: false,
-                            },
-                          ])
-                          setPendingOrder((current) =>
-                            current ? [...current, nextId] : current
-                          )
-                        }}
-                        onFavorite={(item) =>
-                          updateItem(item.id, "favorite", !item.favorite)
-                        }
-                        onDelete={(item) => {
-                          setData((current) => current.filter((entry) => entry.id !== item.id))
-                          setPendingOrder((current) =>
-                            current ? current.filter((id) => id !== item.id) : current
-                          )
-                          setPendingUpdates((current) => {
-                            const next = { ...current }
-                            delete next[item.id]
-                            return next
-                          })
-                          setRowSelection((current) => {
-                            const next = { ...current }
-                            delete next[item.id.toString()]
-                            return next
-                          })
-                          if (activeId === item.id) {
-                            setSheetOpen(false)
-                            setActiveId(null)
-                            setDraft(null)
-                          }
-                          if (lastSelectedRowIdRef.current === item.id.toString()) {
-                            lastSelectedRowIdRef.current = null
-                          }
-                        }}
-                        onClearSorting={() => {
-                          if (sorting.length > 0) {
-                            setSorting([])
-                          }
-                        }}
-                        onRowClick={handleRowClick}
-                        onRowContextMenu={handleRowContextMenu}
-                      />
-                    ))}
-                  </SortableContext>
-                )}
-              </TableBody>
-            </Table>
-          </DndContext>
-        </div>
+            {hasPendingChanges ? (
+              <div className="flex flex-col gap-2 rounded-lg border border-[#dfe7f4] bg-[linear-gradient(180deg,#f8fbff_0%,#f1f6ff_100%)] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+                <p className="text-[12px] leading-5 text-[#49628d]">
+                  {pendingSummary}
+                </p>
+              </div>
+            ) : null}
 
-        <div className="flex flex-col gap-3 rounded-lg border border-[#f1f1ed] bg-[#fcfcfa] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-          <p className="text-[12px] leading-5 text-[#6b6b67]">
-            {table.getSelectedRowModel().rows.length} of {table.getRowModel().rows.length} row(s) selected.
-          </p>
-          <p className="text-[12px] leading-5 text-[#6b6b67]">
-            Drag to set stop order, then recalculate to backfill pickup times from the final arrival.
-          </p>
-        </div>
-
-        {hasPendingChanges ? (
-          <div className="flex flex-col gap-2 rounded-lg border border-[#dfe7f4] bg-[linear-gradient(180deg,#f8fbff_0%,#f1f6ff_100%)] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-            <p className="text-[12px] leading-5 text-[#49628d]">
-              {pendingSummary}
-            </p>
-          </div>
-        ) : null}
-
-        {recalculateError ? (
-          <div className="rounded-lg border border-[#f3d7d7] bg-[#fff7f7] px-4 py-3">
-            <p className="text-[12px] leading-5 text-[#9a4f4f]">{recalculateError}</p>
-          </div>
-        ) : null}
-
-        {contextMenu ? (
-          <ContextMenu
-            position={contextMenu}
-            selectedItems={selectedItems}
-            menuRef={contextMenuRef}
-            onClose={() => setContextMenu(null)}
-            onMerge={handleMerge}
+            {recalculateError ? (
+              <div className="rounded-lg border border-[#f3d7d7] bg-[#fff7f7] px-4 py-3">
+                <p className="text-[12px] leading-5 text-[#9a4f4f]">{recalculateError}</p>
+              </div>
+            ) : null}
+          </>
+        )}
+        renderRow={(row) => (
+          <SortableRow
+            key={row.id}
+            row={row}
+            pendingUpdate={pendingUpdates[row.original.id]}
+            routeTone={routeTones[row.original.id]}
+            showRouteTone={showOptimizedGradient}
+            onOpenEditor={openEditor}
+            onCopy={(item) => {
+              const nextId = Math.max(0, ...data.map((entry) => entry.id)) + 1
+              setData((current) => [
+                ...current,
+                {
+                  ...item,
+                  id: nextId,
+                  passengerIds: [...item.passengerIds],
+                  favorite: false,
+                },
+              ])
+              setPendingOrder((current) =>
+                current ? [...current, nextId] : current
+              )
+            }}
+            onFavorite={(item) =>
+              updateItem(item.id, "favorite", !item.favorite)
+            }
+            onDelete={(item) => {
+              setData((current) => current.filter((entry) => entry.id !== item.id))
+              setPendingOrder((current) =>
+                current ? current.filter((id) => id !== item.id) : current
+              )
+              setPendingUpdates((current) => {
+                const next = { ...current }
+                delete next[item.id]
+                return next
+              })
+              setRowSelection((current) => {
+                const next = { ...current }
+                delete next[item.id.toString()]
+                return next
+              })
+              if (activeId === item.id) {
+                setSheetOpen(false)
+                setActiveId(null)
+                setDraft(null)
+              }
+              if (lastSelectedRowIdRef.current === item.id.toString()) {
+                lastSelectedRowIdRef.current = null
+              }
+            }}
+            onClearSorting={() => {
+              if (sorting.length > 0) {
+                setSorting([])
+              }
+            }}
+            onRowClick={handleRowClick}
+            onRowContextMenu={handleRowContextMenu}
           />
-        ) : null}
-      </div>
+        )}
+      />
+
+      {contextMenu ? (
+        <ContextMenu
+          position={contextMenu}
+          selectedItems={selectedItems}
+          menuRef={contextMenuRef}
+          onClose={() => setContextMenu(null)}
+          onMerge={handleMerge}
+        />
+      ) : null}
 
       <Sheet
         open={sheetOpen}
