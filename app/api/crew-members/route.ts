@@ -1,33 +1,42 @@
-import { createClient } from "@/utils/supabase/server";
+import { createClient } from "@/lib/server";
+import {
+  normalizeCrewMemberPayload,
+  validateCrewMemberPayload,
+} from "@/lib/people";
 
 export async function GET() {
-    const supabase = await createClient()
+  const supabase = await createClient();
 
-    const { data, error } = await supabase
-        .from("crew_members")
-        .select("*")
-        .order("created_at", { ascending: false });
+  const { data, error } = await supabase
+    .from("crew_members")
+    .select("id, full_name, home_address, phone, created_at")
+    .order("created_at", { ascending: false });
 
-    if (error) {
-        return Response.json({ error: error.message }, { status: 500 });
-    }
+  if (error) {
+    return Response.json({ error: error.message }, { status: 500 });
+  }
 
-    return Response.json(data, { status: 200 });
+  return Response.json(data ?? [], { status: 200 });
 }
 
 export async function POST(req: Request) {
-    const supabase = await createClient()
-    const body = await req.json();
+  const supabase = await createClient();
+  const payload = normalizeCrewMemberPayload(await req.json());
+  const validationError = validateCrewMemberPayload(payload);
 
-    const { data, error } = await supabase
-        .from("crew_members")
-        .insert([body])
-        .select()
-        .single();
+  if (validationError) {
+    return Response.json({ error: validationError }, { status: 400 });
+  }
 
-    if (error) {
-        return Response.json({ error: error.message }, { status: 500 });
-    }
+  const { data, error } = await supabase
+    .from("crew_members")
+    .insert([payload])
+    .select("id, full_name, home_address, phone, created_at")
+    .single();
 
-    return Response.json(data, { status: 201 });
+  if (error) {
+    return Response.json({ error: error.message }, { status: 500 });
+  }
+
+  return Response.json(data, { status: 201 });
 }

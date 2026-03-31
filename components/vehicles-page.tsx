@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Car, Plus, UserRound, Wrench } from "lucide-react";
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 
 import { EditorSheetLayout } from "@/components/editor-sheet-layout";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,11 @@ import {
 } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { SheetFooter } from "@/components/ui/sheet";
-import { demoPeople } from "@/lib/demo-people";
+import {
+  fetchPeople,
+  getCachedPeopleSnapshot,
+  type PersonRecord,
+} from "@/lib/people";
 
 type VehicleStatus = "Ready" | "Standby" | "Needs service";
 
@@ -68,7 +72,11 @@ const initialForm: VehicleForm = {
   notes: "",
 };
 
-const demoVehicleForms: VehicleForm[] = [
+type VehicleFormTemplate = Omit<VehicleForm, "driverId"> & {
+  preferredDriverIndex?: number;
+};
+
+const sampleVehicleForms: VehicleFormTemplate[] = [
   {
     name: "Sprinter 12",
     make: "Mercedes-Benz",
@@ -76,7 +84,7 @@ const demoVehicleForms: VehicleForm[] = [
     licensePlate: "8TRN214",
     type: "Van",
     capacity: "8",
-    driverId: demoPeople[0]?.id ?? "",
+    preferredDriverIndex: 0,
     status: "Ready",
     notes: "Stage door pickup. Keep rear cargo lane clear.",
   },
@@ -87,7 +95,7 @@ const demoVehicleForms: VehicleForm[] = [
     licensePlate: "9LAX552",
     type: "Shuttle",
     capacity: "12",
-    driverId: demoPeople[1]?.id ?? "",
+    preferredDriverIndex: 1,
     status: "Standby",
     notes: "Hotel loop until 11:00 AM.",
   },
@@ -98,7 +106,7 @@ const demoVehicleForms: VehicleForm[] = [
     licensePlate: "7KRD118",
     type: "SUV",
     capacity: "5",
-    driverId: demoPeople[2]?.id ?? "",
+    preferredDriverIndex: 2,
     status: "Needs service",
     notes: "Check tire pressure before dispatch.",
   },
@@ -309,20 +317,25 @@ function Field({
 }
 
 function DriverCombobox({
+  people,
   value,
   onValueChange,
+  disabled,
 }: {
+  people: PersonRecord[];
   value: string;
   onValueChange: (value: string) => void;
+  disabled?: boolean;
 }) {
   const anchorRef = useComboboxAnchor();
   const selectedValues = value ? [value] : [];
-  const selectedPerson = demoPeople.find((person) => person.id === value) ?? null;
+  const selectedPerson = people.find((person) => person.id === value) ?? null;
   const [open, setOpen] = useState(false);
 
   return (
     <Combobox
       multiple
+      disabled={disabled}
       open={selectedPerson ? false : open}
       onOpenChange={setOpen}
       value={selectedValues}
@@ -331,8 +344,8 @@ function DriverCombobox({
         setOpen(false);
       }}
       itemToStringLabel={(personId) => {
-        const person = demoPeople.find((entry) => entry.id === personId);
-        return person ? `${person.name} ${person.role} ${person.address}` : personId;
+        const person = people.find((entry) => entry.id === personId);
+        return person ? `${person.name} ${person.phone} ${person.address}` : personId;
       }}
     >
       <ComboboxChips
@@ -345,7 +358,11 @@ function DriverCombobox({
           </ComboboxChip>
         ) : (
           <ComboboxChipsInput
-            placeholder="Search people to assign as driver"
+            placeholder={
+              disabled
+                ? "Add people on the People page first"
+                : "Search people to assign as driver"
+            }
             className="min-h-5 text-sm text-[#1d1d1b] placeholder:text-[#8a8a84]"
             onFocus={() => setOpen(true)}
             onKeyDown={(event) => {
@@ -358,12 +375,14 @@ function DriverCombobox({
       </ComboboxChips>
       <ComboboxContent anchor={anchorRef} className="border border-[#e3e3df] bg-white shadow-[0_18px_38px_-24px_rgba(15,23,42,0.45)]">
         <ComboboxList>
-          <ComboboxEmpty>No matching people found.</ComboboxEmpty>
-          {demoPeople.map((person) => (
+          <ComboboxEmpty>
+            {people.length === 0 ? "No saved people found." : "No matching people found."}
+          </ComboboxEmpty>
+          {people.map((person) => (
             <ComboboxItem key={person.id} value={person.id} className="items-start gap-3 px-2 py-2.5">
               <div className="min-w-0">
                 <p className="truncate text-[13px] font-medium text-[#1d1d1b]">{person.name}</p>
-                <p className="mt-0.5 text-[11px] text-[#6b6b67]">{person.role}</p>
+                <p className="mt-0.5 text-[11px] text-[#6b6b67]">{person.phone || "Phone not added"}</p>
                 <p className="mt-1 truncate text-[11px] text-[#8a8a84]">{person.address}</p>
               </div>
             </ComboboxItem>
@@ -378,6 +397,9 @@ export function VehiclesPage() {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [people, setPeople] = useState<PersonRecord[]>([]);
+  const [isPeopleLoading, setIsPeopleLoading] = useState(true);
+  const [peopleError, setPeopleError] = useState<string | null>(null);
   const [vehicles, setVehicles] = useState<VehicleRecord[]>([]);
   const [form, setForm] = useState<VehicleForm>(initialForm);
   const [fieldErrors, setFieldErrors] = useState<VehicleFieldError>({});
@@ -387,6 +409,43 @@ export function VehiclesPage() {
   const readyCount = vehicles.filter((vehicle) => vehicle.status === "Ready").length;
   const unassignedCount = vehicles.filter((vehicle) => !vehicle.driver.trim()).length;
   const totalSeats = vehicles.reduce((sum, vehicle) => sum + vehicle.capacity, 0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const cachedPeople = getCachedPeopleSnapshot();
+
+    if (cachedPeople !== null) {
+      setPeople(cachedPeople);
+      setIsPeopleLoading(false);
+    }
+
+    const load = async () => {
+      if (cachedPeople === null) {
+        setIsPeopleLoading(true);
+      }
+
+      setPeopleError(null);
+
+      try {
+        const nextPeople = await fetchPeople(controller.signal);
+        setPeople(nextPeople);
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setPeopleError(error instanceof Error ? error.message : "Failed to load people.");
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsPeopleLoading(false);
+        }
+      }
+    };
+
+    void load();
+
+    return () => controller.abort();
+  }, []);
 
   function setSheetOpen(open: boolean) {
     router.replace(buildSheetHref(pathname, new URLSearchParams(searchParams.toString()), open), {
@@ -422,7 +481,7 @@ export function VehiclesPage() {
         licensePlate: validation.trimmedLicensePlate,
         type: form.type,
         capacity: validation.capacity,
-        driver: demoPeople.find((person) => person.id === form.driverId)?.name ?? "",
+        driver: people.find((person) => person.id === form.driverId)?.name ?? "",
         status: form.status,
         notes: form.notes.trim(),
       },
@@ -432,9 +491,15 @@ export function VehiclesPage() {
     setSheetOpen(false);
   }
 
-  function randomizeForm() {
-    const template = demoVehicleForms[Math.floor(Math.random() * demoVehicleForms.length)];
-    setForm(template);
+  function fillSampleForm() {
+    const template = sampleVehicleForms[Math.floor(Math.random() * sampleVehicleForms.length)];
+    setForm({
+      ...template,
+      driverId:
+        template.preferredDriverIndex !== undefined
+          ? people[template.preferredDriverIndex]?.id ?? ""
+          : "",
+    });
     setFieldErrors({});
     setSubmitMessage(null);
   }
@@ -640,6 +705,7 @@ export function VehiclesPage() {
               <Field label="Driver">
                 <div className="flex flex-col gap-2">
                   <DriverCombobox
+                    people={people}
                     value={form.driverId}
                     onValueChange={(driverId) =>
                       setForm((current) => ({
@@ -647,9 +713,10 @@ export function VehiclesPage() {
                         driverId,
                       }))
                     }
+                    disabled={isPeopleLoading || people.length === 0}
                   />
                   <p className="text-[12px] leading-5 text-[#7c7c75]">
-                    Demo people for now. Swap the source in <code>/Users/dovydas/Library/CloudStorage/Dropbox/Xdev/kordi-app/lib/demo-people.ts</code> for real People data when that source is wired up.
+                    {peopleError}
                   </p>
                 </div>
               </Field>
@@ -684,8 +751,8 @@ export function VehiclesPage() {
 
             <SheetFooter className="border-t border-[#e7e7e4] bg-white/80 px-5 py-4">
               <div className="flex w-full items-center justify-between gap-2">
-                <Button type="button" variant="outline" onClick={randomizeForm}>
-                  Randomize demo
+                <Button type="button" variant="outline" onClick={fillSampleForm}>
+                  Fill sample
                 </Button>
                 <div className="flex items-center gap-2">
                   <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>
