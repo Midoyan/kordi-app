@@ -9,35 +9,32 @@ const locationTypes = new Set([
 ]);
 
 type LocationPayload = {
-  name: string;
-  type: string;
+  label: string;
+  location_type: string;
   address: string;
-  zone: string;
-  notes: string;
+  access_notes: string;
 };
 
 function normalizeLocationPayload(payload: unknown): LocationPayload {
   const source = payload && typeof payload === "object" ? payload : {};
   const record = source as Record<string, unknown>;
 
-  const name = typeof record.name === "string" ? record.name.trim() : "";
-  const type = typeof record.type === "string" ? record.type.trim() : "";
+  const label = typeof record.label === "string" ? record.label.trim() : "";
+  const location_type = typeof record.location_type === "string" ? record.location_type.trim() : "";
   const address = typeof record.address === "string" ? record.address.trim() : "";
-  const zone = typeof record.zone === "string" ? record.zone.trim() : "";
-  const notes = typeof record.notes === "string" ? record.notes.trim() : "";
+  const access_notes = typeof record.access_notes === "string" ? record.access_notes.trim() : "";
 
   return {
-    name,
-    type: locationTypes.has(type) ? type : "Other",
+    label,
+    location_type: locationTypes.has(location_type) ? location_type : "Other",
     address,
-    zone,
-    notes,
+    access_notes,
   };
 }
 
 function validateLocationPayload(payload: LocationPayload) {
-  if (!payload.name) {
-    return "Name is required.";
+  if (!payload.label) {
+    return "label is required.";
   }
 
   if (!payload.address) {
@@ -52,7 +49,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("locations")
-    .select("id, name, type, address, zone, notes, created_at");
+    .select("id, label, location_type, address, access_notes, created_at");
 
   if (error) {
     return Response.json({ error: error.message }, { status: 500 });
@@ -73,7 +70,7 @@ export async function POST(req: Request) {
   const { data, error } = await supabase
     .from("locations")
     .insert([payload])
-    .select("id, name, type, address, zone, notes, created_at")
+    .select("id, label, location_type, address, access_notes, created_at")
     .single();
 
   if (error) {
