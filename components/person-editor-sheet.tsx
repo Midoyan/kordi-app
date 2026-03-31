@@ -41,16 +41,8 @@ export function PersonEditorSheet({
     setDraft((current) => (current ? { ...current, [field]: value } : current));
   };
 
-  const randomizeDraft = () => {
-    const template = demoPeopleDrafts[Math.floor(Math.random() * demoPeopleDrafts.length)];
-    setDraft((current) => (current ? { ...current, ...template } : current));
-  };
-
   const hasEnteredInput = Boolean(
-    draft &&
-      [draft.name, draft.role, draft.address, draft.pickup, draft.email].some((value) =>
-        value.trim(),
-      ),
+    draft && [draft.name, draft.address, draft.phone].some((value) => value.trim()),
   );
 
   return (
