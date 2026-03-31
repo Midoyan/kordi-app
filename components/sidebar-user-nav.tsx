@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   EllipsisVertical,
   LogOut,
@@ -8,7 +9,7 @@ import {
   UserRound,
 } from "lucide-react";
 
-import { signOut } from "@/app/login/actions";
+import { createClient } from "@/lib/client";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { AuthUser } from "@/lib/auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -42,7 +43,16 @@ function getInitials(name: string) {
 
 export function SidebarUserNav({ user }: SidebarUserNavProps) {
   const isMobile = useIsMobile();
+  const router = useRouter();
   const initials = getInitials(user.name);
+
+  const handleSignOut = async () => {
+    const supabase = createClient();
+
+    await supabase.auth.signOut();
+    router.replace("/auth/login");
+    router.refresh();
+  };
 
   return (
     <SidebarMenu>
@@ -55,7 +65,7 @@ export function SidebarUserNav({ user }: SidebarUserNavProps) {
               className="h-auto min-h-12 rounded-lg border border-[#e3e3df] bg-white px-2.5 py-2.5 text-[#1d1d1b] shadow-none hover:bg-[#f3f3ef] aria-expanded:bg-[#f3f3ef] aria-expanded:text-[#1d1d1b] [&_svg:not([class*='size-'])]:size-4"
             >
               <Avatar className="rounded-lg border border-[#ecece8] bg-[#f3f3ef]">
-                <AvatarImage alt={user.name} />
+                <AvatarImage src={user.avatarUrl ?? undefined} alt={user.name} />
                 <AvatarFallback className="rounded-lg bg-[#ecece8] text-[11px] font-semibold tracking-[0.08em] text-[#3f3f3a]">
                   {initials}
                 </AvatarFallback>
@@ -79,7 +89,7 @@ export function SidebarUserNav({ user }: SidebarUserNavProps) {
             <DropdownMenuLabel className="p-0 font-normal">
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
                 <Avatar className="rounded-lg border border-[#ecece8] bg-[#f3f3ef]">
-                  <AvatarImage alt={user.name} />
+                  <AvatarImage src={user.avatarUrl ?? undefined} alt={user.name} />
                   <AvatarFallback className="rounded-lg bg-[#ecece8] text-[11px] font-semibold tracking-[0.08em] text-[#3f3f3a]">
                     {initials}
                   </AvatarFallback>
@@ -112,18 +122,10 @@ export function SidebarUserNav({ user }: SidebarUserNavProps) {
 
             <DropdownMenuSeparator />
 
-            <form action={signOut}>
-              <DropdownMenuItem
-                className="w-full"
-                render={
-                  <button type="submit" />
-                }
-                nativeButton
-              >
-                <LogOut />
-                Log out
-              </DropdownMenuItem>
-            </form>
+            <DropdownMenuItem onClick={() => void handleSignOut()}>
+              <LogOut />
+              Log out
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>

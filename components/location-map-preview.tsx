@@ -1,10 +1,10 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { GeocodingCore, SearchBoxCore, type GeocodingFeature, type SearchBoxCategorySuggestion } from "@mapbox/search-js-core";
-import { ChevronDown, ChevronUp, MapPin } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
+import { TransportMap } from "./transport-map";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -21,11 +21,6 @@ type PreviewState = {
   kiez: string | null;
   status: "idle" | "loading" | "ready" | "error";
 };
-
-const AddressMinimap = dynamic(
-  () => import("@mapbox/search-js-react").then((module) => module.AddressMinimap),
-  { ssr: false },
-);
 
 const nearbyPoiCategories = ["landmark", "tourist attraction", "museum", "monument", "cafe", "hotel"] as const;
 
@@ -259,49 +254,21 @@ export function LocationMapPreview({
       </div>
 
       {expanded ? (
-        <div className="h-[150px] w-full bg-[#f2f1eb]">
-          {hasMapboxToken && resolvedPreview.feature ? (
-            <AddressMinimap
-              accessToken={accessToken}
-              show
-              satelliteToggle
-              feature={resolvedPreview.feature}
-              footer={false}
-              defaultMapStyle={["mapbox", "light-v11"]}
-            />
-          ) : (
-            <PreviewPlaceholder hasMapboxToken={hasMapboxToken} status={resolvedPreview.status} />
-          )}
-        </div>
+        <TransportMap
+          accessToken={accessToken}
+          feature={resolvedPreview.feature}
+          className="h-[150px] w-full"
+          footer={false}
+          emptyTitle="Enter an address to preview the exact point"
+          emptyDetail="The pin will lock onto the selected address and add a nearby landmark for orientation."
+          loadingTitle="Resolving address preview"
+          loadingDetail="Finding a stable pin position for this stop."
+          missingTokenTitle="Map preview unavailable without a Mapbox token"
+          missingTokenDetail="Add NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN to enable the minimap and nearby-place context."
+          errorTitle="We couldn't resolve this address yet"
+          errorDetail="Try a more complete address to lock the pin."
+        />
       ) : null}
-    </div>
-  );
-}
-
-function PreviewPlaceholder({
-  hasMapboxToken,
-  status,
-}: {
-  hasMapboxToken: boolean;
-  status: PreviewState["status"];
-}) {
-  let title = "Enter an address to preview the exact point";
-  let detail: ReactNode = "The pin will lock onto the selected address and add a nearby landmark for orientation.";
-
-  if (!hasMapboxToken) {
-    title = "Map preview unavailable without a Mapbox token";
-    detail = "Add NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN to enable the minimap and nearby-place context.";
-  } else if (status === "loading") {
-    title = "Resolving address preview";
-  }
-
-  return (
-    <div className="flex h-full w-full items-center justify-center text-center">
-      <div className="max-w-[240px] px-6">
-        <MapPin className="mx-auto size-5 text-[#62625d]" />
-        <p className="mt-3 text-[13px] font-medium text-[#1d1d1b]">{title}</p>
-        <p className="mt-1 text-[12px] leading-5 text-[#6b6b67]">{detail}</p>
-      </div>
     </div>
   );
 }

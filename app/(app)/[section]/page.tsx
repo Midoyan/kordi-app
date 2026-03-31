@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Car, Plus, Route, Users } from "lucide-react";
 
+import { LiveMapPage } from "@/components/live-map-page";
 import { LocationsPage } from "@/components/locations-page";
 import { PeopleSection } from "@/components/people-section";
 import { ScheduleView as ScheduleViewContent } from "@/components/schedule-view";
@@ -267,21 +268,7 @@ function VehiclesView() {
 }
 
 function MapView() {
-  return (
-    <div className="grid gap-4">
-      <Panel
-        title="Live Map"
-        description="Real-time vehicle and route tracking with dispatch status."
-      >
-        <div className="flex min-h-screen items-center justify-center rounded-lg border border-[#e7e7e4] bg-[#fbfbf8]">
-          <div className="text-center">
-            <p className="text-[14px] font-medium text-[#1d1d1b]">Map will load here</p>
-            <p className="mt-1 text-[13px] text-[#6b6b67]">Integration pending.</p>
-          </div>
-        </div>
-      </Panel>
-    </div>
-  );
+  return <LiveMapPage />;
 }
 
 function LocationsView() {
@@ -376,6 +363,10 @@ export default async function SectionPage({ params }: SectionPageProps) {
 
           // TODO: actionHref logic can be improved and centralized as more sections and actions are added, 
           // but this works for now given the current scope of actions needed.
+
+  if (currentSection.slug === "map") {
+    return <section className="flex h-[calc(100svh-3.5rem)] min-h-0 w-full flex-1 flex-col">{renderSectionBody(currentSection.slug)}</section>;
+  }
 
   return (
     <section className="flex flex-1 flex-col px-4 py-5 md:px-6 md:py-6">

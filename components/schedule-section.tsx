@@ -2,22 +2,12 @@
 
 import * as React from "react"
 import {
-  closestCenter,
-  DndContext,
-  KeyboardSensor,
-  MouseSensor,
-  TouchSensor,
-  useSensor,
-  useSensors,
   type DragEndEvent,
   type UniqueIdentifier,
 } from "@dnd-kit/core"
-import { restrictToVerticalAxis } from "@dnd-kit/modifiers"
 import {
   arrayMove,
-  SortableContext,
   useSortable,
-  verticalListSortingStrategy,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import {
@@ -25,7 +15,6 @@ import {
   getCoreRowModel,
   getSortedRowModel,
   useReactTable,
-  type Column,
   type ColumnDef,
   type Row,
   type RowSelectionState,
@@ -33,13 +22,11 @@ import {
   type VisibilityState,
 } from "@tanstack/react-table"
 import {
-  ChevronDown,
   ChevronRight,
   GripVertical,
   MoreHorizontal,
   Pencil,
   Plus,
-  Settings2,
   Star,
   Trash2,
 } from "lucide-react"
@@ -82,14 +69,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { TableCell, TableRow } from "@/components/ui/table"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+  WorkspaceColumnToggleMenu,
+  WorkspaceDataTable,
+} from "@/components/workspace-data-table"
 
 type DriveStopRow = {
   id: string
@@ -953,12 +937,6 @@ export function ScheduleSection({
     setTimingAdjustmentsOpen(false)
     lastSelectedRowIdRef.current = null
   }, [drive])
-
-  const sensors = useSensors(
-    useSensor(MouseSensor, {}),
-    useSensor(TouchSensor, {}),
-    useSensor(KeyboardSensor, {})
-  )
 
   const displayData = React.useMemo(
     () => (pendingOrder ? orderDriveStops(data, pendingOrder) : data),
