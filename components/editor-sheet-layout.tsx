@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 
 import {
   Sheet,
@@ -11,9 +11,12 @@ import {
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
+type SheetOpenChange = NonNullable<ComponentProps<typeof Sheet>["onOpenChange"]>;
+type EditorSheetOpenChangeDetails = Parameters<SheetOpenChange>[1];
+
 type EditorSheetLayoutProps = {
   open: boolean;
-  onOpenChange: (open: boolean) => void;
+  onOpenChange: (open: boolean, eventDetails?: EditorSheetOpenChangeDetails) => void;
   title: ReactNode;
   description?: ReactNode;
   children: ReactNode;
@@ -23,6 +26,7 @@ type EditorSheetLayoutProps = {
   titleClassName?: string;
   descriptionClassName?: string;
   showCloseButton?: boolean;
+  disablePointerDismissal?: boolean;
 };
 
 export function EditorSheetLayout({
@@ -37,9 +41,15 @@ export function EditorSheetLayout({
   titleClassName,
   descriptionClassName,
   showCloseButton = true,
+  disablePointerDismissal = false,
 }: EditorSheetLayoutProps) {
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} modal={false}>
+    <Sheet
+      open={open}
+      onOpenChange={onOpenChange}
+      modal={false}
+      disablePointerDismissal={disablePointerDismissal}
+    >
       <SheetContent
         side="right"
         showOverlay={false}

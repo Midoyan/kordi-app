@@ -35,7 +35,6 @@ import {
 import {
   ChevronDown,
   ChevronRight,
-  Copy,
   GripVertical,
   MoreHorizontal,
   Pencil,
@@ -45,7 +44,14 @@ import {
   Trash2,
 } from "lucide-react"
 
-import type { RecalculatedScheduleStop } from "@/lib/schedule-recalculation"
+import type {
+  Drive,
+  StopPickupPassengerOption,
+} from "@/lib/drive-plan"
+import {
+  parseTimeString,
+  type RecalculatedScheduleStop,
+} from "@/lib/schedule-recalculation"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -85,24 +91,24 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
-type ScheduleItem = {
-  id: number
-  passengerIds: string[]
+type DriveStopRow = {
+  id: string
+  driveId: string
+  stopTitle: string
   pickupAddress: string
   pickupTime: string
+  pickupTimeSource: string | null
   endDestination: string
   arrival: string
-  favorite: boolean
+  isFavorite: boolean
+  notes: string
+  createdAt: string
+  stopDurationSec: number | null
+  trafficBufferSec: number | null
+  stopPickupPassengerIds: string[]
 }
 
-type SchedulePassengerOption = {
-  id: string
-  name: string
-  role: string
-  address: string
-}
-
-type PendingScheduleUpdate = {
+type PendingDriveStopUpdate = {
   pickupTime: string
   arrival: string
   revealOrder: number
@@ -119,121 +125,216 @@ type RouteTone = {
   wash: string
 }
 
-type ContextMenuState = {
-  x: number
-  y: number
+type ScheduleSectionProps = {
+  drive: Drive
+  stopPickupPassengerOptions: StopPickupPassengerOption[]
+  onDriveUpdated?: (drive: Drive) => void
 }
 
-const festivalDestination = "Festival Grounds, Flughafen Tempelhof, 12101 Berlin"
+const defaultColumnVisibility: VisibilityState = {
+  stopDurationSec: false,
+  trafficBufferSec: false,
+}
 
-const schedulePassengerOptions: SchedulePassengerOption[] = [
-  {
-    id: "lena-fischer",
-    name: "Lena Fischer",
-    role: "Lighting tech",
-    address: "Oderberger Str. 24, 10435 Berlin",
-  },
-  {
-    id: "noah-becker",
-    name: "Noah Becker",
-    role: "Stage manager",
-    address: "Oderberger Str. 24, 10435 Berlin",
-  },
-  {
-    id: "jonas-weber",
-    name: "Jonas Weber",
-    role: "Production coordinator",
-    address: "Skalitzer Str. 134, 10999 Berlin",
-  },
-  {
-    id: "mia-schneider",
-    name: "Mia Schneider",
-    role: "Wardrobe",
-    address: "Warschauer Str. 43, 10243 Berlin",
-  },
-  {
-    id: "emil-hartmann",
-    name: "Emil Hartmann",
-    role: "Audio tech",
-    address: "Warschauer Str. 43, 10243 Berlin",
-  },
-  {
-    id: "paul-neumann",
-    name: "Paul Neumann",
-    role: "Backline",
-    address: "Turmstr. 75, 10551 Berlin",
-  },
-  {
-    id: "sofia-krause",
-    name: "Sofia Krause",
-    role: "Artist liaison",
-    address: "Schloßstr. 110, 12163 Berlin",
-  },
-  {
-    id: "clara-vogel",
-    name: "Clara Vogel",
-    role: "Guest services",
-    address: "Schloßstr. 110, 12163 Berlin",
-  },
-]
+function buildInitialArrivalValue(drive: Drive) {
+  return drive.stops[drive.stops.length - 1]?.pickupTimeLabel || drive.startTimeLabel || ""
+}
 
-const initialScheduleItems: ScheduleItem[] = [
-  {
-    id: 1,
-    passengerIds: ["lena-fischer", "noah-becker"],
-    pickupAddress: "Oderberger Str. 24, 10435 Berlin",
-    pickupTime: "14:05",
-    endDestination: festivalDestination,
-    arrival: "15:00",
-    favorite: false,
-  },
-  {
-    id: 2,
-    passengerIds: ["jonas-weber"],
-    pickupAddress: "Skalitzer Str. 134, 10999 Berlin",
-    pickupTime: "14:14",
-    endDestination: festivalDestination,
-    arrival: "15:00",
-    favorite: true,
-  },
-  {
-    id: 3,
-    passengerIds: ["mia-schneider", "emil-hartmann"],
-    pickupAddress: "Warschauer Str. 43, 10243 Berlin",
-    pickupTime: "14:22",
-    endDestination: festivalDestination,
-    arrival: "15:00",
-    favorite: false,
-  },
-  {
-    id: 4,
-    passengerIds: ["paul-neumann"],
-    pickupAddress: "Turmstr. 75, 10551 Berlin",
-    pickupTime: "14:31",
-    endDestination: festivalDestination,
-    arrival: "15:00",
-    favorite: false,
-  },
-  {
-    id: 5,
-    passengerIds: ["sofia-krause", "clara-vogel"],
-    pickupAddress: "Schloßstr. 110, 12163 Berlin",
-    pickupTime: "14:42",
-    endDestination: festivalDestination,
-    arrival: "15:00",
-    favorite: false,
-  },
-]
+function normalizeTimingSeconds(value: number | null | undefined) {
+  if (typeof value !== "number" || Number.isNaN(value) || value <= 0) {
+    return 0
+  }
 
-function orderScheduleItems(items: ScheduleItem[], orderIds: number[]) {
+  return Math.round(value)
+}
+
+function normalizePersistedTimingSeconds(value: number | null | undefined) {
+  const normalized = normalizeTimingSeconds(value)
+  return normalized > 0 ? normalized : null
+}
+
+function parseTimingInputValue(value: string) {
+  if (!value.trim()) {
+    return null
+  }
+
+  const parsed = Number(value)
+
+  if (!Number.isFinite(parsed) || Number.isNaN(parsed)) {
+    return null
+  }
+
+  return parsed <= 0 ? 0 : Math.round(parsed)
+}
+
+function formatDurationSeconds(value: number | null | undefined) {
+  const totalSeconds = normalizeTimingSeconds(value)
+
+  if (totalSeconds === 0) {
+    return "0s"
+  }
+
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const parts: string[] = []
+
+  if (hours > 0) {
+    parts.push(`${hours}h`)
+  }
+
+  if (minutes > 0) {
+    parts.push(`${minutes}m`)
+  }
+
+  if (seconds > 0) {
+    parts.push(`${seconds}s`)
+  }
+
+  return parts.join(" ")
+}
+
+function hasAdvancedTimingValue(stop: Pick<DriveStopRow, "stopDurationSec" | "trafficBufferSec">) {
+  return (
+    normalizeTimingSeconds(stop.stopDurationSec) > 0 ||
+    normalizeTimingSeconds(stop.trafficBufferSec) > 0
+  )
+}
+
+function buildAdvancedTimingCaption(
+  stop: Pick<DriveStopRow, "stopDurationSec" | "trafficBufferSec">,
+  {
+    showStopDuration,
+    showTrafficBuffer,
+  }: {
+    showStopDuration: boolean
+    showTrafficBuffer: boolean
+  }
+) {
+  const parts: string[] = []
+
+  if (!showStopDuration && normalizeTimingSeconds(stop.stopDurationSec) > 0) {
+    parts.push(`+${formatDurationSeconds(stop.stopDurationSec)} stop`)
+  }
+
+  if (!showTrafficBuffer && normalizeTimingSeconds(stop.trafficBufferSec) > 0) {
+    parts.push(`+${formatDurationSeconds(stop.trafficBufferSec)} traffic`)
+  }
+
+  return parts.length > 0 ? parts.join(" • ") : null
+}
+
+function buildInitialStopRows(drive: Drive) {
+  const initialArrival = buildInitialArrivalValue(drive)
+
+  return drive.stops.map((stop) => ({
+    id: stop.id,
+    driveId: drive.id,
+    stopTitle: stop.stopTitle,
+    pickupAddress: stop.pickupAddress,
+    pickupTime: stop.pickupTimeLabel,
+    pickupTimeSource: stop.pickupTime,
+    endDestination: drive.destinationAddress,
+    arrival: initialArrival,
+    isFavorite: false,
+    notes: stop.notes ?? "",
+    createdAt: stop.createdAt,
+    stopDurationSec: stop.stopDurationSec,
+    trafficBufferSec: stop.trafficBufferSec,
+    stopPickupPassengerIds: stop.stopPickupPassengers.map((passenger) => passenger.id),
+  }))
+}
+
+function buildDriveFromStopRows(
+  drive: Drive,
+  rows: DriveStopRow[],
+  passengerLookup: Map<string, StopPickupPassengerOption>
+): Drive {
+  const destinationAddress =
+    rows[0]?.endDestination.trim() || drive.destinationAddress
+
+  return {
+    ...drive,
+    destinationAddress,
+    stops: rows.map((row) => ({
+      id: row.id,
+      driveId: drive.id,
+      stopTitle: row.stopTitle,
+      pickupAddress: row.pickupAddress,
+      pickupTime: row.pickupTimeSource,
+      pickupTimeLabel: row.pickupTime,
+      stopDurationSec: normalizePersistedTimingSeconds(row.stopDurationSec),
+      trafficBufferSec: normalizePersistedTimingSeconds(row.trafficBufferSec),
+      notes: row.notes.trim() || null,
+      createdAt: row.createdAt,
+      stopPickupPassengers: row.stopPickupPassengerIds.map((passengerId) => {
+        const passenger = passengerLookup.get(passengerId)
+
+        return passenger
+          ? {
+              id: passenger.id,
+              name: passenger.name,
+              phone: passenger.phone,
+              address: passenger.address,
+            }
+          : {
+              id: passengerId,
+              name: passengerId,
+              phone: null,
+              address: "",
+            }
+      }),
+    })),
+  }
+}
+
+function toDatabaseTimeValue(value: string, source: string | null) {
+  const parsed = parseTimeString(value)
+
+  if (!parsed) {
+    return source ?? value.trim()
+  }
+
+  const hours = parsed.hours.toString().padStart(2, "0")
+  const minutes = parsed.minutes.toString().padStart(2, "0")
+  const match = source?.match(/^\d{2}:\d{2}(:\d{2})?(.*)$/)
+  const seconds = match?.[1] ?? ":00"
+  const suffix = match?.[2] ?? ""
+
+  return `${hours}:${minutes}${seconds}${suffix}`
+}
+
+async function parseMutationResponse<T>(
+  response: Response,
+  fallbackMessage: string
+) {
+  const payload = (await response.json().catch(() => null)) as
+    | {
+        error?: string
+      }
+    | T
+    | null
+
+  if (!response.ok) {
+    throw new Error(
+      payload && typeof payload === "object" && "error" in payload
+        ? payload.error || fallbackMessage
+        : fallbackMessage
+    )
+  }
+
+  return payload as T
+}
+
+function orderDriveStops(items: DriveStopRow[], orderIds: string[]) {
   const itemById = new Map(items.map((item) => [item.id, item]))
 
   return orderIds
     .map((id) => itemById.get(id))
-    .filter((item): item is ScheduleItem => Boolean(item))
+    .filter((item): item is DriveStopRow => Boolean(item))
 }
 
-function areOrdersEqual(first: number[], second: number[]) {
+function areOrdersEqual(first: string[], second: string[]) {
   if (first.length !== second.length) {
     return false
   }
@@ -284,13 +385,12 @@ function StackedAddressText({
   )
 }
 
-function getPassengerById(id: string) {
-  return schedulePassengerOptions.find((person) => person.id === id) ?? null
-}
-
-function getPassengerNames(passengerIds: string[]) {
-  return passengerIds
-    .map((id) => getPassengerById(id)?.name ?? id)
+function getStopPickupPassengerNames(
+  stopPickupPassengerIds: string[],
+  passengerLookup: Map<string, StopPickupPassengerOption>
+) {
+  return stopPickupPassengerIds
+    .map((id) => passengerLookup.get(id)?.name ?? id)
     .filter(Boolean)
 }
 
@@ -317,12 +417,14 @@ function abbreviatePassengerName(fullName: string) {
   return [firstName, ...abbreviatedRest].join(" ")
 }
 
-function getAddressLabelUntilComma(address: string) {
-  return address.split(",")[0]?.trim() ?? address
-}
-
-function PassengerSummary({ passengerIds }: { passengerIds: string[] }) {
-  const names = getPassengerNames(passengerIds)
+function PassengerSummary({
+  stopPickupPassengerIds,
+  passengerLookup,
+}: {
+  stopPickupPassengerIds: string[]
+  passengerLookup: Map<string, StopPickupPassengerOption>
+}) {
+  const names = getStopPickupPassengerNames(stopPickupPassengerIds, passengerLookup)
   const abbreviatedNames =
     names.length > 2 ? names.map((name) => abbreviatePassengerName(name)) : names
   const displayLabel = abbreviatedNames.join(", ")
@@ -330,7 +432,7 @@ function PassengerSummary({ passengerIds }: { passengerIds: string[] }) {
   if (names.length <= 2) {
     return (
       <span className="block whitespace-normal break-words leading-5 text-[#1d1d1b] line-clamp-2">
-        {displayLabel}
+        {displayLabel || "No passengers"}
       </span>
     )
   }
@@ -351,8 +453,8 @@ function PassengerSummary({ passengerIds }: { passengerIds: string[] }) {
           Full Passenger List
         </p>
         <div className="mt-3 space-y-2">
-          {passengerIds.map((id) => {
-            const passenger = getPassengerById(id)
+          {stopPickupPassengerIds.map((id) => {
+            const passenger = passengerLookup.get(id)
 
             if (!passenger) {
               return null
@@ -366,7 +468,7 @@ function PassengerSummary({ passengerIds }: { passengerIds: string[] }) {
                 <p className="text-[13px] font-medium text-[#1d1d1b]">
                   {passenger.name}
                 </p>
-                <p className="mt-0.5 text-[11px] text-[#6b6b67]">{passenger.role}</p>
+                <p className="mt-0.5 text-[11px] text-[#6b6b67]">{passenger.detail}</p>
               </div>
             )
           })}
@@ -376,19 +478,23 @@ function PassengerSummary({ passengerIds }: { passengerIds: string[] }) {
   )
 }
 
-function PassengerCombobox({
+function StopPickupPassengerCombobox({
   value,
   onValueChange,
+  stopPickupPassengerOptions,
+  passengerLookup,
 }: {
   value: string[]
   onValueChange: (value: string[]) => void
+  stopPickupPassengerOptions: StopPickupPassengerOption[]
+  passengerLookup: Map<string, StopPickupPassengerOption>
 }) {
   const anchorRef = useComboboxAnchor()
   const [open, setOpen] = React.useState(false)
   const [query, setQuery] = React.useState("")
   const selectedPeople = value
-    .map((id) => getPassengerById(id))
-    .filter((person): person is SchedulePassengerOption => Boolean(person))
+    .map((id) => passengerLookup.get(id))
+    .filter((person): person is StopPickupPassengerOption => Boolean(person))
 
   return (
     <Combobox
@@ -397,13 +503,13 @@ function PassengerCombobox({
       onOpenChange={setOpen}
       value={value}
       onValueChange={(nextValue) => {
-        onValueChange(nextValue)
+        onValueChange(Array.from(new Set(nextValue)))
         setQuery("")
         setOpen(false)
       }}
       itemToStringLabel={(personId) => {
-        const person = getPassengerById(personId)
-        return person ? `${person.name} ${person.role} ${person.address}` : personId
+        const person = passengerLookup.get(personId)
+        return person ? `${person.name} ${person.detail} ${person.address}` : personId
       }}
     >
       <ComboboxChips
@@ -411,11 +517,7 @@ function PassengerCombobox({
         className="min-h-8 gap-1 rounded-lg border-[#dcdcd7] bg-white px-2 py-1"
       >
         {selectedPeople.map((person) => (
-          <ComboboxChip
-            key={person.id}
-            value={person.id}
-            className="h-5 rounded-sm px-1.5 text-[11px]"
-          >
+          <ComboboxChip key={person.id} className="h-5 rounded-sm px-1.5 text-[11px]">
             {person.name}
           </ComboboxChip>
         ))}
@@ -433,10 +535,7 @@ function PassengerCombobox({
             setOpen(nextQuery.trim().length > 0)
           }}
           onKeyDown={(event) => {
-            if (event.key === "Tab") {
-              setOpen(false)
-            }
-            if (event.key === "Escape") {
+            if (event.key === "Tab" || event.key === "Escape") {
               setOpen(false)
             }
           }}
@@ -448,7 +547,7 @@ function PassengerCombobox({
       >
         <ComboboxList>
           <ComboboxEmpty>No matching passengers found.</ComboboxEmpty>
-          {schedulePassengerOptions.map((person) => (
+          {stopPickupPassengerOptions.map((person) => (
             <ComboboxItem
               key={person.id}
               value={person.id}
@@ -458,7 +557,7 @@ function PassengerCombobox({
                 <p className="truncate text-[13px] font-medium text-[#1d1d1b]">
                   {person.name}
                 </p>
-                <p className="mt-0.5 text-[11px] text-[#6b6b67]">{person.role}</p>
+                <p className="mt-0.5 text-[11px] text-[#6b6b67]">{person.detail}</p>
                 <p className="mt-1 truncate text-[11px] text-[#8a8a84]">
                   {person.address}
                 </p>
@@ -468,76 +567,6 @@ function PassengerCombobox({
         </ComboboxList>
       </ComboboxContent>
     </Combobox>
-  )
-}
-
-function ContextMenu({
-  position,
-  selectedItems,
-  menuRef,
-  onClose,
-  onMerge,
-}: {
-  position: ContextMenuState
-  selectedItems: ScheduleItem[]
-  menuRef: React.RefObject<HTMLDivElement | null>
-  onClose: () => void
-  onMerge: (targetId: number) => void
-}) {
-  const [mergeOpen, setMergeOpen] = React.useState(false)
-
-  return (
-    <div
-      ref={menuRef}
-      className="fixed z-50 min-w-44 rounded-xl border border-[#e3e3df] bg-white p-1.5 shadow-[0_18px_40px_-24px_rgba(15,23,42,0.45)]"
-      style={{
-        left: position.x,
-        top: position.y,
-      }}
-    >
-      <button
-        type="button"
-        disabled
-        className="flex w-full cursor-not-allowed items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-[#a2a29c] disabled:opacity-100"
-      >
-        <Copy className="size-3.5" />
-        Copy
-      </button>
-
-      {selectedItems.length > 1 ? (
-        <div
-          className="relative mt-1"
-          onMouseEnter={() => setMergeOpen(true)}
-          onMouseLeave={() => setMergeOpen(false)}
-        >
-          <button
-            type="button"
-            className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-[#1d1d1b] hover:bg-[#f7f7f4]"
-            onClick={() => setMergeOpen((current) => !current)}
-          >
-            <span>Merge</span>
-            <ChevronRight className="size-3.5" />
-          </button>
-          {mergeOpen ? (
-            <div className="absolute top-0 left-full ml-1 min-w-52 rounded-xl border border-[#e3e3df] bg-white p-1.5 shadow-[0_18px_40px_-24px_rgba(15,23,42,0.45)]">
-              {selectedItems.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className="flex w-full items-center rounded-lg px-3 py-2 text-left text-[13px] text-[#1d1d1b] hover:bg-[#f7f7f4]"
-                  onClick={() => {
-                    onMerge(item.id)
-                    onClose()
-                  }}
-                >
-                  Meet at {getAddressLabelUntilComma(item.pickupAddress)}
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
   )
 }
 
@@ -578,10 +607,22 @@ function SortableHeader({
   )
 }
 
+function getColumnToggleLabel(column: Column<DriveStopRow, unknown>) {
+  const meta = column.columnDef.meta as { label?: string } | undefined
+
+  if (meta?.label) {
+    return meta.label
+  }
+
+  return column.id
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replaceAll("-", " ")
+}
+
 function ColumnToggleMenu({
   columns,
 }: {
-  columns: Column<ScheduleItem, unknown>[]
+  columns: Column<DriveStopRow, unknown>[]
 }) {
   const [open, setOpen] = React.useState(false)
   const ref = React.useRef<HTMLDivElement | null>(null)
@@ -622,7 +663,7 @@ function ColumnToggleMenu({
               key={column.id}
               className="flex cursor-pointer items-center justify-between gap-3 rounded-lg px-3 py-2 text-[13px] text-[#1d1d1b] hover:bg-[#f7f7f4]"
             >
-              <span className="capitalize">{column.id.replaceAll("-", " ")}</span>
+              <span>{getColumnToggleLabel(column)}</span>
               <Checkbox
                 checked={column.getIsVisible()}
                 onCheckedChange={(checked) => column.toggleVisibility(checked)}
@@ -638,13 +679,11 @@ function ColumnToggleMenu({
 function ActionMenu({
   item,
   onEdit,
-  onCopy,
   onFavorite,
   onDelete,
 }: {
-  item: ScheduleItem
+  item: DriveStopRow
   onEdit: () => void
-  onCopy: () => void
   onFavorite: () => void
   onDelete: () => void
 }) {
@@ -665,7 +704,7 @@ function ActionMenu({
           className="text-[#6b6b67] hover:bg-[#f3f3ef] hover:text-[#1d1d1b]"
         >
           <MoreHorizontal className="size-4" />
-          <span className="sr-only">Open row actions</span>
+          <span className="sr-only">Open stop actions</span>
         </Button>
       </summary>
       <div className="absolute right-0 z-20 mt-2 min-w-40 rounded-xl border border-[#e3e3df] bg-white p-1.5 shadow-[0_18px_40px_-24px_rgba(15,23,42,0.45)]">
@@ -684,22 +723,11 @@ function ActionMenu({
           type="button"
           className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-[#1d1d1b] hover:bg-[#f7f7f4]"
           onClick={(event) => {
-            onCopy()
-            closeMenu(event.currentTarget)
-          }}
-        >
-          <Copy className="size-3.5" />
-          Duplicate
-        </button>
-        <button
-          type="button"
-          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-[#1d1d1b] hover:bg-[#f7f7f4]"
-          onClick={(event) => {
             onFavorite()
             closeMenu(event.currentTarget)
           }}
         >
-          <Star className={cn("size-3.5", item.favorite && "fill-current")} />
+          <Star className={cn("size-3.5", item.isFavorite && "fill-current")} />
           Favorite
         </button>
         <Separator className="my-1 bg-[#ecece8]" />
@@ -758,7 +786,7 @@ function AnimatedScheduleTime({
   if (!pendingValue || pendingValue === confirmedValue) {
     return (
       <span className="font-[450] tabular-nums text-[#1d1d1b]">
-        {confirmedValue}
+        {confirmedValue || "--:--"}
       </span>
     )
   }
@@ -772,7 +800,7 @@ function AnimatedScheduleTime({
         className="schedule-time-strike text-[#30302c] line-through decoration-[#b8b4aa]"
         style={{ animationDelay: `${(revealOrder ?? 0) * 120}ms` }}
       >
-        {confirmedValue}
+        {confirmedValue || "--:--"}
       </span>
       <span
         className="schedule-time-reveal inline-flex min-w-[3rem] rounded-md bg-[#ecf3ff] px-.5 py-0.5 text-[12.5px] font-semibold text-[#335f9f] shadow-[inset_0_0_0_1px_rgba(79,107,189,0.12)]"
@@ -787,28 +815,21 @@ function AnimatedScheduleTime({
 function SortableRow({
   row,
   onOpenEditor,
-  onCopy,
   onFavorite,
   onDelete,
   onClearSorting,
   onRowClick,
-  onRowContextMenu,
   pendingUpdate,
   routeTone,
   showRouteTone,
 }: {
-  row: Row<ScheduleItem>
-  onOpenEditor: (item: ScheduleItem) => void
-  onCopy: (item: ScheduleItem) => void
-  onFavorite: (item: ScheduleItem) => void
-  onDelete: (item: ScheduleItem) => void
+  row: Row<DriveStopRow>
+  onOpenEditor: (item: DriveStopRow) => void
+  onFavorite: (item: DriveStopRow) => void
+  onDelete: (item: DriveStopRow) => void
   onClearSorting: () => void
-  onRowClick: (event: React.MouseEvent<HTMLTableRowElement>, row: Row<ScheduleItem>) => void
-  onRowContextMenu: (
-    event: React.MouseEvent<HTMLTableRowElement>,
-    row: Row<ScheduleItem>
-  ) => void
-  pendingUpdate?: PendingScheduleUpdate
+  onRowClick: (event: React.MouseEvent<HTMLTableRowElement>, row: Row<DriveStopRow>) => void
+  pendingUpdate?: PendingDriveStopUpdate
   routeTone?: RouteTone
   showRouteTone?: boolean
 }) {
@@ -824,7 +845,6 @@ function SortableRow({
       data-dragging={isDragging}
       data-recalculated={pendingUpdate ? "true" : undefined}
       onClick={(event) => onRowClick(event, row)}
-      onContextMenu={(event) => onRowContextMenu(event, row)}
       className="relative border-[#f0f0ec] hover:bg-[#fafaf7] data-[state=selected]:bg-[#f7f9ff] data-[dragging=true]:z-10 data-[dragging=true]:opacity-85 data-[recalculated=true]:bg-[#f8fbff]"
       style={{
         backgroundImage: showRouteTone && routeTone
@@ -853,7 +873,6 @@ function SortableRow({
               <ActionMenu
                 item={row.original}
                 onEdit={() => onOpenEditor(row.original)}
-                onCopy={() => onCopy(row.original)}
                 onFavorite={() => onFavorite(row.original)}
                 onDelete={() => onDelete(row.original)}
               />
@@ -877,25 +896,63 @@ function SortableRow({
   )
 }
 
-export function ScheduleSection() {
-  const [data, setData] = React.useState(initialScheduleItems)
-  const [pendingUpdates, setPendingUpdates] = React.useState<Record<number, PendingScheduleUpdate>>(
-    {}
+export function ScheduleSection({
+  drive,
+  stopPickupPassengerOptions,
+  onDriveUpdated,
+}: ScheduleSectionProps) {
+  const initialData = React.useMemo(() => buildInitialStopRows(drive), [drive])
+  const passengerLookup = React.useMemo(
+    () => new Map(stopPickupPassengerOptions.map((person) => [person.id, person])),
+    [stopPickupPassengerOptions]
   )
-  const [pendingOrder, setPendingOrder] = React.useState<number[] | null>(null)
+  const currentDriveIdRef = React.useRef(drive.id)
+  const [data, setData] = React.useState(initialData)
+  const [pendingUpdates, setPendingUpdates] = React.useState<
+    Record<string, PendingDriveStopUpdate>
+  >({})
+  const [pendingOrder, setPendingOrder] = React.useState<string[] | null>(null)
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({})
+  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(
+    defaultColumnVisibility
+  )
   const [sorting, setSorting] = React.useState<SortingState>([])
-  const [activeId, setActiveId] = React.useState<number | null>(null)
+  const [activeId, setActiveId] = React.useState<string | null>(null)
   const [sheetOpen, setSheetOpen] = React.useState(false)
-  const [draft, setDraft] = React.useState<ScheduleItem | null>(null)
-  const [recalculateError, setRecalculateError] = React.useState<string | null>(null)
+  const [draft, setDraft] = React.useState<DriveStopRow | null>(null)
+  const [routeError, setRouteError] = React.useState<string | null>(null)
+  const [databaseError, setDatabaseError] = React.useState<string | null>(null)
   const [showOptimizedGradient, setShowOptimizedGradient] = React.useState(false)
-  const [contextMenu, setContextMenu] = React.useState<ContextMenuState | null>(null)
+  const [isSavingStop, setIsSavingStop] = React.useState(false)
+  const [isConfirmingChanges, setIsConfirmingChanges] = React.useState(false)
+  const [timingAdjustmentsOpen, setTimingAdjustmentsOpen] = React.useState(false)
   const sortableId = React.useId()
   const animationTokenRef = React.useRef(0)
   const lastSelectedRowIdRef = React.useRef<string | null>(null)
-  const contextMenuRef = React.useRef<HTMLDivElement | null>(null)
+
+  React.useEffect(() => {
+    if (currentDriveIdRef.current === drive.id) {
+      return
+    }
+
+    currentDriveIdRef.current = drive.id
+    const nextData = buildInitialStopRows(drive)
+
+    setData(nextData)
+    setPendingUpdates({})
+    setPendingOrder(null)
+    setRowSelection({})
+    setColumnVisibility(defaultColumnVisibility)
+    setSorting([])
+    setActiveId(null)
+    setSheetOpen(false)
+    setDraft(null)
+    setRouteError(null)
+    setDatabaseError(null)
+    setShowOptimizedGradient(false)
+    setTimingAdjustmentsOpen(false)
+    lastSelectedRowIdRef.current = null
+  }, [drive])
 
   const sensors = useSensors(
     useSensor(MouseSensor, {}),
@@ -904,12 +961,12 @@ export function ScheduleSection() {
   )
 
   const displayData = React.useMemo(
-    () => (pendingOrder ? orderScheduleItems(data, pendingOrder) : data),
+    () => (pendingOrder ? orderDriveStops(data, pendingOrder) : data),
     [data, pendingOrder]
   )
 
   const getVisibleItem = React.useCallback(
-    (item: ScheduleItem) => {
+    (item: DriveStopRow) => {
       const pendingUpdate = pendingUpdates[item.id]
 
       if (!pendingUpdate) {
@@ -925,8 +982,8 @@ export function ScheduleSection() {
     [pendingUpdates]
   )
 
-  const updateItem = React.useCallback(
-    <K extends keyof ScheduleItem>(id: number, key: K, value: ScheduleItem[K]) => {
+  const updateStopRow = React.useCallback(
+    <K extends keyof DriveStopRow>(id: string, key: K, value: DriveStopRow[K]) => {
       setData((current) =>
         current.map((item) => (item.id === id ? { ...item, [key]: value } : item))
       )
@@ -934,13 +991,10 @@ export function ScheduleSection() {
     []
   )
 
-  const activeItem = React.useMemo(
-    () => {
-      const item = data.find((entry) => entry.id === activeId) ?? null
-      return item ? getVisibleItem(item) : null
-    },
-    [activeId, data, getVisibleItem]
-  )
+  const activeItem = React.useMemo(() => {
+    const item = data.find((entry) => entry.id === activeId) ?? null
+    return item ? getVisibleItem(item) : null
+  }, [activeId, data, getVisibleItem])
 
   React.useEffect(() => {
     if (activeItem) {
@@ -950,11 +1004,24 @@ export function ScheduleSection() {
     }
   }, [activeItem, sheetOpen])
 
-  const openEditor = React.useCallback((item: ScheduleItem) => {
-    setActiveId(item.id)
-    setDraft(getVisibleItem(item))
-    setSheetOpen(true)
-  }, [getVisibleItem])
+  React.useEffect(() => {
+    if (!sheetOpen || !activeItem) {
+      setTimingAdjustmentsOpen(false)
+      return
+    }
+
+    setTimingAdjustmentsOpen(hasAdvancedTimingValue(activeItem))
+  }, [activeId, activeItem, sheetOpen])
+
+  const openEditor = React.useCallback(
+    (item: DriveStopRow) => {
+      setActiveId(item.id)
+      setDraft(getVisibleItem(item))
+      setSheetOpen(true)
+      setDatabaseError(null)
+    },
+    [getVisibleItem]
+  )
 
   const dataIds = React.useMemo<UniqueIdentifier[]>(
     () => displayData.map(({ id }) => id),
@@ -969,31 +1036,28 @@ export function ScheduleSection() {
     [displayData]
   )
 
-  const selectedItems = React.useMemo(
-    () => displayData.filter((item) => rowSelection[item.id.toString()]),
-    [displayData, rowSelection]
-  )
-
   const pendingChangeCount = React.useMemo(
     () => Object.keys(pendingUpdates).length,
     [pendingUpdates]
   )
-  const routeTones = React.useMemo<Record<number, RouteTone>>(
+
+  const routeTones = React.useMemo<Record<string, RouteTone>>(
     () =>
-      data.reduce<Record<number, RouteTone>>((accumulator, item, index) => {
+      data.reduce<Record<string, RouteTone>>((accumulator, item, index) => {
         accumulator[item.id] = buildRouteTone(index, data.length)
         return accumulator
       }, {}),
     [data]
   )
-  const positionChanges = React.useMemo<Record<number, PositionChange>>(() => {
+
+  const positionChanges = React.useMemo<Record<string, PositionChange>>(() => {
     if (!pendingOrder) {
       return {}
     }
 
     const confirmedOrder = data.map((item) => item.id)
 
-    return pendingOrder.reduce<Record<number, PositionChange>>((accumulator, id, index) => {
+    return pendingOrder.reduce<Record<string, PositionChange>>((accumulator, id, index) => {
       const confirmedIndex = confirmedOrder.indexOf(id)
 
       if (confirmedIndex === -1 || confirmedIndex === index) {
@@ -1011,11 +1075,14 @@ export function ScheduleSection() {
 
   const hasPendingRouteChange = pendingOrder !== null
   const hasPendingChanges = pendingChangeCount > 0 || hasPendingRouteChange
+  const isStopDurationColumnVisible = columnVisibility.stopDurationSec !== false
+  const isTrafficBufferColumnVisible = columnVisibility.trafficBufferSec !== false
+
   const pendingSummary = React.useMemo(() => {
     const parts: string[] = []
 
     if (hasPendingRouteChange) {
-      parts.push("Optimized route order staged.")
+      parts.push("Optimized stop order staged.")
     }
 
     if (pendingChangeCount > 0) {
@@ -1024,49 +1091,123 @@ export function ScheduleSection() {
       )
     }
 
-    parts.push("Review the staged route, then confirm when the run looks right.")
+    parts.push("Review the staged drive, then confirm when the timing looks right.")
 
     return parts.join(" ")
   }, [hasPendingRouteChange, pendingChangeCount])
 
-  const confirmPendingChanges = React.useCallback(() => {
-    setData((current) =>
-      (pendingOrder ? orderScheduleItems(current, pendingOrder) : current).map((item) => {
-        const pendingUpdate = pendingUpdates[item.id]
+  const syncStopPickupPassengers = React.useCallback(
+    async (stopId: string, currentIds: string[], nextIds: string[]) => {
+      const currentIdSet = new Set(currentIds)
+      const nextIdSet = new Set(nextIds)
+      const removals = currentIds.filter((id) => !nextIdSet.has(id))
+      const additions = nextIds.filter((id) => !currentIdSet.has(id))
 
-        if (!pendingUpdate) {
-          return item
-        }
+      await Promise.all([
+        ...removals.map(async (crewMemberId) => {
+          const response = await fetch(
+            `/api/trips/${stopId}/passengers/${crewMemberId}`,
+            {
+              method: "DELETE",
+            }
+          )
 
-        return {
-          ...item,
-          pickupTime: pendingUpdate.pickupTime,
-          arrival: pendingUpdate.arrival,
-        }
-      })
-    )
-    setPendingOrder(null)
-    setPendingUpdates({})
-    setShowOptimizedGradient(false)
-    setRecalculateError(null)
-    setDraft((current) => {
-      if (!current) {
-        return current
-      }
+          await parseMutationResponse(response, "Unable to remove a passenger from this stop.")
+        }),
+        ...additions.map(async (crewMemberId) => {
+          const response = await fetch(`/api/trips/${stopId}/passengers`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              crew_member_id: crewMemberId,
+            }),
+          })
 
-      const pendingUpdate = pendingUpdates[current.id]
+          await parseMutationResponse(response, "Unable to add a passenger to this stop.")
+        }),
+      ])
+    },
+    []
+  )
+
+  const confirmPendingChanges = React.useCallback(async () => {
+    const nextData = (pendingOrder ? orderDriveStops(data, pendingOrder) : data).map((item) => {
+      const pendingUpdate = pendingUpdates[item.id]
 
       if (!pendingUpdate) {
-        return current
+        return item
       }
 
       return {
-        ...current,
+        ...item,
         pickupTime: pendingUpdate.pickupTime,
+        pickupTimeSource: toDatabaseTimeValue(pendingUpdate.pickupTime, item.pickupTimeSource),
         arrival: pendingUpdate.arrival,
       }
     })
-  }, [pendingOrder, pendingUpdates])
+    const changedStops = nextData.filter((item) => pendingUpdates[item.id])
+
+    if (changedStops.length === 0) {
+      setData(nextData)
+      setPendingOrder(null)
+      setPendingUpdates({})
+      setShowOptimizedGradient(false)
+      setRouteError(null)
+      setDraft((current) => {
+        if (!current) {
+          return current
+        }
+
+        return nextData.find((item) => item.id === current.id) ?? current
+      })
+      return
+    }
+
+    setDatabaseError(null)
+    setIsConfirmingChanges(true)
+
+    try {
+      await Promise.all(
+        changedStops.map(async (item) => {
+          const response = await fetch(`/api/trips/${item.id}`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              pickup_time: item.pickupTimeSource,
+            }),
+          })
+
+          await parseMutationResponse(response, "Unable to save recalculated stop times.")
+        })
+      )
+
+      const nextDrive = buildDriveFromStopRows(drive, nextData, passengerLookup)
+
+      setData(nextData)
+      setPendingOrder(null)
+      setPendingUpdates({})
+      setShowOptimizedGradient(false)
+      setRouteError(null)
+      setDraft((current) => {
+        if (!current) {
+          return current
+        }
+
+        return nextData.find((item) => item.id === current.id) ?? current
+      })
+      onDriveUpdated?.(nextDrive)
+    } catch (error) {
+      setDatabaseError(
+        error instanceof Error ? error.message : "Unable to save the staged drive changes."
+      )
+    } finally {
+      setIsConfirmingChanges(false)
+    }
+  }, [data, drive, onDriveUpdated, passengerLookup, pendingOrder, pendingUpdates])
 
   const handlePlanReady = React.useCallback(
     (
@@ -1078,7 +1219,7 @@ export function ScheduleSection() {
       const nextOrder = plannedStops.map((stop) => stop.id)
       const confirmedOrder = data.map((item) => item.id)
       const hasRouteChange = !areOrdersEqual(nextOrder, confirmedOrder)
-      const nextPendingUpdates = plannedStops.reduce<Record<number, PendingScheduleUpdate>>(
+      const nextPendingUpdates = plannedStops.reduce<Record<string, PendingDriveStopUpdate>>(
         (accumulator, plannedStop, index) => {
           const currentItem = data.find((item) => item.id === plannedStop.id)
 
@@ -1114,51 +1255,54 @@ export function ScheduleSection() {
     [data]
   )
 
-  const handleDragEnd = React.useCallback((event: DragEndEvent) => {
-    const { active, over } = event
+  const handleDragEnd = React.useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event
 
-    if (!over || active.id === over.id) {
-      return
-    }
+      if (!over || active.id === over.id) {
+        return
+      }
 
-    if (pendingOrder) {
-      setPendingOrder((current) => {
-        if (!current) {
-          return current
-        }
+      if (pendingOrder) {
+        setPendingOrder((current) => {
+          if (!current) {
+            return current
+          }
 
-        const oldIndex = current.indexOf(Number(active.id))
-        const newIndex = current.indexOf(Number(over.id))
+          const oldIndex = current.indexOf(String(active.id))
+          const newIndex = current.indexOf(String(over.id))
+
+          if (oldIndex === -1 || newIndex === -1) {
+            return current
+          }
+
+          const nextOrder = arrayMove(current, oldIndex, newIndex)
+          return areOrdersEqual(
+            nextOrder,
+            data.map((item) => item.id)
+          )
+            ? null
+            : nextOrder
+        })
+        return
+      }
+
+      setData((current) => {
+        const ids = current.map((item) => item.id)
+        const oldIndex = ids.indexOf(String(active.id))
+        const newIndex = ids.indexOf(String(over.id))
 
         if (oldIndex === -1 || newIndex === -1) {
           return current
         }
 
-        const nextOrder = arrayMove(current, oldIndex, newIndex)
-        return areOrdersEqual(
-          nextOrder,
-          data.map((item) => item.id)
-        )
-          ? null
-          : nextOrder
+        return arrayMove(current, oldIndex, newIndex)
       })
-      return
-    }
+    },
+    [data, pendingOrder]
+  )
 
-    setData((current) => {
-      const ids = current.map((item) => item.id)
-      const oldIndex = ids.indexOf(Number(active.id))
-      const newIndex = ids.indexOf(Number(over.id))
-
-      if (oldIndex === -1 || newIndex === -1) {
-        return current
-      }
-
-      return arrayMove(current, oldIndex, newIndex)
-    })
-  }, [data, pendingOrder])
-
-  const columns = React.useMemo<ColumnDef<ScheduleItem>[]>(
+  const columns = React.useMemo<ColumnDef<DriveStopRow>[]>(
     () => [
       {
         id: "drag",
@@ -1188,13 +1332,14 @@ export function ScheduleSection() {
             <Checkbox
               checked={row.getIsSelected()}
               onCheckedChange={(checked) => row.toggleSelected(checked === true)}
-              aria-label={`Select ${getPassengerNames(row.original.passengerIds).join(", ")}`}
+              aria-label={`Select ${getStopPickupPassengerNames(row.original.stopPickupPassengerIds, passengerLookup).join(", ")}`}
             />
           </div>
         ),
       },
       {
-        accessorKey: "passengerIds",
+        accessorKey: "stopPickupPassengerIds",
+        meta: { label: "Passengers" },
         enableSorting: false,
         enableHiding: false,
         header: ({ column }) => (
@@ -1211,8 +1356,11 @@ export function ScheduleSection() {
             className="flex flex-col items-start gap-1 text-left text-[13px] font-medium text-[#1d1d1b] transition-colors hover:text-[#4f6bbd]"
           >
             <span className="flex items-center gap-2">
-              <PassengerSummary passengerIds={row.original.passengerIds} />
-              {row.original.favorite ? (
+              <PassengerSummary
+                stopPickupPassengerIds={row.original.stopPickupPassengerIds}
+                passengerLookup={passengerLookup}
+              />
+              {row.original.isFavorite ? (
                 <Star className="size-3.5 fill-[#b2952f] text-[#b2952f]" />
               ) : null}
             </span>
@@ -1226,6 +1374,7 @@ export function ScheduleSection() {
       },
       {
         accessorKey: "pickupAddress",
+        meta: { label: "Pickup Address" },
         enableSorting: false,
         header: ({ column }) => (
           <SortableHeader
@@ -1238,6 +1387,7 @@ export function ScheduleSection() {
       },
       {
         accessorKey: "pickupTime",
+        meta: { label: "PU Time" },
         enableSorting: false,
         header: ({ column }) => (
           <SortableHeader
@@ -1248,19 +1398,73 @@ export function ScheduleSection() {
         ),
         cell: ({ row }) => {
           const pendingUpdate = pendingUpdates[row.original.id]
+          const timingCaption = buildAdvancedTimingCaption(row.original, {
+            showStopDuration: isStopDurationColumnVisible,
+            showTrafficBuffer: isTrafficBufferColumnVisible,
+          })
 
           return (
-            <AnimatedScheduleTime
-              confirmedValue={row.original.pickupTime}
-              pendingValue={pendingUpdate?.pickupTime}
-              revealOrder={pendingUpdate?.revealOrder}
-              animationToken={pendingUpdate?.animationToken}
-            />
+            <div className="flex flex-col gap-1">
+              <AnimatedScheduleTime
+                confirmedValue={row.original.pickupTime}
+                pendingValue={pendingUpdate?.pickupTime}
+                revealOrder={pendingUpdate?.revealOrder}
+                animationToken={pendingUpdate?.animationToken}
+              />
+              {timingCaption ? (
+                <span className="text-[11px] leading-4 text-[#7a7a74]">
+                  {timingCaption}
+                </span>
+              ) : null}
+            </div>
+          )
+        },
+      },
+      {
+        accessorKey: "stopDurationSec",
+        meta: { label: "Stop duration" },
+        enableSorting: false,
+        header: ({ column }) => (
+          <SortableHeader
+            label="Stop duration"
+            isSorted={column.getIsSorted()}
+            onToggle={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          />
+        ),
+        cell: ({ row }) => {
+          const duration = normalizeTimingSeconds(row.original.stopDurationSec)
+
+          return (
+            <span className={cn("font-[450] tabular-nums", duration === 0 && "text-[#8a8a84]")}>
+              {formatDurationSeconds(duration)}
+            </span>
+          )
+        },
+      },
+      {
+        accessorKey: "trafficBufferSec",
+        meta: { label: "Traffic buffer" },
+        enableSorting: false,
+        header: ({ column }) => (
+          <SortableHeader
+            label="Traffic buffer"
+            isSorted={column.getIsSorted()}
+            onToggle={() => column.toggleSorting(column.getIsSorted() === "asc")}
+          />
+        ),
+        cell: ({ row }) => {
+          const duration = normalizeTimingSeconds(row.original.trafficBufferSec)
+
+          return (
+            <span className={cn("font-[450] tabular-nums", duration === 0 && "text-[#8a8a84]")}>
+              {formatDurationSeconds(duration)}
+            </span>
           )
         },
       },
       {
         accessorKey: "endDestination",
+        meta: { label: "Drop off" },
         enableSorting: false,
         header: ({ column }) => (
           <SortableHeader
@@ -1275,6 +1479,7 @@ export function ScheduleSection() {
       },
       {
         accessorKey: "arrival",
+        meta: { label: "Arrival" },
         enableSorting: false,
         header: ({ column }) => (
           <SortableHeader
@@ -1304,11 +1509,16 @@ export function ScheduleSection() {
         cell: () => null,
       },
     ],
-    [openEditor, pendingUpdates, positionChanges]
+    [
+      isStopDurationColumnVisible,
+      isTrafficBufferColumnVisible,
+      openEditor,
+      passengerLookup,
+      pendingUpdates,
+      positionChanges,
+    ]
   )
 
-  // TanStack Table is an intentional exception to the React Compiler lint rule here.
-  // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data: displayData,
     columns,
@@ -1317,7 +1527,7 @@ export function ScheduleSection() {
       columnVisibility,
       rowSelection,
     },
-    getRowId: (row) => row.id.toString(),
+    getRowId: (row) => row.id,
     enableRowSelection: true,
     onRowSelectionChange: setRowSelection,
     onSortingChange: setSorting,
@@ -1327,9 +1537,7 @@ export function ScheduleSection() {
   })
 
   const handleRowClick = React.useCallback(
-    (event: React.MouseEvent<HTMLTableRowElement>, row: Row<ScheduleItem>) => {
-      setContextMenu(null)
-
+    (event: React.MouseEvent<HTMLTableRowElement>, row: Row<DriveStopRow>) => {
       if (shouldIgnoreRowSelectionTarget(event.target)) {
         return
       }
@@ -1388,121 +1596,185 @@ export function ScheduleSection() {
     [table]
   )
 
-  const handleRowContextMenu = React.useCallback(
-    (event: React.MouseEvent<HTMLTableRowElement>, row: Row<ScheduleItem>) => {
-      if (shouldIgnoreRowSelectionTarget(event.target)) {
-        return
-      }
+  const handleDelete = React.useCallback(
+    async (item: DriveStopRow) => {
+      setDatabaseError(null)
 
-      event.preventDefault()
+      try {
+        const response = await fetch(`/api/trips/${item.id}`, {
+          method: "DELETE",
+        })
 
-      if (!row.getIsSelected()) {
-        setRowSelection({ [row.id]: true })
-        lastSelectedRowIdRef.current = row.id
-      }
+        await parseMutationResponse(response, "Unable to delete this stop.")
 
-      setContextMenu({
-        x: Math.min(event.clientX, window.innerWidth - 240),
-        y: Math.min(event.clientY, window.innerHeight - 180),
-      })
-    },
-    []
-  )
+        const nextData = data.filter((entry) => entry.id !== item.id)
+        const nextDrive = buildDriveFromStopRows(drive, nextData, passengerLookup)
 
-  const handleMerge = React.useCallback(
-    (targetId: number) => {
-      if (selectedItems.length < 2) {
-        return
-      }
+        setData(nextData)
+        setPendingOrder((current) =>
+          current ? current.filter((id) => id !== item.id) : current
+        )
+        setPendingUpdates((current) => {
+          const next = { ...current }
+          delete next[item.id]
+          return next
+        })
+        setRowSelection((current) => {
+          const next = { ...current }
+          delete next[item.id]
+          return next
+        })
 
-      setData((current) => {
-        const selectedIds = new Set(selectedItems.map((item) => item.id))
-        const targetItem = current.find((item) => item.id === targetId)
-
-        if (!targetItem) {
-          return current
+        if (activeId === item.id) {
+          setSheetOpen(false)
+          setActiveId(null)
+          setDraft(null)
         }
 
-        const mergedPassengerIds = Array.from(
-          new Set(
-            current
-              .filter((item) => selectedIds.has(item.id))
-              .flatMap((item) => item.passengerIds)
-          )
-        )
+        if (lastSelectedRowIdRef.current === item.id) {
+          lastSelectedRowIdRef.current = null
+        }
 
-        return current
-          .filter((item) => !selectedIds.has(item.id) || item.id === targetId)
-          .map((item) =>
-            item.id === targetId
-              ? {
-                  ...item,
-                  passengerIds: mergedPassengerIds,
-                  pickupAddress: targetItem.pickupAddress,
-                  favorite: current
-                    .filter((entry) => selectedIds.has(entry.id))
-                    .some((entry) => entry.favorite),
-                }
-              : item
-          )
-      })
-
-      const keptId = targetId.toString()
-      setRowSelection({ [keptId]: true })
-      lastSelectedRowIdRef.current = keptId
-      setPendingOrder(null)
-      setPendingUpdates({})
-      setShowOptimizedGradient(false)
-      setRecalculateError(null)
-
-      if (activeId !== null && selectedItems.some((item) => item.id === activeId)) {
-        setActiveId(targetId)
+        onDriveUpdated?.(nextDrive)
+      } catch (error) {
+        setDatabaseError(error instanceof Error ? error.message : "Unable to delete this stop.")
       }
     },
-    [activeId, selectedItems]
+    [activeId, data, drive, onDriveUpdated, passengerLookup]
   )
 
-  React.useEffect(() => {
-    if (!contextMenu) {
-      return
-    }
+  const visibleColumns = table.getAllColumns().filter((column) => column.getCanHide())
+  const stopCount = displayData.length
+  const passengerCount = React.useMemo(
+    () =>
+      new Set(displayData.flatMap((item) => item.stopPickupPassengerIds)).size,
+    [displayData]
+  )
 
-    const handlePointerDown = (event: MouseEvent) => {
-      if (contextMenuRef.current?.contains(event.target as Node)) {
+  const handleDraftSubmit = React.useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault()
+
+      if (!draft) {
         return
       }
 
-      setContextMenu(null)
-    }
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setContextMenu(null)
+      const currentItem = data.find((item) => item.id === draft.id)
+
+      if (!currentItem) {
+        return
       }
-    }
 
-    window.addEventListener("mousedown", handlePointerDown)
-    window.addEventListener("keydown", handleEscape)
-    window.addEventListener("scroll", handlePointerDown, true)
+      const normalizedPassengerIds = Array.from(new Set(draft.stopPickupPassengerIds))
+      const nextDestination = draft.endDestination.trim()
+      const nextArrival = draft.arrival.trim()
+      const pickupTimeSource = toDatabaseTimeValue(draft.pickupTime, currentItem.pickupTimeSource)
+      const persistedStopDurationSec = normalizePersistedTimingSeconds(draft.stopDurationSec)
+      const persistedTrafficBufferSec = normalizePersistedTimingSeconds(draft.trafficBufferSec)
 
-    return () => {
-      window.removeEventListener("mousedown", handlePointerDown)
-      window.removeEventListener("keydown", handleEscape)
-      window.removeEventListener("scroll", handlePointerDown, true)
-    }
-  }, [contextMenu])
+      setDatabaseError(null)
+      setIsSavingStop(true)
 
-  const visibleColumns = table
-    .getAllColumns()
-    .filter((column) => column.getCanHide())
+      try {
+        const [stopResponse, travelResponse] = await Promise.all([
+          fetch(`/api/trips/${draft.id}`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              pickup_address: draft.pickupAddress.trim(),
+              pickup_time: pickupTimeSource,
+              trip_title: draft.stopTitle.trim() || currentItem.stopTitle,
+              stop_duration_sec: persistedStopDurationSec,
+              traffic_buffer_sec: persistedTrafficBufferSec,
+              notes: draft.notes.trim() || null,
+            }),
+          }),
+          nextDestination !== currentItem.endDestination
+            ? fetch(`/api/travels/${drive.id}`, {
+                method: "PATCH",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  destination_address: nextDestination,
+                }),
+              })
+            : Promise.resolve(null),
+        ])
+
+        await parseMutationResponse(stopResponse, "Unable to save this stop.")
+
+        if (travelResponse) {
+          await parseMutationResponse(
+            travelResponse,
+            "Unable to update the drive destination."
+          )
+        }
+
+        await syncStopPickupPassengers(
+          draft.id,
+          currentItem.stopPickupPassengerIds,
+          normalizedPassengerIds
+        )
+
+        const nextData = data.map((item) => {
+          const sharedFields = {
+            endDestination: nextDestination,
+            arrival: nextArrival,
+          }
+
+          if (item.id !== draft.id) {
+            return {
+              ...item,
+              ...sharedFields,
+            }
+          }
+
+          return {
+            ...item,
+            ...sharedFields,
+            stopPickupPassengerIds: normalizedPassengerIds,
+            pickupAddress: draft.pickupAddress.trim(),
+            pickupTime: draft.pickupTime.trim(),
+            pickupTimeSource,
+            stopTitle: draft.stopTitle.trim() || item.stopTitle,
+            stopDurationSec: persistedStopDurationSec,
+            trafficBufferSec: persistedTrafficBufferSec,
+            notes: draft.notes.trim(),
+          }
+        })
+        const nextDrive = buildDriveFromStopRows(drive, nextData, passengerLookup)
+
+        setData(nextData)
+        setPendingUpdates((current) => {
+          const next = { ...current }
+          delete next[draft.id]
+          return next
+        })
+        setSheetOpen(false)
+        setActiveId(null)
+        onDriveUpdated?.(nextDrive)
+      } catch (error) {
+        setDatabaseError(error instanceof Error ? error.message : "Unable to save this stop.")
+      } finally {
+        setIsSavingStop(false)
+      }
+    },
+    [data, draft, drive, onDriveUpdated, passengerLookup, syncStopPickupPassengers]
+  )
 
   return (
     <>
       <div className="space-y-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-[18px] font-semibold text-[#1d1d1b]">Van 1</p>
+            <p className="text-[18px] font-semibold text-[#1d1d1b]">{drive.label}</p>
             <p className="mt-1 text-[13px] leading-6 text-[#6b6b67]">
-              Berlin pickup run for 5 passengers headed to the same festival destination.
+              {stopCount} stop{stopCount === 1 ? "" : "s"} and {passengerCount} passenger
+              {passengerCount === 1 ? "" : "s"} on this drive.
+              {drive.startLocation ? ` Starting from ${drive.startLocation}.` : ""}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -1511,11 +1783,15 @@ export function ScheduleSection() {
                 id: item.id,
                 pickupAddress: item.pickupAddress,
                 endDestination: item.endDestination,
+                stopDurationSec: item.stopDurationSec,
+                trafficBufferSec: item.trafficBufferSec,
               }))}
               arrivalTime={finalArrivalTime}
               hasPendingChanges={hasPendingChanges}
-              onConfirmChanges={confirmPendingChanges}
-              onErrorChange={setRecalculateError}
+              onConfirmChanges={() => {
+                void confirmPendingChanges()
+              }}
+              onErrorChange={setRouteError}
               onPlanReady={handlePlanReady}
             />
             <ColumnToggleMenu columns={visibleColumns} />
@@ -1533,7 +1809,7 @@ export function ScheduleSection() {
           </div>
         </div>
 
-        <div className="overflow-hidden rounded-xl border border-[#ecece8]">
+        <div className="overflow-x-auto rounded-xl border border-[#ecece8]">
           <DndContext
             id={sortableId}
             collisionDetection={closestCenter}
@@ -1541,7 +1817,7 @@ export function ScheduleSection() {
             sensors={sensors}
             onDragEnd={handleDragEnd}
           >
-            <Table className="table-fixed">
+            <Table className="min-w-[1120px] table-fixed">
               <TableHeader className="bg-[#f7f7f4]">
                 {table.getHeaderGroups().map((headerGroup) => (
                   <TableRow
@@ -1555,11 +1831,13 @@ export function ScheduleSection() {
                           "h-11 border-b border-[#ecece8] bg-[#f7f7f4] px-3 align-middle",
                           header.column.id === "drag" && "w-10",
                           header.column.id === "select" && "w-11",
-                          header.column.id === "passengerIds" && "w-[18%]",
-                          header.column.id === "pickupAddress" && "w-[27%]",
-                          header.column.id === "pickupTime" && "w-[11%]",
-                          header.column.id === "endDestination" && "w-[26%]",
-                          header.column.id === "arrival" && "w-[10%]",
+                          header.column.id === "stopPickupPassengerIds" && "w-[18%]",
+                          header.column.id === "pickupAddress" && "w-[22%]",
+                          header.column.id === "pickupTime" && "w-[13%]",
+                          header.column.id === "stopDurationSec" && "w-[10%]",
+                          header.column.id === "trafficBufferSec" && "w-[10%]",
+                          header.column.id === "endDestination" && "w-[18%]",
+                          header.column.id === "arrival" && "w-[9%]",
                           header.column.id === "actions" && "w-14"
                         )}
                       >
@@ -1578,7 +1856,7 @@ export function ScheduleSection() {
                       colSpan={table.getVisibleLeafColumns().length}
                       className="py-14 text-center text-[13px] text-[#6b6b67]"
                     >
-                      No schedule items yet.
+                      No stops yet.
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -1594,47 +1872,11 @@ export function ScheduleSection() {
                         routeTone={routeTones[row.original.id]}
                         showRouteTone={showOptimizedGradient}
                         onOpenEditor={openEditor}
-                        onCopy={(item) => {
-                          const nextId = Math.max(0, ...data.map((entry) => entry.id)) + 1
-                          setData((current) => [
-                            ...current,
-                            {
-                              ...item,
-                              id: nextId,
-                              passengerIds: [...item.passengerIds],
-                              favorite: false,
-                            },
-                          ])
-                          setPendingOrder((current) =>
-                            current ? [...current, nextId] : current
-                          )
-                        }}
                         onFavorite={(item) =>
-                          updateItem(item.id, "favorite", !item.favorite)
+                          updateStopRow(item.id, "isFavorite", !item.isFavorite)
                         }
                         onDelete={(item) => {
-                          setData((current) => current.filter((entry) => entry.id !== item.id))
-                          setPendingOrder((current) =>
-                            current ? current.filter((id) => id !== item.id) : current
-                          )
-                          setPendingUpdates((current) => {
-                            const next = { ...current }
-                            delete next[item.id]
-                            return next
-                          })
-                          setRowSelection((current) => {
-                            const next = { ...current }
-                            delete next[item.id.toString()]
-                            return next
-                          })
-                          if (activeId === item.id) {
-                            setSheetOpen(false)
-                            setActiveId(null)
-                            setDraft(null)
-                          }
-                          if (lastSelectedRowIdRef.current === item.id.toString()) {
-                            lastSelectedRowIdRef.current = null
-                          }
+                          void handleDelete(item)
                         }}
                         onClearSorting={() => {
                           if (sorting.length > 0) {
@@ -1642,7 +1884,6 @@ export function ScheduleSection() {
                           }
                         }}
                         onRowClick={handleRowClick}
-                        onRowContextMenu={handleRowContextMenu}
                       />
                     ))}
                   </SortableContext>
@@ -1654,10 +1895,11 @@ export function ScheduleSection() {
 
         <div className="flex flex-col gap-3 rounded-lg border border-[#f1f1ed] bg-[#fcfcfa] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
           <p className="text-[12px] leading-5 text-[#6b6b67]">
-            {table.getSelectedRowModel().rows.length} of {table.getRowModel().rows.length} row(s) selected.
+            {table.getSelectedRowModel().rows.length} of {table.getRowModel().rows.length} stop
+            {table.getRowModel().rows.length === 1 ? "" : "s"} selected.
           </p>
           <p className="text-[12px] leading-5 text-[#6b6b67]">
-            Drag to set stop order, then recalculate to backfill pickup times from the final arrival.
+            Drag to sketch a stop order, then recalculate to backfill pickup times from the final arrival.
           </p>
         </div>
 
@@ -1666,23 +1908,22 @@ export function ScheduleSection() {
             <p className="text-[12px] leading-5 text-[#49628d]">
               {pendingSummary}
             </p>
+            {isConfirmingChanges ? (
+              <p className="text-[12px] font-medium text-[#49628d]">Saving…</p>
+            ) : null}
           </div>
         ) : null}
 
-        {recalculateError ? (
+        {routeError ? (
           <div className="rounded-lg border border-[#f3d7d7] bg-[#fff7f7] px-4 py-3">
-            <p className="text-[12px] leading-5 text-[#9a4f4f]">{recalculateError}</p>
+            <p className="text-[12px] leading-5 text-[#9a4f4f]">{routeError}</p>
           </div>
         ) : null}
 
-        {contextMenu ? (
-          <ContextMenu
-            position={contextMenu}
-            selectedItems={selectedItems}
-            menuRef={contextMenuRef}
-            onClose={() => setContextMenu(null)}
-            onMerge={handleMerge}
-          />
+        {databaseError ? (
+          <div className="rounded-lg border border-[#f3d7d7] bg-[#fff7f7] px-4 py-3">
+            <p className="text-[12px] leading-5 text-[#9a4f4f]">{databaseError}</p>
+          </div>
         ) : null}
       </div>
 
@@ -1699,11 +1940,11 @@ export function ScheduleSection() {
           <SheetHeader className="gap-1 border-b border-[#ecece8] px-6 py-5">
             <SheetTitle>
               {draft
-                ? `${getPassengerNames(draft.passengerIds).length} passenger${getPassengerNames(draft.passengerIds).length === 1 ? "" : "s"}`
-                : "Passenger details"}
+                ? `${getStopPickupPassengerNames(draft.stopPickupPassengerIds, passengerLookup).length} passenger${getStopPickupPassengerNames(draft.stopPickupPassengerIds, passengerLookup).length === 1 ? "" : "s"}`
+                : "Stop details"}
             </SheetTitle>
             <SheetDescription>
-              Edit the pickup stop for Van 1 without leaving the schedule table.
+              Edit the selected stop in {drive.label} without leaving the schedule table.
             </SheetDescription>
           </SheetHeader>
 
@@ -1716,19 +1957,19 @@ export function ScheduleSection() {
                 <div className="rounded-lg border border-[#e7e7e4] bg-white px-3 py-2">
                   <p className="text-[11px] text-[#777772] uppercase">Pickup</p>
                   <p className="mt-2 text-[13px] font-medium text-[#1d1d1b]">
-                    {draft?.pickupTime ?? "--:--"}
+                    {draft?.pickupTime || "--:--"}
                   </p>
                 </div>
                 <div className="rounded-lg border border-[#e7e7e4] bg-white px-3 py-2">
                   <p className="text-[11px] text-[#777772] uppercase">Arrival</p>
                   <p className="mt-2 text-[13px] font-medium text-[#1d1d1b]">
-                    {draft?.arrival ?? "--:--"}
+                    {draft?.arrival || "--:--"}
                   </p>
                 </div>
                 <div className="rounded-lg border border-[#e7e7e4] bg-white px-3 py-2">
                   <p className="text-[11px] text-[#777772] uppercase">Destination</p>
                   <p className="mt-2 text-[13px] font-medium text-[#1d1d1b]">
-                    Tempelhof
+                    {draft?.endDestination || "--"}
                   </p>
                 </div>
               </div>
@@ -1736,37 +1977,20 @@ export function ScheduleSection() {
 
             <Separator className="bg-[#ecece8]" />
 
-            <form
-              className="flex flex-col gap-4"
-              onSubmit={(event) => {
-                event.preventDefault()
-                if (!draft) {
-                  return
-                }
-
-                setData((current) =>
-                  current.map((item) => (item.id === draft.id ? draft : item))
-                )
-                setPendingUpdates((current) => {
-                  const next = { ...current }
-                  delete next[draft.id]
-                  return next
-                })
-                setSheetOpen(false)
-                setActiveId(null)
-              }}
-            >
+            <form className="flex flex-col gap-4" onSubmit={handleDraftSubmit}>
               <div className="flex flex-col gap-2">
                 <label className="text-[13px] font-medium text-[#1d1d1b]">
-                  Passengers
+                  Stop pickup passengers
                 </label>
-                <PassengerCombobox
-                  value={draft?.passengerIds ?? []}
-                  onValueChange={(passengerIds) =>
+                <StopPickupPassengerCombobox
+                  value={draft?.stopPickupPassengerIds ?? []}
+                  onValueChange={(stopPickupPassengerIds) =>
                     setDraft((current) =>
-                      current ? { ...current, passengerIds } : current
+                      current ? { ...current, stopPickupPassengerIds } : current
                     )
                   }
+                  stopPickupPassengerOptions={stopPickupPassengerOptions}
+                  passengerLookup={passengerLookup}
                 />
               </div>
 
@@ -1832,8 +2056,84 @@ export function ScheduleSection() {
                 />
               </div>
 
+              <div className="overflow-hidden rounded-xl border border-[#ecece8] bg-[#fbfbf8]">
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                  onClick={() => setTimingAdjustmentsOpen((current) => !current)}
+                >
+                  <div>
+                    <p className="text-[13px] font-medium text-[#1d1d1b]">Timing adjustments</p>
+                    <p className="mt-1 text-[12px] text-[#6b6b67]">
+                      Optional per-stop timing inputs for longer pickups or extra traffic slack.
+                    </p>
+                  </div>
+                  <ChevronRight
+                    className={cn(
+                      "size-4 text-[#6b6b67] transition-transform",
+                      timingAdjustmentsOpen && "rotate-90"
+                    )}
+                  />
+                </button>
+                {timingAdjustmentsOpen ? (
+                  <div className="grid gap-4 border-t border-[#ecece8] px-4 py-4 sm:grid-cols-2">
+                    <div className="flex flex-col gap-2">
+                      <label htmlFor="schedule-stop-duration" className="text-[13px] font-medium text-[#1d1d1b]">
+                        Stop duration (sec)
+                      </label>
+                      <Input
+                        id="schedule-stop-duration"
+                        type="number"
+                        min={0}
+                        step={1}
+                        inputMode="numeric"
+                        value={draft?.stopDurationSec ?? ""}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  stopDurationSec: parseTimingInputValue(event.target.value),
+                                }
+                              : current
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <label htmlFor="schedule-traffic-buffer" className="text-[13px] font-medium text-[#1d1d1b]">
+                        Traffic buffer (sec)
+                      </label>
+                      <Input
+                        id="schedule-traffic-buffer"
+                        type="number"
+                        min={0}
+                        step={1}
+                        inputMode="numeric"
+                        value={draft?.trafficBufferSec ?? ""}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  trafficBufferSec: parseTimingInputValue(event.target.value),
+                                }
+                              : current
+                          )
+                        }
+                      />
+                    </div>
+                    <p className="text-[11px] leading-5 text-[#777772] sm:col-span-2">
+                      Leave blank or set 0 to ignore these adjustments.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+
               <SheetFooter className="px-0 pt-2">
-                <Button type="submit">Submit</Button>
+                <Button type="submit" disabled={isSavingStop}>
+                  {isSavingStop ? "Saving…" : "Save stop"}
+                </Button>
                 <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>
                   Done
                 </Button>
