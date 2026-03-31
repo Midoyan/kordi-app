@@ -2,7 +2,6 @@
 
 import * as React from "react"
 import {
-  type Column,
   closestCenter,
   DndContext,
   KeyboardSensor,
@@ -15,7 +14,7 @@ import {
 } from "@dnd-kit/core"
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers"
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable"
-import { flexRender, type Row, type Table as ReactTable } from "@tanstack/react-table"
+import { flexRender, type Column, type Row, type Table as ReactTable } from "@tanstack/react-table"
 import { ChevronDown, Settings2 } from "lucide-react"
 
 import { cn } from "@/lib/utils"

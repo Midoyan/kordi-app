@@ -2,12 +2,22 @@
 
 import * as React from "react"
 import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
   type DragEndEvent,
   type UniqueIdentifier,
+  useSensor,
+  useSensors,
 } from "@dnd-kit/core"
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers"
 import {
   arrayMove,
+  SortableContext,
   useSortable,
+  verticalListSortingStrategy,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import {
@@ -15,6 +25,7 @@ import {
   getCoreRowModel,
   getSortedRowModel,
   useReactTable,
+  type Column,
   type ColumnDef,
   type Row,
   type RowSelectionState,
@@ -22,11 +33,13 @@ import {
   type VisibilityState,
 } from "@tanstack/react-table"
 import {
+  ChevronDown,
   ChevronRight,
   GripVertical,
   MoreHorizontal,
   Pencil,
   Plus,
+  Settings2,
   Star,
   Trash2,
 } from "lucide-react"
@@ -69,7 +82,14 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { TableCell, TableRow } from "@/components/ui/table"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import {
   WorkspaceColumnToggleMenu,
   WorkspaceDataTable,
@@ -911,6 +931,11 @@ export function ScheduleSection({
   const [isConfirmingChanges, setIsConfirmingChanges] = React.useState(false)
   const [timingAdjustmentsOpen, setTimingAdjustmentsOpen] = React.useState(false)
   const sortableId = React.useId()
+  const sensors = useSensors(
+    useSensor(MouseSensor, {}),
+    useSensor(TouchSensor, {}),
+    useSensor(KeyboardSensor, {})
+  )
   const animationTokenRef = React.useRef(0)
   const lastSelectedRowIdRef = React.useRef<string | null>(null)
 
