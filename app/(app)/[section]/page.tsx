@@ -28,7 +28,7 @@ const sectionActionLabels: Record<AppSectionSlug, string> = {
   vehicles: "Add vehicle",
   map: "Start tracking",
   locations: "Add location",
-  schedule: "Add stop",
+  schedule: "Add drive",
   settings: "Add setting",
 };
 
@@ -359,6 +359,8 @@ export default async function SectionPage({ params }: SectionPageProps) {
         ? `/${currentSection.slug}?sheet=add-vehicle`
         : currentSection.slug === "locations"
           ? `/${currentSection.slug}?sheet=add-location`
+          : currentSection.slug === "schedule"
+            ? `/${currentSection.slug}?sheet=add-drive`
           : undefined;
 
           // TODO: actionHref logic can be improved and centralized as more sections and actions are added, 

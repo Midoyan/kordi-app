@@ -51,6 +51,18 @@ type WorkspaceColumnToggleMenuProps<TData> = {
   className?: string
 }
 
+function getColumnToggleLabel<TData>(column: Column<TData, unknown>) {
+  const meta = column.columnDef.meta as { label?: string } | undefined
+
+  if (meta?.label) {
+    return meta.label
+  }
+
+  return column.id
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replaceAll("-", " ")
+}
+
 export function WorkspaceColumnToggleMenu<TData>({
   columns,
   className,
@@ -83,7 +95,7 @@ export function WorkspaceColumnToggleMenu<TData>({
         onClick={() => setOpen((current) => !current)}
       >
         <Settings2 className="size-4" />
-        <span className="hidden lg:inline">Customize Columns</span>
+        <span className="hidden lg:inline">Columns</span>
         <span className="lg:hidden">Columns</span>
         <ChevronDown className="size-4" />
       </Button>
@@ -94,7 +106,7 @@ export function WorkspaceColumnToggleMenu<TData>({
               key={column.id}
               className="flex cursor-pointer items-center justify-between gap-3 rounded-lg px-3 py-2 text-[13px] text-[#1d1d1b] hover:bg-[#f7f7f4]"
             >
-              <span className="capitalize">{column.id.replaceAll("-", " ")}</span>
+              <span>{getColumnToggleLabel(column)}</span>
               <Checkbox
                 checked={column.getIsVisible()}
                 onCheckedChange={(checked) => column.toggleVisibility(checked)}
@@ -180,6 +192,7 @@ export function WorkspaceDataTable<TData>({
         {sortable ? (
           <DndContext
             id={sortableId}
+            autoScroll={false}
             collisionDetection={closestCenter}
             modifiers={[restrictToVerticalAxis]}
             sensors={sensors}

@@ -8,7 +8,6 @@ import {
   Plus,
   Route,
   Trash2,
-  X,
 } from "lucide-react";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from "react";
 
@@ -473,23 +472,6 @@ export function LocationsPage() {
     };
   }, [loadLocations]);
 
-  useEffect(() => {
-    if (!isSheetOpen) {
-      return;
-    }
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setSheetOpen(false, true);
-      }
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [isSheetOpen, setSheetOpen]);
-
   function openCreateSheet() {
     setSheetMode("create");
     setEditingLocationId(null);
@@ -809,19 +791,6 @@ export function LocationsPage() {
           sheetMode === "edit"
             ? "Update the saved stop, address, and routing notes."
             : "Save a reusable stop with type, address, and routing notes for the team."
-        }
-        showCloseButton={false}
-        headerActions={
-          <Button
-            type="button"
-            variant="ghost"
-            className="shrink-0"
-            size="icon-sm"
-            onClick={() => setSheetOpen(false, true)}
-          >
-            <X />
-            <span className="sr-only">Close</span>
-          </Button>
         }
       >
         <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit}>

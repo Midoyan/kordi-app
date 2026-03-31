@@ -25,8 +25,6 @@ type EditorSheetLayoutProps = {
   headerClassName?: string;
   titleClassName?: string;
   descriptionClassName?: string;
-  showCloseButton?: boolean;
-  disablePointerDismissal?: boolean;
 };
 
 export function EditorSheetLayout({
@@ -40,20 +38,26 @@ export function EditorSheetLayout({
   headerClassName,
   titleClassName,
   descriptionClassName,
-  showCloseButton = true,
-  disablePointerDismissal = false,
 }: EditorSheetLayoutProps) {
+  const handleOpenChange: SheetOpenChange = (nextOpen, eventDetails) => {
+    if (!nextOpen && eventDetails?.reason !== "close-press") {
+      return;
+    }
+
+    onOpenChange(nextOpen, eventDetails);
+  };
+
   return (
     <Sheet
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={handleOpenChange}
       modal={false}
-      disablePointerDismissal={disablePointerDismissal}
+      disablePointerDismissal
     >
       <SheetContent
         side="right"
         showOverlay={false}
-        showCloseButton={showCloseButton}
+        showCloseButton
         className={cn(
           "w-full overflow-hidden border-[#e4e4e1] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(251,251,248,0.97)_52%,rgba(244,244,239,0.98)_100%)] shadow-[0_24px_80px_-32px_rgba(15,23,42,0.38)] sm:max-w-[420px]",
           contentClassName,

@@ -2,30 +2,16 @@
 
 import * as React from "react"
 import {
-  closestCenter,
-  DndContext,
-  KeyboardSensor,
-  MouseSensor,
-  TouchSensor,
   type DragEndEvent,
   type UniqueIdentifier,
-  useSensor,
-  useSensors,
 } from "@dnd-kit/core"
-import { restrictToVerticalAxis } from "@dnd-kit/modifiers"
-import {
-  arrayMove,
-  SortableContext,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable"
+import { arrayMove, useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import {
   flexRender,
   getCoreRowModel,
   getSortedRowModel,
   useReactTable,
-  type Column,
   type ColumnDef,
   type Row,
   type RowSelectionState,
@@ -33,13 +19,11 @@ import {
   type VisibilityState,
 } from "@tanstack/react-table"
 import {
-  ChevronDown,
   ChevronRight,
   GripVertical,
   MoreHorizontal,
   Pencil,
   Plus,
-  Settings2,
   Star,
   Trash2,
 } from "lucide-react"
@@ -83,17 +67,13 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import {
   WorkspaceColumnToggleMenu,
   WorkspaceDataTable,
 } from "@/components/workspace-data-table"
+import {
+  TableCell,
+  TableRow,
+} from "@/components/ui/table"
 
 type DriveStopRow = {
   id: string
@@ -133,6 +113,8 @@ type ScheduleSectionProps = {
   drive: Drive
   stopPickupPassengerOptions: StopPickupPassengerOption[]
   onDriveUpdated?: (drive: Drive) => void
+  showDriveSummary?: boolean
+  renderHeaderLeading?: (context: { finalArrivalTime: string }) => React.ReactNode
 }
 
 const defaultColumnVisibility: VisibilityState = {
@@ -611,75 +593,6 @@ function SortableHeader({
   )
 }
 
-function getColumnToggleLabel(column: Column<DriveStopRow, unknown>) {
-  const meta = column.columnDef.meta as { label?: string } | undefined
-
-  if (meta?.label) {
-    return meta.label
-  }
-
-  return column.id
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replaceAll("-", " ")
-}
-
-function ColumnToggleMenu({
-  columns,
-}: {
-  columns: Column<DriveStopRow, unknown>[]
-}) {
-  const [open, setOpen] = React.useState(false)
-  const ref = React.useRef<HTMLDivElement | null>(null)
-
-  React.useEffect(() => {
-    if (!open) {
-      return
-    }
-
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!ref.current?.contains(event.target as Node)) {
-        setOpen(false)
-      }
-    }
-
-    document.addEventListener("mousedown", handlePointerDown)
-    return () => document.removeEventListener("mousedown", handlePointerDown)
-  }, [open])
-
-  return (
-    <div ref={ref} className="relative">
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef]"
-        onClick={() => setOpen((current) => !current)}
-      >
-        <Settings2 className="size-4" />
-        <span className="hidden lg:inline">Customize Columns</span>
-        <span className="lg:hidden">Columns</span>
-        <ChevronDown className="size-4" />
-      </Button>
-      {open ? (
-        <div className="absolute right-0 z-20 mt-2 min-w-52 rounded-xl border border-[#e3e3df] bg-white p-2 shadow-[0_18px_40px_-24px_rgba(15,23,42,0.45)]">
-          {columns.map((column) => (
-            <label
-              key={column.id}
-              className="flex cursor-pointer items-center justify-between gap-3 rounded-lg px-3 py-2 text-[13px] text-[#1d1d1b] hover:bg-[#f7f7f4]"
-            >
-              <span>{getColumnToggleLabel(column)}</span>
-              <Checkbox
-                checked={column.getIsVisible()}
-                onCheckedChange={(checked) => column.toggleVisibility(checked)}
-              />
-            </label>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
 function ActionMenu({
   item,
   onEdit,
@@ -904,6 +817,8 @@ export function ScheduleSection({
   drive,
   stopPickupPassengerOptions,
   onDriveUpdated,
+  showDriveSummary = true,
+  renderHeaderLeading,
 }: ScheduleSectionProps) {
   const initialData = React.useMemo(() => buildInitialStopRows(drive), [drive])
   const passengerLookup = React.useMemo(
@@ -930,12 +845,6 @@ export function ScheduleSection({
   const [isSavingStop, setIsSavingStop] = React.useState(false)
   const [isConfirmingChanges, setIsConfirmingChanges] = React.useState(false)
   const [timingAdjustmentsOpen, setTimingAdjustmentsOpen] = React.useState(false)
-  const sortableId = React.useId()
-  const sensors = useSensors(
-    useSensor(MouseSensor, {}),
-    useSensor(TouchSensor, {}),
-    useSensor(KeyboardSensor, {})
-  )
   const animationTokenRef = React.useRef(0)
   const lastSelectedRowIdRef = React.useRef<string | null>(null)
 
@@ -1771,130 +1680,110 @@ export function ScheduleSection({
   return (
     <>
       <div className="space-y-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-[18px] font-semibold text-[#1d1d1b]">{drive.label}</p>
-            <p className="mt-1 text-[13px] leading-6 text-[#6b6b67]">
-              {stopCount} stop{stopCount === 1 ? "" : "s"} and {passengerCount} passenger
-              {passengerCount === 1 ? "" : "s"} on this drive.
-              {drive.startLocation ? ` Starting from ${drive.startLocation}.` : ""}
-            </p>
+        <WorkspaceDataTable
+          table={table}
+          dataIds={dataIds}
+          sortable
+          onDragEnd={handleDragEnd}
+          toolbar={(
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            {showDriveSummary ? (
+              <div>
+                    <p className="text-[18px] font-semibold text-[#1d1d1b]">{drive.label}</p>
+                    <p className="mt-1 text-[13px] leading-6 text-[#6b6b67]">
+                      {stopCount} stop{stopCount === 1 ? "" : "s"} and {passengerCount} passenger
+                      {passengerCount === 1 ? "" : "s"} on this drive.
+                      {drive.startLocation ? ` Starting from ${drive.startLocation}.` : ""}
+                </p>
+              </div>
+            ) : null}
+            {renderHeaderLeading ? renderHeaderLeading({ finalArrivalTime }) : null}
           </div>
-          <div className="flex items-center gap-2">
-            <ScheduleRoutingControls
-              stops={displayData.map((item) => ({
-                id: item.id,
-                pickupAddress: item.pickupAddress,
-                endDestination: item.endDestination,
-                stopDurationSec: item.stopDurationSec,
-                trafficBufferSec: item.trafficBufferSec,
-              }))}
-              arrivalTime={finalArrivalTime}
-              hasPendingChanges={hasPendingChanges}
-              onConfirmChanges={() => {
-                void confirmPendingChanges()
+              <div className="flex items-center gap-2">
+                <ScheduleRoutingControls
+                  stops={displayData.map((item) => ({
+                    id: item.id,
+                    pickupAddress: item.pickupAddress,
+                    endDestination: item.endDestination,
+                    stopDurationSec: item.stopDurationSec,
+                    trafficBufferSec: item.trafficBufferSec,
+                  }))}
+                  arrivalTime={finalArrivalTime}
+                  hasPendingChanges={hasPendingChanges}
+                  onConfirmChanges={() => {
+                    void confirmPendingChanges()
+                  }}
+                  onErrorChange={setRouteError}
+                  onPlanReady={handlePlanReady}
+                />
+                <WorkspaceColumnToggleMenu columns={visibleColumns} />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled
+                  className="border-[#dbdbd6] bg-[#fafaf7] text-[#1d1d1b] hover:bg-[#f1f1ed]"
+                >
+                  <Plus className="size-4" />
+                  <span className="hidden lg:inline">Add Stop</span>
+                  <span className="lg:hidden">Add</span>
+                </Button>
+              </div>
+            </div>
+          )}
+          containerClassName="overflow-x-auto"
+          tableClassName="min-w-[1120px] table-fixed"
+          headerClassName="bg-[#f7f7f4]"
+          headerRowClassName="border-[#ecece8] hover:bg-transparent"
+          getHeadClassName={(columnId) =>
+            cn(
+              "h-11 border-b border-[#ecece8] bg-[#f7f7f4] px-3 align-middle",
+              columnId === "drag" && "w-10",
+              columnId === "select" && "w-11",
+              columnId === "stopPickupPassengerIds" && "w-[18%]",
+              columnId === "pickupAddress" && "w-[22%]",
+              columnId === "pickupTime" && "w-[13%]",
+              columnId === "stopDurationSec" && "w-[10%]",
+              columnId === "trafficBufferSec" && "w-[10%]",
+              columnId === "endDestination" && "w-[18%]",
+              columnId === "arrival" && "w-[9%]",
+              columnId === "actions" && "w-14"
+            )
+          }
+          emptyState={(
+            <TableRow className="hover:bg-transparent">
+              <TableCell
+                colSpan={table.getVisibleLeafColumns().length}
+                className="py-14 text-center text-[13px] text-[#6b6b67]"
+              >
+                No stops yet.
+              </TableCell>
+            </TableRow>
+          )}
+          renderRow={(row) => (
+            <SortableRow
+              key={row.id}
+              row={row}
+              pendingUpdate={pendingUpdates[row.original.id]}
+              routeTone={routeTones[row.original.id]}
+              showRouteTone={showOptimizedGradient}
+              onOpenEditor={openEditor}
+              onFavorite={(item) =>
+                updateStopRow(item.id, "isFavorite", !item.isFavorite)
+              }
+              onDelete={(item) => {
+                void handleDelete(item)
               }}
-              onErrorChange={setRouteError}
-              onPlanReady={handlePlanReady}
+              onClearSorting={() => {
+                if (sorting.length > 0) {
+                  setSorting([])
+                }
+              }}
+              onRowClick={handleRowClick}
             />
-            <ColumnToggleMenu columns={visibleColumns} />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled
-              className="border-[#dbdbd6] bg-[#fafaf7] text-[#1d1d1b] hover:bg-[#f1f1ed]"
-            >
-              <Plus className="size-4" />
-              <span className="hidden lg:inline">Add Stop</span>
-              <span className="lg:hidden">Add</span>
-            </Button>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto rounded-xl border border-[#ecece8]">
-          <DndContext
-            id={sortableId}
-            collisionDetection={closestCenter}
-            modifiers={[restrictToVerticalAxis]}
-            sensors={sensors}
-            onDragEnd={handleDragEnd}
-          >
-            <Table className="min-w-[1120px] table-fixed">
-              <TableHeader className="bg-[#f7f7f4]">
-                {table.getHeaderGroups().map((headerGroup) => (
-                  <TableRow
-                    key={headerGroup.id}
-                    className="border-[#ecece8] hover:bg-transparent"
-                  >
-                    {headerGroup.headers.map((header) => (
-                      <TableHead
-                        key={header.id}
-                        className={cn(
-                          "h-11 border-b border-[#ecece8] bg-[#f7f7f4] px-3 align-middle",
-                          header.column.id === "drag" && "w-10",
-                          header.column.id === "select" && "w-11",
-                          header.column.id === "stopPickupPassengerIds" && "w-[18%]",
-                          header.column.id === "pickupAddress" && "w-[22%]",
-                          header.column.id === "pickupTime" && "w-[13%]",
-                          header.column.id === "stopDurationSec" && "w-[10%]",
-                          header.column.id === "trafficBufferSec" && "w-[10%]",
-                          header.column.id === "endDestination" && "w-[18%]",
-                          header.column.id === "arrival" && "w-[9%]",
-                          header.column.id === "actions" && "w-14"
-                        )}
-                      >
-                        {header.isPlaceholder
-                          ? null
-                          : flexRender(header.column.columnDef.header, header.getContext())}
-                      </TableHead>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableHeader>
-              <TableBody>
-                {table.getRowModel().rows.length === 0 ? (
-                  <TableRow className="hover:bg-transparent">
-                    <TableCell
-                      colSpan={table.getVisibleLeafColumns().length}
-                      className="py-14 text-center text-[13px] text-[#6b6b67]"
-                    >
-                      No stops yet.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  <SortableContext
-                    items={dataIds}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    {table.getRowModel().rows.map((row) => (
-                      <SortableRow
-                        key={row.id}
-                        row={row}
-                        pendingUpdate={pendingUpdates[row.original.id]}
-                        routeTone={routeTones[row.original.id]}
-                        showRouteTone={showOptimizedGradient}
-                        onOpenEditor={openEditor}
-                        onFavorite={(item) =>
-                          updateStopRow(item.id, "isFavorite", !item.isFavorite)
-                        }
-                        onDelete={(item) => {
-                          void handleDelete(item)
-                        }}
-                        onClearSorting={() => {
-                          if (sorting.length > 0) {
-                            setSorting([])
-                          }
-                        }}
-                        onRowClick={handleRowClick}
-                      />
-                    ))}
-                  </SortableContext>
-                )}
-              </TableBody>
-            </Table>
-          </DndContext>
-        </div>
+          )}
+        />
 
         <div className="flex flex-col gap-3 rounded-lg border border-[#f1f1ed] bg-[#fcfcfa] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
           <p className="text-[12px] leading-5 text-[#6b6b67]">
