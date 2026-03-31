@@ -42,7 +42,6 @@ export async function updateSession(request: NextRequest) {
 
   if (
     !user &&
-    !pathname.startsWith('/login') &&
     !pathname.startsWith('/auth')
   ) {
     if (isApiRequest) {

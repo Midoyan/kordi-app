@@ -47,6 +47,52 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+function createAbortError() {
+  try {
+    return new DOMException("Request aborted", "AbortError");
+  } catch {
+    const error = new Error("Request aborted");
+    error.name = "AbortError";
+    return error;
+  }
+}
+
+function isAbortError(error: unknown) {
+  return (
+    (error instanceof DOMException && error.name === "AbortError") ||
+    (error instanceof Error && error.name === "AbortError")
+  );
+}
+
+function waitForPromiseWithSignal<T>(promise: Promise<T>, signal?: AbortSignal) {
+  if (!signal) {
+    return promise;
+  }
+
+  if (signal.aborted) {
+    return Promise.reject(createAbortError());
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      reject(createAbortError());
+    };
+
+    signal.addEventListener("abort", onAbort, { once: true });
+
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
 function getResponseErrorMessage(payload: unknown, fallbackMessage: string) {
   if (payload && typeof payload === "object") {
     const error = (payload as { error?: unknown }).error;
@@ -252,41 +298,47 @@ export async function fetchPeople(signal?: AbortSignal) {
 
   const staleCachedPeople = getCachedPeopleSnapshot({ includeExpired: true });
 
-  if (peopleRequest) {
-    return peopleRequest;
+  if (!peopleRequest) {
+    const request = (async () => {
+      const response = await fetch("/api/crew-members", {
+        cache: "no-store",
+        method: "GET",
+      });
+      const payload = await parseResponseJson(response);
+
+      if (!response.ok) {
+        throw new Error(getResponseErrorMessage(payload, "Failed to load people."));
+      }
+
+      if (!Array.isArray(payload)) {
+        return storePeopleCache([]);
+      }
+
+      return storePeopleCache(
+        payload.map((entry) => mapCrewMemberToPerson(normalizeCrewMemberRecord(entry))),
+      );
+    })();
+
+    peopleRequest = request;
+    void request.finally(() => {
+      if (peopleRequest === request) {
+        peopleRequest = null;
+      }
+    });
   }
 
-  peopleRequest = (async () => {
-    const response = await fetch("/api/crew-members", {
-      cache: "no-store",
-      method: "GET",
-      signal,
-    });
-    const payload = await parseResponseJson(response);
-
-    if (!response.ok) {
-      throw new Error(getResponseErrorMessage(payload, "Failed to load people."));
-    }
-
-    if (!Array.isArray(payload)) {
-      return storePeopleCache([]);
-    }
-
-    return storePeopleCache(
-      payload.map((entry) => mapCrewMemberToPerson(normalizeCrewMemberRecord(entry))),
-    );
-  })();
-
   try {
-    return await peopleRequest;
+    return await waitForPromiseWithSignal(peopleRequest, signal);
   } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
+
     if (staleCachedPeople !== null) {
       return staleCachedPeople;
     }
 
     throw error;
-  } finally {
-    peopleRequest = null;
   }
 }
 

@@ -109,7 +109,7 @@ export function AppSidebar({ user }: AppSidebarProps) {
           <SidebarUserNav user={user} />
         ) : (
           <Link
-            href="/login"
+            href="/auth/login"
             aria-label="Login"
             data-kordi-shell="auth-button"
             className="flex items-center justify-center gap-2 rounded-lg bg-[#1d1d1b] px-3 py-2.5 text-[13px] font-medium text-white transition-colors hover:bg-[#2c2c29]"
