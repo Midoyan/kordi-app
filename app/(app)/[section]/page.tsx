@@ -5,7 +5,7 @@ import { Car, Plus, Route, Users } from "lucide-react";
 import { LiveMapPage } from "@/components/live-map-page";
 import { LocationsPage } from "@/components/locations-page";
 import { PeopleSection } from "@/components/people-section";
-import { ScheduleSection } from "@/components/schedule-section";
+import { ScheduleView as ScheduleViewContent } from "@/components/schedule-view";
 import { VehiclesPage } from "@/components/vehicles-page";
 import { appSectionMap, appSections, type AppSectionSlug } from "@/lib/app-sections";
 
@@ -28,7 +28,7 @@ const sectionActionLabels: Record<AppSectionSlug, string> = {
   vehicles: "Add vehicle",
   map: "Start tracking",
   locations: "Add location",
-  schedule: "Add time block",
+  schedule: "Add stop",
   settings: "Add setting",
 };
 
@@ -277,15 +277,7 @@ function LocationsView() {
 
 function ScheduleView() {
   return (
-    <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-      <Panel
-        title="Van 1"
-        description="Berlin pickup schedule for one van heading to the festival location."
-        className="lg:col-span-2"
-      >
-        <ScheduleSection />
-      </Panel>
-    </div>
+    <ScheduleViewContent />
   );
 }
 
@@ -329,7 +321,7 @@ function SettingsView() {
   );
 }
 
-function renderSectionBody(section: AppSectionSlug) {
+async function renderSectionBody(section: AppSectionSlug) {
   switch (section) {
     case "dashboard":
       return <DashboardView />;
@@ -399,7 +391,7 @@ export default async function SectionPage({ params }: SectionPageProps) {
           </div>
         </div>
 
-        {renderSectionBody(currentSection.slug)}
+        {await renderSectionBody(currentSection.slug)}
       </div>
     </section>
   );

@@ -39,6 +39,14 @@ export type CoordinateCache = Map<string, [number, number]>
 
 const optimizationV1BaseUrl = "https://api.mapbox.com/optimized-trips/v1/mapbox/driving"
 
+function normalizeTimingSeconds(value: number | null | undefined) {
+  if (typeof value !== "number" || Number.isNaN(value) || value <= 0) {
+    return 0
+  }
+
+  return Math.round(value)
+}
+
 export function getMapboxToken() {
   return (
     process.env.MAPBOX_ACCESS_TOKEN?.trim() ||
@@ -182,8 +190,12 @@ export async function recalculateScheduleStops(
       cache,
       token
     )
+    const stopDurationSeconds = normalizeTimingSeconds(currentStop.stopDurationSec)
+    const trafficBufferSeconds = normalizeTimingSeconds(currentStop.trafficBufferSec)
+    const totalBacktrackedSeconds =
+      legDurationSeconds + stopDurationSeconds + trafficBufferSeconds
 
-    cursor = new Date(cursor.getTime() - legDurationSeconds * 1000)
+    cursor = new Date(cursor.getTime() - totalBacktrackedSeconds * 1000)
 
     recalculated.unshift({
       ...currentStop,

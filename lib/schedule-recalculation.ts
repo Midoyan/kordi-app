@@ -1,7 +1,9 @@
 export type ScheduleStopInput = {
-  id: number
+  id: string
   pickupAddress: string
   endDestination: string
+  stopDurationSec?: number | null
+  trafficBufferSec?: number | null
 }
 
 export type RecalculatedScheduleStop = ScheduleStopInput & {

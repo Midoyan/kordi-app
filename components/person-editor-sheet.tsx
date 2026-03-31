@@ -41,11 +41,27 @@ export function PersonEditorSheet({
     setDraft((current) => (current ? { ...current, [field]: value } : current));
   };
 
+  const randomizeDraft = () => {
+    const template = demoPeopleDrafts[Math.floor(Math.random() * demoPeopleDrafts.length)];
+    setDraft((current) => (current ? { ...current, ...template } : current));
+  };
+
+  const hasEnteredInput = Boolean(
+    draft &&
+      [draft.name, draft.role, draft.address, draft.pickup, draft.email].some((value) =>
+        value.trim(),
+      ),
+  );
+
   return (
     <EditorSheetLayout
       open={open}
-      onOpenChange={(nextOpen) => {
-        if (!nextOpen) {
+      onOpenChange={(nextOpen, eventDetails) => {
+        if (nextOpen) {
+          return;
+        }
+
+        if (eventDetails?.reason === "escape-key" || !hasEnteredInput) {
           onClose();
         }
       }}
@@ -59,6 +75,8 @@ export function PersonEditorSheet({
       headerClassName="px-4 py-4"
       titleClassName="text-base font-semibold tracking-normal"
       descriptionClassName="mt-0 text-sm"
+      showCloseButton={false}
+      disablePointerDismissal={hasEnteredInput}
     >
       {draft ? (
         <form
