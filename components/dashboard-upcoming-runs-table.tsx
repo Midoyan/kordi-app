@@ -14,7 +14,10 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 
-import { WorkspaceDataTable } from "@/components/workspace-data-table";
+import {
+  WorkspaceColumnToggleMenu,
+  WorkspaceDataTable,
+} from "@/components/workspace-data-table";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { TableCell, TableRow } from "@/components/ui/table";
@@ -82,6 +85,18 @@ function ColumnHeader({
 
 function getPrimaryAddressLine(value: string) {
   return value.split(",")[0]?.trim() || value.trim();
+}
+
+function getDriveViaLabel(drive: Drive) {
+  const viaAddresses = Array.from(
+    new Set(
+      drive.stops
+        .map((stop) => getPrimaryAddressLine(stop.pickupAddress))
+        .filter(Boolean),
+    ),
+  ).slice(0, 2);
+
+  return viaAddresses.length > 0 ? ` via ${viaAddresses.join(", ")}` : "";
 }
 
 function getDrivePassengerSummary(drive: Drive) {
@@ -182,10 +197,11 @@ function mapDriveToDashboardRun(drive: Drive): DashboardRunRow {
     routeStart && routeDestination
       ? `${routeStart} -> ${routeDestination}`
       : routeDestination || routeStart || drive.label;
+  const viaLabel = getDriveViaLabel(drive);
   const routeDetail =
     drive.stops.length === 0
       ? "No pickup stops yet"
-      : `${drive.stops.length} pickup stop${drive.stops.length === 1 ? "" : "s"}`;
+      : `${drive.stops.length} pickup stop${drive.stops.length === 1 ? "" : "s"}${viaLabel}`;
   const vehicleLabel = drive.van?.label?.trim() || drive.van?.plate_number?.trim() || "Unassigned";
   const vehicleDetail = drive.van
     ? [drive.van.vehicle_type?.trim(), drive.driver?.name ? `Driver: ${drive.driver.name}` : ""]
@@ -367,11 +383,17 @@ export function DashboardUpcomingRunsTable({ drives }: { drives: Drive[] }) {
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
   });
+  const visibleColumns = table.getAllColumns().filter((column) => column.getCanHide());
 
   return (
     <WorkspaceDataTable
       table={table}
       dataIds={rows.map((row) => row.id)}
+      toolbar={
+        <div className="flex items-center justify-end">
+          <WorkspaceColumnToggleMenu columns={visibleColumns} />
+        </div>
+      }
       containerClassName="overflow-x-auto"
       tableClassName="min-w-[920px] table-fixed"
       headerClassName="bg-[#f7f7f4]"
