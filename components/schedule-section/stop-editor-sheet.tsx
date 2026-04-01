@@ -56,13 +56,17 @@ export function ScheduleStopEditorSheet({
   onDelete,
   onSubmit,
 }: ScheduleStopEditorSheetProps) {
+  const passengerCount = draft
+    ? getStopPickupPassengerNames(draft.stopPickupPassengerIds, passengerLookup).length
+    : 0
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full border-l border-[#ecece8] bg-white sm:max-w-xl">
         <SheetHeader className="gap-1 border-b border-[#ecece8] px-6 py-5">
           <SheetTitle>
             {draft
-              ? `${getStopPickupPassengerNames(draft.stopPickupPassengerIds, passengerLookup).length} passenger${getStopPickupPassengerNames(draft.stopPickupPassengerIds, passengerLookup).length === 1 ? "" : "s"}`
+              ? `${passengerCount} passenger${passengerCount === 1 ? "" : "s"}`
               : "Stop details"}
           </SheetTitle>
           <SheetDescription>
