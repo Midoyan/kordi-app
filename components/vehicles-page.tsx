@@ -1,124 +1,188 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Car, Plus, UserRound, Wrench } from "lucide-react";
-import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { Car, Pencil, Plus, Trash2, Wrench } from "lucide-react";
+import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from "react";
 
 import { EditorSheetLayout } from "@/components/editor-sheet-layout";
 import { Button } from "@/components/ui/button";
-import {
-  Combobox,
-  ComboboxChip,
-  ComboboxChips,
-  ComboboxChipsInput,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxItem,
-  ComboboxList,
-  useComboboxAnchor,
-} from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { SheetFooter } from "@/components/ui/sheet";
-import {
-  fetchPeople,
-  getCachedPeopleSnapshot,
-  type PersonRecord,
-} from "@/lib/people";
 
-type VehicleStatus = "Ready" | "Standby" | "Needs service";
+type VehicleAvailability = "Active" | "Inactive";
+type PersistenceMode = "checking" | "connected" | "local-only";
+type SheetMode = "create" | "edit";
+
+type VehicleApiRecord = {
+  id?: unknown;
+  label?: unknown;
+  plate_number?: unknown;
+  seat_capacity?: unknown;
+  vehicle_type?: unknown;
+  notes?: unknown;
+  is_active?: unknown;
+  created_at?: unknown;
+};
 
 type VehicleRecord = {
   id: string;
-  name: string;
-  make: string;
-  color: string;
-  licensePlate: string;
-  type: string;
-  capacity: number;
-  driver: string;
-  status: VehicleStatus;
+  label: string;
+  plateNumber: string;
+  seatCapacity: number;
+  vehicleType: string;
   notes: string;
+  isActive: boolean;
+  createdAt: string | null;
 };
 
 type VehicleForm = {
-  name: string;
-  make: string;
-  color: string;
-  licensePlate: string;
-  type: string;
-  capacity: string;
-  driverId: string;
-  status: VehicleStatus;
+  label: string;
+  plateNumber: string;
+  seatCapacity: string;
+  vehicleType: string;
+  availability: VehicleAvailability;
   notes: string;
 };
 
 type VehicleFieldError = {
-  name?: string;
-  make?: string;
-  color?: string;
-  licensePlate?: string;
-  capacity?: string;
+  label?: string;
+  plateNumber?: string;
+  seatCapacity?: string;
 };
 
 const initialForm: VehicleForm = {
-  name: "",
-  make: "",
-  color: "",
-  licensePlate: "",
-  type: "Van",
-  capacity: "6",
-  driverId: "",
-  status: "Ready",
+  label: "",
+  plateNumber: "",
+  seatCapacity: "6",
+  vehicleType: "Van",
+  availability: "Active",
   notes: "",
 };
 
-type VehicleFormTemplate = Omit<VehicleForm, "driverId"> & {
-  preferredDriverIndex?: number;
-};
-
-const sampleVehicleForms: VehicleFormTemplate[] = [
+const sampleVehicleForms: VehicleForm[] = [
   {
-    name: "Sprinter 12",
-    make: "Mercedes-Benz",
-    color: "Black",
-    licensePlate: "8TRN214",
-    type: "Van",
-    capacity: "8",
-    preferredDriverIndex: 0,
-    status: "Ready",
+    label: "Sprinter 12",
+    plateNumber: "8TRN214",
+    seatCapacity: "8",
+    vehicleType: "Van",
+    availability: "Active",
     notes: "Stage door pickup. Keep rear cargo lane clear.",
   },
   {
-    name: "Shuttle North",
-    make: "Ford",
-    color: "Silver",
-    licensePlate: "9LAX552",
-    type: "Shuttle",
-    capacity: "12",
-    preferredDriverIndex: 1,
-    status: "Standby",
+    label: "Shuttle North",
+    plateNumber: "9LAX552",
+    seatCapacity: "12",
+    vehicleType: "Shuttle",
+    availability: "Active",
     notes: "Hotel loop until 11:00 AM.",
   },
   {
-    name: "Runner 03",
-    make: "Chevrolet",
-    color: "White",
-    licensePlate: "7KRD118",
-    type: "SUV",
-    capacity: "5",
-    preferredDriverIndex: 2,
-    status: "Needs service",
-    notes: "Check tire pressure before dispatch.",
+    label: "Runner 03",
+    plateNumber: "7KRD118",
+    seatCapacity: "5",
+    vehicleType: "SUV",
+    availability: "Inactive",
+    notes: "Inspection due before next dispatch.",
   },
 ];
 
-function statusTone(status: VehicleStatus) {
-  switch (status) {
-    case "Ready":
+function readString(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function parseSeatCapacity(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(0, value);
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+  }
+
+  return 0;
+}
+
+function normalizeVehicleRecord(payload: VehicleApiRecord): VehicleRecord {
+  return {
+    id: readString(payload.id),
+    label: readString(payload.label) || "Untitled van",
+    plateNumber: readString(payload.plate_number),
+    seatCapacity: parseSeatCapacity(payload.seat_capacity),
+    vehicleType: readString(payload.vehicle_type) || "Van",
+    notes: readString(payload.notes),
+    isActive: payload.is_active !== false,
+    createdAt: typeof payload.created_at === "string" ? payload.created_at : null,
+  };
+}
+
+function sortVehicles(vehicles: VehicleRecord[]) {
+  return [...vehicles].sort((first, second) => {
+    const firstCreatedAt = first.createdAt ?? "";
+    const secondCreatedAt = second.createdAt ?? "";
+
+    if (firstCreatedAt && secondCreatedAt && firstCreatedAt !== secondCreatedAt) {
+      return secondCreatedAt.localeCompare(firstCreatedAt);
+    }
+
+    if (firstCreatedAt) {
+      return -1;
+    }
+
+    if (secondCreatedAt) {
+      return 1;
+    }
+
+    return first.label.localeCompare(second.label);
+  });
+}
+
+function createLocalVehicleRecord(
+  id: string,
+  payload: {
+    label: string;
+    plate_number: string;
+    seat_capacity: number;
+    vehicle_type: string;
+    notes: string;
+    is_active: boolean;
+  },
+): VehicleRecord {
+  return normalizeVehicleRecord({
+    id,
+    created_at: new Date().toISOString(),
+    ...payload,
+  });
+}
+
+function toVehicleForm(vehicle: VehicleRecord): VehicleForm {
+  return {
+    label: vehicle.label,
+    plateNumber: vehicle.plateNumber,
+    seatCapacity: String(vehicle.seatCapacity || ""),
+    vehicleType: vehicle.vehicleType || "Van",
+    availability: vehicle.isActive ? "Active" : "Inactive",
+    notes: vehicle.notes,
+  };
+}
+
+function formatApiError(payload: unknown, fallbackMessage: string) {
+  if (payload && typeof payload === "object") {
+    const error = (payload as { error?: unknown }).error;
+
+    if (typeof error === "string" && error.trim()) {
+      return error;
+    }
+  }
+
+  return fallbackMessage;
+}
+
+function availabilityTone(availability: VehicleAvailability) {
+  switch (availability) {
+    case "Active":
       return "border-emerald-200 bg-emerald-50 text-emerald-700";
-    case "Standby":
-      return "border-sky-200 bg-sky-50 text-sky-700";
-    case "Needs service":
+    case "Inactive":
       return "border-amber-200 bg-amber-50 text-amber-700";
     default:
       return "border-[#d7d7d2] bg-[#f3f3ef] text-[#6b6b67]";
@@ -140,41 +204,33 @@ function buildSheetHref(pathname: string, searchParams: URLSearchParams, open: b
 
 function validateVehicleForm(form: VehicleForm) {
   const errors: VehicleFieldError = {};
-  const trimmedName = form.name.trim();
-  const trimmedMake = form.make.trim();
-  const trimmedColor = form.color.trim();
-  const trimmedLicensePlate = form.licensePlate.trim();
-  const capacity = Number(form.capacity);
+  const trimmedLabel = form.label.trim();
+  const trimmedPlateNumber = form.plateNumber.trim();
+  const trimmedVehicleType = form.vehicleType.trim() || "Van";
+  const trimmedNotes = form.notes.trim();
+  const seatCapacity = Number(form.seatCapacity);
 
-  if (!trimmedName) {
-    errors.name = "Enter a vehicle title.";
+  if (!trimmedLabel) {
+    errors.label = "Enter a vehicle title.";
   }
 
-  if (!trimmedMake) {
-    errors.make = "Enter the vehicle make.";
+  if (!trimmedPlateNumber) {
+    errors.plateNumber = "Enter the license plate.";
   }
 
-  if (!trimmedColor) {
-    errors.color = "Enter the vehicle color.";
-  }
-
-  if (!trimmedLicensePlate) {
-    errors.licensePlate = "Enter the license plate.";
-  }
-
-  if (!form.capacity.trim()) {
-    errors.capacity = "Enter a seat count.";
-  } else if (!Number.isFinite(capacity) || capacity < 1) {
-    errors.capacity = "Capacity must be greater than 0.";
+  if (!form.seatCapacity.trim()) {
+    errors.seatCapacity = "Enter a seat count.";
+  } else if (!Number.isFinite(seatCapacity) || seatCapacity < 1) {
+    errors.seatCapacity = "Capacity must be greater than 0.";
   }
 
   return {
     errors,
-    trimmedName,
-    trimmedMake,
-    trimmedColor,
-    trimmedLicensePlate,
-    capacity,
+    trimmedLabel,
+    trimmedPlateNumber,
+    trimmedVehicleType,
+    trimmedNotes,
+    seatCapacity,
     isValid: Object.keys(errors).length === 0,
   };
 }
@@ -211,20 +267,20 @@ function EmptyFleetState({ onAddVehicle }: { onAddVehicle: () => void }) {
     <div className="overflow-hidden rounded-lg border border-[#e7e7e4]">
       <div
         className="grid min-h-10 items-center border-b border-[#ecece8] bg-[#f7f7f4] px-4 text-[11px] font-semibold tracking-[0.12em] text-[#777772] uppercase"
-        style={{ gridTemplateColumns: "repeat(5, minmax(0, 1fr))" }}
+        style={{ gridTemplateColumns: "minmax(0,1.2fr) repeat(4, minmax(0, 1fr))" }}
       >
-        {["Vehicle", "Type", "Capacity", "Driver", "Status"].map((column) => (
+        {["Vehicle", "Plate", "Type", "Capacity", "Status"].map((column) => (
           <span key={column}>{column}</span>
         ))}
       </div>
       <div className="flex min-h-28 flex-col items-center justify-center gap-2 px-4 py-6 text-center">
-        <p className="text-[14px] font-medium text-[#1d1d1b]">No vehicles added yet.</p>
+        <p className="text-[14px] font-medium text-[#1d1d1b]">No vans added yet.</p>
         <button
           type="button"
           onClick={onAddVehicle}
           className="rounded-md border border-[#dbdbd6] px-3 py-1.5 text-[13px] text-[#43433f] transition-colors hover:bg-[#f3f3ef]"
         >
-          Add first vehicle
+          Add first van
         </button>
       </div>
     </div>
@@ -233,44 +289,77 @@ function EmptyFleetState({ onAddVehicle }: { onAddVehicle: () => void }) {
 
 function FleetTable({
   vehicles,
+  deletingVehicleId,
+  onEditVehicle,
+  onDeleteVehicle,
 }: {
   vehicles: VehicleRecord[];
+  deletingVehicleId: string | null;
+  onEditVehicle: (vehicle: VehicleRecord) => void;
+  onDeleteVehicle: (vehicle: VehicleRecord) => void;
 }) {
   return (
     <div className="overflow-hidden rounded-lg border border-[#e7e7e4]">
       <div
         className="grid min-h-10 items-center border-b border-[#ecece8] bg-[#f7f7f4] px-4 text-[11px] font-semibold tracking-[0.12em] text-[#777772] uppercase"
-        style={{ gridTemplateColumns: "minmax(0,1.2fr) repeat(4, minmax(0, 1fr))" }}
+        style={{ gridTemplateColumns: "minmax(0,1.2fr) repeat(4, minmax(0, 1fr)) 112px" }}
       >
-        {["Vehicle", "Type", "Capacity", "Driver", "Status"].map((column) => (
-          <span key={column}>{column}</span>
+        {["Vehicle", "Plate", "Type", "Capacity", "Status", ""].map((column, index) => (
+          <span key={`${column}-${index}`}>{column}</span>
         ))}
       </div>
       <div className="divide-y divide-[#ecece8]">
-        {vehicles.map((vehicle) => (
-          <div
-            key={vehicle.id}
-            className="grid items-center gap-3 px-4 py-4 text-[13px] text-[#3d3d39]"
-            style={{ gridTemplateColumns: "minmax(0,1.2fr) repeat(4, minmax(0, 1fr))" }}
-          >
-            <div className="min-w-0">
-              <p className="truncate text-[14px] font-medium text-[#1d1d1b]">{vehicle.name}</p>
-              <p className="mt-1 truncate text-[12px] text-[#6b6b67]">
-                {[vehicle.make, vehicle.color, vehicle.licensePlate].join(" · ")}
-              </p>
-            </div>
-            <span>{vehicle.type}</span>
-            <span>{vehicle.capacity} seats</span>
-            <span className="truncate">{vehicle.driver || "Unassigned"}</span>
-            <span>
-              <span
-                className={`inline-flex rounded-full border px-2.5 py-1 text-[12px] font-medium ${statusTone(vehicle.status)}`}
-              >
-                {vehicle.status}
+        {vehicles.map((vehicle) => {
+          const availability: VehicleAvailability = vehicle.isActive ? "Active" : "Inactive";
+
+          return (
+            <div
+              key={vehicle.id}
+              className="grid items-center gap-3 px-4 py-4 text-[13px] text-[#3d3d39]"
+              style={{ gridTemplateColumns: "minmax(0,1.2fr) repeat(4, minmax(0, 1fr)) 112px" }}
+            >
+              <div className="min-w-0">
+                <p className="truncate text-[14px] font-medium text-[#1d1d1b]">{vehicle.label}</p>
+                <p className="mt-1 truncate text-[12px] text-[#6b6b67]">
+                  {vehicle.notes || "No notes added"}
+                </p>
+              </div>
+              <span className="truncate">{vehicle.plateNumber || "No plate"}</span>
+              <span>{vehicle.vehicleType}</span>
+              <span>{vehicle.seatCapacity} seats</span>
+              <span>
+                <span
+                  className={`inline-flex rounded-full border px-2.5 py-1 text-[12px] font-medium ${availabilityTone(availability)}`}
+                >
+                  {availability}
+                </span>
               </span>
-            </span>
-          </div>
-        ))}
+              <div className="flex items-center justify-end gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 text-[#5f5f59]"
+                  onClick={() => onEditVehicle(vehicle)}
+                  aria-label={`Edit ${vehicle.label}`}
+                >
+                  <Pencil className="size-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 text-[#8a3b34] hover:text-[#8a3b34]"
+                  onClick={() => onDeleteVehicle(vehicle)}
+                  disabled={deletingVehicleId === vehicle.id}
+                  aria-label={`Delete ${vehicle.label}`}
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -316,266 +405,364 @@ function Field({
   );
 }
 
-function DriverCombobox({
-  people,
-  value,
-  onValueChange,
-  disabled,
-}: {
-  people: PersonRecord[];
-  value: string;
-  onValueChange: (value: string) => void;
-  disabled?: boolean;
-}) {
-  const anchorRef = useComboboxAnchor();
-  const selectedValues = value ? [value] : [];
-  const selectedPerson = people.find((person) => person.id === value) ?? null;
-  const [open, setOpen] = useState(false);
-
-  return (
-    <Combobox
-      multiple
-      disabled={disabled}
-      open={selectedPerson ? false : open}
-      onOpenChange={setOpen}
-      value={selectedValues}
-      onValueChange={(nextValue) => {
-        onValueChange(nextValue.at(-1) ?? "");
-        setOpen(false);
-      }}
-      itemToStringLabel={(personId) => {
-        const person = people.find((entry) => entry.id === personId);
-        return person ? `${person.name} ${person.phone} ${person.address}` : personId;
-      }}
-    >
-      <ComboboxChips
-        ref={anchorRef}
-        className="min-h-8 gap-1 rounded-lg border-[#dcdcd7] bg-white px-2 py-1"
-      >
-        {selectedPerson ? (
-          <ComboboxChip className="h-5 rounded-sm px-1.5 text-[11px]">
-            {selectedPerson.name}
-          </ComboboxChip>
-        ) : (
-          <ComboboxChipsInput
-            placeholder={
-              disabled
-                ? "Add people on the People page first"
-                : "Search people to assign as driver"
-            }
-            className="min-h-5 text-sm text-[#1d1d1b] placeholder:text-[#8a8a84]"
-            onFocus={() => setOpen(true)}
-            onKeyDown={(event) => {
-              if (event.key === "Tab") {
-                setOpen(false);
-              }
-            }}
-          />
-        )}
-      </ComboboxChips>
-      <ComboboxContent anchor={anchorRef} className="border border-[#e3e3df] bg-white shadow-[0_18px_38px_-24px_rgba(15,23,42,0.45)]">
-        <ComboboxList>
-          <ComboboxEmpty>
-            {people.length === 0 ? "No saved people found." : "No matching people found."}
-          </ComboboxEmpty>
-          {people.map((person) => (
-            <ComboboxItem key={person.id} value={person.id} className="items-start gap-3 px-2 py-2.5">
-              <div className="min-w-0">
-                <p className="truncate text-[13px] font-medium text-[#1d1d1b]">{person.name}</p>
-                <p className="mt-0.5 text-[11px] text-[#6b6b67]">{person.phone || "Phone not added"}</p>
-                <p className="mt-1 truncate text-[11px] text-[#8a8a84]">{person.address}</p>
-              </div>
-            </ComboboxItem>
-          ))}
-        </ComboboxList>
-      </ComboboxContent>
-    </Combobox>
-  );
-}
-
 export function VehiclesPage() {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [people, setPeople] = useState<PersonRecord[]>([]);
-  const [isPeopleLoading, setIsPeopleLoading] = useState(true);
-  const [peopleError, setPeopleError] = useState<string | null>(null);
   const [vehicles, setVehicles] = useState<VehicleRecord[]>([]);
   const [form, setForm] = useState<VehicleForm>(initialForm);
   const [fieldErrors, setFieldErrors] = useState<VehicleFieldError>({});
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
+  const [sheetMode, setSheetMode] = useState<SheetMode>("create");
+  const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [deletingVehicleId, setDeletingVehicleId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [persistenceMode, setPersistenceMode] = useState<PersistenceMode>("checking");
 
   const isSheetOpen = searchParams.get("sheet") === "add-vehicle";
-  const readyCount = vehicles.filter((vehicle) => vehicle.status === "Ready").length;
-  const unassignedCount = vehicles.filter((vehicle) => !vehicle.driver.trim()).length;
-  const totalSeats = vehicles.reduce((sum, vehicle) => sum + vehicle.capacity, 0);
+  const activeCount = vehicles.filter((vehicle) => vehicle.isActive).length;
+  const inactiveCount = vehicles.length - activeCount;
+  const totalSeats = vehicles.reduce((sum, vehicle) => sum + vehicle.seatCapacity, 0);
+  const latestVehicle = vehicles[0];
+
+  const loadVehicles = useCallback(async (signal?: AbortSignal) => {
+    setIsLoading(true);
+    setLoadError(null);
+
+    try {
+      const response = await fetch("/api/vans", {
+        cache: "no-store",
+        signal,
+      });
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(formatApiError(payload, "Unable to load vans from the backend."));
+      }
+
+      if (signal?.aborted) {
+        return;
+      }
+
+      const nextVehicles = Array.isArray(payload)
+        ? sortVehicles(payload.map((record) => normalizeVehicleRecord(record as VehicleApiRecord)))
+        : [];
+
+      setVehicles(nextVehicles);
+      setPersistenceMode("connected");
+    } catch (error) {
+      if (signal?.aborted) {
+        return;
+      }
+
+      setPersistenceMode("local-only");
+      setLoadError(error instanceof Error ? error.message : "Unable to load vans from the backend.");
+    } finally {
+      if (!signal?.aborted) {
+        setIsLoading(false);
+      }
+    }
+  }, []);
+
+  const resetSheetState = useCallback(() => {
+    setForm(initialForm);
+    setFieldErrors({});
+    setSubmitMessage(null);
+    setSheetMode("create");
+    setEditingVehicleId(null);
+    setIsSaving(false);
+  }, []);
+
+  const setSheetOpen = useCallback(
+    (open: boolean) => {
+      router.replace(buildSheetHref(pathname, new URLSearchParams(searchParams.toString()), open), {
+        scroll: false,
+      });
+
+      if (!open) {
+        resetSheetState();
+      }
+    },
+    [pathname, resetSheetState, router, searchParams],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
-    const cachedPeople = getCachedPeopleSnapshot();
 
-    if (cachedPeople !== null) {
-      setPeople(cachedPeople);
-      setIsPeopleLoading(false);
-    }
-
-    const load = async () => {
-      if (cachedPeople === null) {
-        setIsPeopleLoading(true);
-      }
-
-      setPeopleError(null);
-
-      try {
-        const nextPeople = await fetchPeople(controller.signal);
-        setPeople(nextPeople);
-      } catch (error) {
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        setPeopleError(error instanceof Error ? error.message : "Failed to load people.");
-      } finally {
-        if (!controller.signal.aborted) {
-          setIsPeopleLoading(false);
-        }
-      }
-    };
-
-    void load();
+    void loadVehicles(controller.signal);
 
     return () => controller.abort();
-  }, []);
+  }, [loadVehicles]);
 
-  function setSheetOpen(open: boolean) {
-    router.replace(buildSheetHref(pathname, new URLSearchParams(searchParams.toString()), open), {
-      scroll: false,
-    });
-
-    if (!open) {
-      setForm(initialForm);
-      setFieldErrors({});
-      setSubmitMessage(null);
-    }
+  function openCreateSheet() {
+    setSheetMode("create");
+    setEditingVehicleId(null);
+    setForm(initialForm);
+    setFieldErrors({});
+    setSubmitMessage(null);
+    setSheetOpen(true);
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  function openEditSheet(vehicle: VehicleRecord) {
+    setSheetMode("edit");
+    setEditingVehicleId(vehicle.id);
+    setForm(toVehicleForm(vehicle));
+    setFieldErrors({});
+    setSubmitMessage(null);
+    setSheetOpen(true);
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const validation = validateVehicleForm(form);
 
     if (!validation.isValid) {
       setFieldErrors(validation.errors);
-      setSubmitMessage("Fill in the required fields before saving the vehicle.");
+      setSubmitMessage("Fill in the required fields before saving the van.");
       return;
     }
 
     setFieldErrors({});
     setSubmitMessage(null);
+    setIsSaving(true);
 
-    setVehicles((current) => [
-      {
-        id: `${validation.trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${current.length + 1}`,
-        name: validation.trimmedName,
-        make: validation.trimmedMake,
-        color: validation.trimmedColor,
-        licensePlate: validation.trimmedLicensePlate,
-        type: form.type,
-        capacity: validation.capacity,
-        driver: people.find((person) => person.id === form.driverId)?.name ?? "",
-        status: form.status,
-        notes: form.notes.trim(),
-      },
-      ...current,
-    ]);
+    const payload = {
+      label: validation.trimmedLabel,
+      plate_number: validation.trimmedPlateNumber,
+      seat_capacity: validation.seatCapacity,
+      vehicle_type: validation.trimmedVehicleType,
+      notes: validation.trimmedNotes,
+      is_active: form.availability === "Active",
+    };
 
-    setSheetOpen(false);
+    try {
+      if (persistenceMode === "connected") {
+        const isEditing = sheetMode === "edit" && editingVehicleId;
+        const response = await fetch(isEditing ? `/api/vans/${editingVehicleId}` : "/api/vans", {
+          method: isEditing ? "PATCH" : "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
+        const result = await response.json().catch(() => null);
+
+        if (!response.ok) {
+          throw new Error(
+            formatApiError(result, isEditing ? "Unable to update van." : "Unable to save van."),
+          );
+        }
+
+        const savedVehicle = normalizeVehicleRecord(result as VehicleApiRecord);
+
+        setVehicles((current) => {
+          if (isEditing) {
+            return sortVehicles(
+              current.map((vehicle) => (vehicle.id === savedVehicle.id ? savedVehicle : vehicle)),
+            );
+          }
+
+          return sortVehicles([savedVehicle, ...current.filter((vehicle) => vehicle.id !== savedVehicle.id)]);
+        });
+      } else {
+        const localId =
+          sheetMode === "edit" && editingVehicleId
+            ? editingVehicleId
+            : `${payload.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`;
+        const localVehicle = createLocalVehicleRecord(localId, payload);
+
+        setVehicles((current) => {
+          if (sheetMode === "edit" && editingVehicleId) {
+            return sortVehicles(
+              current.map((vehicle) => (vehicle.id === editingVehicleId ? localVehicle : vehicle)),
+            );
+          }
+
+          return sortVehicles([localVehicle, ...current]);
+        });
+      }
+
+      setSheetOpen(false);
+    } catch (error) {
+      setSubmitMessage(error instanceof Error ? error.message : "Unable to save van right now.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleDeleteVehicle(vehicle: VehicleRecord) {
+    const confirmed = window.confirm(
+      `Remove ${vehicle.label}? This also deletes any linked drives and pickup stops.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    if (persistenceMode !== "connected") {
+      setVehicles((current) => current.filter((entry) => entry.id !== vehicle.id));
+
+      if (editingVehicleId === vehicle.id) {
+        setSheetOpen(false);
+      }
+
+      return;
+    }
+
+    setDeletingVehicleId(vehicle.id);
+    setLoadError(null);
+
+    try {
+      const response = await fetch(`/api/vans/${vehicle.id}`, {
+        method: "DELETE",
+      });
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(formatApiError(payload, "Unable to delete van."));
+      }
+
+      setVehicles((current) => current.filter((entry) => entry.id !== vehicle.id));
+
+      if (editingVehicleId === vehicle.id) {
+        setSheetOpen(false);
+      }
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Unable to delete van right now.");
+    } finally {
+      setDeletingVehicleId(null);
+    }
   }
 
   function fillSampleForm() {
     const template = sampleVehicleForms[Math.floor(Math.random() * sampleVehicleForms.length)];
-    setForm({
-      ...template,
-      driverId:
-        template.preferredDriverIndex !== undefined
-          ? people[template.preferredDriverIndex]?.id ?? ""
-          : "",
-    });
+    setForm(template);
     setFieldErrors({});
     setSubmitMessage(null);
   }
 
-  const latestVehicle = vehicles[0];
+  const saveButtonLabel = isSaving
+    ? "Saving..."
+    : sheetMode === "edit"
+      ? "Save changes"
+      : "Save van";
+  const isDeletingEditedVehicle =
+    sheetMode === "edit" &&
+    editingVehicleId !== null &&
+    deletingVehicleId === editingVehicleId;
 
   return (
     <>
       <div className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
         <Panel
           title="Vehicles"
-          description="Store fleet details, seating, and readiness in one place."
+          description="Load and manage the vans table with real backend CRUD."
           action={
             <button
               type="button"
-              onClick={() => setSheetOpen(true)}
+              onClick={openCreateSheet}
               className="inline-flex items-center gap-2 rounded-md border border-[#1f1f1d] bg-[#1f1f1d] px-3 py-2 text-[13px] font-medium text-white transition-colors hover:bg-[#343431]"
             >
               <Plus className="size-4" />
-              Add vehicle
+              Add van
             </button>
           }
         >
-          {vehicles.length === 0 ? (
-            <EmptyFleetState onAddVehicle={() => setSheetOpen(true)} />
-          ) : (
-            <FleetTable vehicles={vehicles} />
-          )}
+          <div className="space-y-4">
+            {persistenceMode === "local-only" ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">
+                <p className="font-medium">
+                  A working vans CRUD/load path was not detected on load, so this page is falling
+                  back to local-only mode until the `vans` table is reachable.
+                </p>
+                <p className="mt-1 text-[12px] text-amber-800">
+                  {loadError
+                    ? loadError
+                    : "Changes work in the UI, but they reset on refresh until persistence is available."}
+                </p>
+                <div className="mt-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="border-amber-300 bg-white/80 text-amber-900 hover:bg-white"
+                    onClick={() => void loadVehicles()}
+                  >
+                    Retry backend
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
+            {persistenceMode === "connected" && loadError ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">
+                {loadError}
+              </div>
+            ) : null}
+
+            {isLoading ? (
+              <div className="flex min-h-32 items-center justify-center rounded-lg border border-[#e7e7e4] bg-[#fafaf7] text-[13px] text-[#6b6b67]">
+                Loading saved vans...
+              </div>
+            ) : vehicles.length === 0 ? (
+              <EmptyFleetState onAddVehicle={openCreateSheet} />
+            ) : (
+              <FleetTable
+                vehicles={vehicles}
+                deletingVehicleId={deletingVehicleId}
+                onEditVehicle={openEditSheet}
+                onDeleteVehicle={handleDeleteVehicle}
+              />
+            )}
+          </div>
         </Panel>
 
         <Panel
           title="Fleet snapshot"
-          description="A quick read on seats, driver coverage, and service status."
+          description="Seat count and availability are now derived from the vans backend."
         >
           <div className="space-y-3">
             <MetricCard
               icon={Car}
               label="Fleet"
               value={String(vehicles.length)}
-              detail={vehicles.length === 0 ? "No vehicles in the list yet." : "Vehicles currently tracked."}
-            />
-            <MetricCard
-              icon={UserRound}
-              label="Drivers"
-              value={String(Math.max(vehicles.length - unassignedCount, 0))}
-              detail={
-                vehicles.length === 0
-                  ? "Driver assignments will appear here."
-                  : unassignedCount === 0
-                    ? "Every vehicle has a named driver."
-                    : `${unassignedCount} vehicle${unassignedCount === 1 ? "" : "s"} still need a driver.`
-              }
+              detail={vehicles.length === 0 ? "No vans in the list yet." : "Vans currently tracked."}
             />
             <MetricCard
               icon={Wrench}
+              label="Active"
+              value={String(activeCount)}
+              detail={
+                vehicles.length === 0
+                  ? "Availability will appear after vans are added."
+                  : inactiveCount === 0
+                    ? "Every van is marked active."
+                    : `${inactiveCount} van${inactiveCount === 1 ? "" : "s"} currently inactive.`
+              }
+            />
+            <MetricCard
+              icon={Car}
               label="Capacity"
               value={String(totalSeats)}
               detail={
                 vehicles.length === 0
-                  ? "Total seat count will update as you add vehicles."
-                  : `${readyCount} vehicle${readyCount === 1 ? "" : "s"} marked ready right now.`
+                  ? "Total seat count will update as you add vans."
+                  : `${totalSeats} total seat${totalSeats === 1 ? "" : "s"} across the fleet.`
               }
             />
             {latestVehicle ? (
               <div className="rounded-lg border border-[#e7e7e4] px-4 py-3">
                 <p className="text-[12px] font-semibold tracking-[0.12em] text-[#777772] uppercase">
-                  Latest vehicle
+                  Latest van
                 </p>
-                <p className="mt-2 text-[14px] font-medium text-[#1d1d1b]">{latestVehicle.name}</p>
+                <p className="mt-2 text-[14px] font-medium text-[#1d1d1b]">{latestVehicle.label}</p>
                 <p className="mt-1 text-[13px] text-[#6b6b67]">
-                  {[latestVehicle.make, latestVehicle.color, latestVehicle.licensePlate].join(" · ")}
+                  {[latestVehicle.vehicleType, latestVehicle.plateNumber].filter(Boolean).join(" · ")}
                 </p>
                 <p className="mt-1 text-[13px] text-[#6b6b67]">
-                  {latestVehicle.driver
-                    ? `${latestVehicle.driver} · ${latestVehicle.capacity} seats`
-                    : `${latestVehicle.capacity} seats · driver not assigned yet`}
+                  {latestVehicle.seatCapacity} seats · {latestVehicle.isActive ? "active" : "inactive"}
                 </p>
               </div>
             ) : null}
@@ -585,184 +772,158 @@ export function VehiclesPage() {
 
       <EditorSheetLayout
         open={isSheetOpen}
-        onOpenChange={setSheetOpen}
-        title="Add vehicle"
-        description="Create a fleet record with capacity, driver ownership, and readiness status."
+        onOpenChange={(open) => setSheetOpen(open)}
+        title={sheetMode === "edit" ? "Edit van" : "Add van"}
+        description="Create or update a van record with the fields stored in the backend."
       >
-          <form className="flex flex-1 flex-col" onSubmit={handleSubmit}>
-            <div className="space-y-4 overflow-y-auto px-5 py-5">
-              {submitMessage ? (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[13px] text-amber-800">
-                  {submitMessage}
-                </div>
-              ) : null}
-
-              <Field label="Vehicle name">
-                <Input
-                  value={form.name}
-                  onChange={(event) => {
-                    setForm((current) => ({ ...current, name: event.target.value }));
-                    setFieldErrors((current) => ({ ...current, name: undefined }));
-                    setSubmitMessage(null);
-                  }}
-                  placeholder="Sprinter 01"
-                  autoFocus
-                  aria-invalid={!!fieldErrors.name}
-                  className={fieldErrors.name ? "border-amber-300 focus-visible:border-amber-400" : undefined}
-                />
-                {fieldErrors.name ? (
-                  <p className="mt-2 text-[12px] text-amber-800">{fieldErrors.name}</p>
-                ) : null}
-              </Field>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Make">
-                  <Input
-                    value={form.make}
-                    onChange={(event) => {
-                      setForm((current) => ({ ...current, make: event.target.value }));
-                      setFieldErrors((current) => ({ ...current, make: undefined }));
-                      setSubmitMessage(null);
-                    }}
-                    placeholder="Mercedes-Benz"
-                    aria-invalid={!!fieldErrors.make}
-                    className={fieldErrors.make ? "border-amber-300 focus-visible:border-amber-400" : undefined}
-                  />
-                  {fieldErrors.make ? (
-                    <p className="mt-2 text-[12px] text-amber-800">{fieldErrors.make}</p>
-                  ) : null}
-                </Field>
-
-                <Field label="Color">
-                  <Input
-                    value={form.color}
-                    onChange={(event) => {
-                      setForm((current) => ({ ...current, color: event.target.value }));
-                      setFieldErrors((current) => ({ ...current, color: undefined }));
-                      setSubmitMessage(null);
-                    }}
-                    placeholder="Black"
-                    aria-invalid={!!fieldErrors.color}
-                    className={fieldErrors.color ? "border-amber-300 focus-visible:border-amber-400" : undefined}
-                  />
-                  {fieldErrors.color ? (
-                    <p className="mt-2 text-[12px] text-amber-800">{fieldErrors.color}</p>
-                  ) : null}
-                </Field>
+        <form className="flex flex-1 flex-col" onSubmit={handleSubmit}>
+          <div className="space-y-4 overflow-y-auto px-5 py-5">
+            {submitMessage ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[13px] text-amber-800">
+                {submitMessage}
               </div>
+            ) : null}
 
+            <Field label="Vehicle name">
+              <Input
+                value={form.label}
+                onChange={(event) => {
+                  setForm((current) => ({ ...current, label: event.target.value }));
+                  setFieldErrors((current) => ({ ...current, label: undefined }));
+                  setSubmitMessage(null);
+                }}
+                placeholder="Sprinter 01"
+                autoFocus
+                aria-invalid={!!fieldErrors.label}
+                className={fieldErrors.label ? "border-amber-300 focus-visible:border-amber-400" : undefined}
+              />
+              {fieldErrors.label ? (
+                <p className="mt-2 text-[12px] text-amber-800">{fieldErrors.label}</p>
+              ) : null}
+            </Field>
+
+            <div className="grid gap-4 sm:grid-cols-2">
               <Field label="License plate">
                 <Input
-                  value={form.licensePlate}
+                  value={form.plateNumber}
                   onChange={(event) => {
-                    setForm((current) => ({ ...current, licensePlate: event.target.value }));
-                    setFieldErrors((current) => ({ ...current, licensePlate: undefined }));
+                    setForm((current) => ({ ...current, plateNumber: event.target.value }));
+                    setFieldErrors((current) => ({ ...current, plateNumber: undefined }));
                     setSubmitMessage(null);
                   }}
                   placeholder="ABC-1234"
-                  aria-invalid={!!fieldErrors.licensePlate}
-                  className={fieldErrors.licensePlate ? "border-amber-300 focus-visible:border-amber-400" : undefined}
+                  aria-invalid={!!fieldErrors.plateNumber}
+                  className={
+                    fieldErrors.plateNumber ? "border-amber-300 focus-visible:border-amber-400" : undefined
+                  }
                 />
-                {fieldErrors.licensePlate ? (
-                  <p className="mt-2 text-[12px] text-amber-800">{fieldErrors.licensePlate}</p>
+                {fieldErrors.plateNumber ? (
+                  <p className="mt-2 text-[12px] text-amber-800">{fieldErrors.plateNumber}</p>
                 ) : null}
               </Field>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Type">
-                  <select
-                    value={form.type}
-                    onChange={(event) => setForm((current) => ({ ...current, type: event.target.value }))}
-                    className="flex h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm text-[#1d1d1b] outline-none transition-colors focus:border-ring focus:ring-3 focus:ring-ring/50"
-                  >
-                    <option>Van</option>
-                    <option>Car</option>
-                    <option>Shuttle</option>
-                    <option>SUV</option>
-                  </select>
-                </Field>
+              <Field label="Type">
+                <select
+                  value={form.vehicleType}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, vehicleType: event.target.value }))
+                  }
+                  className="flex h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm text-[#1d1d1b] outline-none transition-colors focus:border-ring focus:ring-3 focus:ring-ring/50"
+                >
+                  <option>Van</option>
+                  <option>Car</option>
+                  <option>Shuttle</option>
+                  <option>SUV</option>
+                </select>
+              </Field>
+            </div>
 
-                <Field label="Capacity">
-                  <Input
-                    type="number"
-                    min="1"
-                    value={form.capacity}
-                    onChange={(event) => {
-                      setForm((current) => ({ ...current, capacity: event.target.value }));
-                      setFieldErrors((current) => ({ ...current, capacity: undefined }));
-                      setSubmitMessage(null);
-                    }}
-                    placeholder="6"
-                    aria-invalid={!!fieldErrors.capacity}
-                    className={fieldErrors.capacity ? "border-amber-300 focus-visible:border-amber-400" : undefined}
-                  />
-                  {fieldErrors.capacity ? (
-                    <p className="mt-2 text-[12px] text-amber-800">{fieldErrors.capacity}</p>
-                  ) : null}
-                </Field>
-              </div>
-
-              <Field label="Driver">
-                <div className="flex flex-col gap-2">
-                  <DriverCombobox
-                    people={people}
-                    value={form.driverId}
-                    onValueChange={(driverId) =>
-                      setForm((current) => ({
-                        ...current,
-                        driverId,
-                      }))
-                    }
-                    disabled={isPeopleLoading || people.length === 0}
-                  />
-                  <p className="text-[12px] leading-5 text-[#7c7c75]">
-                    {peopleError}
-                  </p>
-                </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Capacity">
+                <Input
+                  type="number"
+                  min="1"
+                  value={form.seatCapacity}
+                  onChange={(event) => {
+                    setForm((current) => ({ ...current, seatCapacity: event.target.value }));
+                    setFieldErrors((current) => ({ ...current, seatCapacity: undefined }));
+                    setSubmitMessage(null);
+                  }}
+                  placeholder="6"
+                  aria-invalid={!!fieldErrors.seatCapacity}
+                  className={
+                    fieldErrors.seatCapacity ? "border-amber-300 focus-visible:border-amber-400" : undefined
+                  }
+                />
+                {fieldErrors.seatCapacity ? (
+                  <p className="mt-2 text-[12px] text-amber-800">{fieldErrors.seatCapacity}</p>
+                ) : null}
               </Field>
 
-              <Field label="Status">
+              <Field label="Availability">
                 <select
-                  value={form.status}
+                  value={form.availability}
                   onChange={(event) =>
                     setForm((current) => ({
                       ...current,
-                      status: event.target.value as VehicleStatus,
+                      availability: event.target.value as VehicleAvailability,
                     }))
                   }
                   className="flex h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm text-[#1d1d1b] outline-none transition-colors focus:border-ring focus:ring-3 focus:ring-ring/50"
                 >
-                  <option value="Ready">Ready</option>
-                  <option value="Standby">Standby</option>
-                  <option value="Needs service">Needs service</option>
+                  <option value="Active">Active</option>
+                  <option value="Inactive">Inactive</option>
                 </select>
-              </Field>
-
-              <Field label="Notes">
-                <textarea
-                  value={form.notes}
-                  onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
-                  placeholder="Parking bay B, keep fuel above half tank."
-                  rows={4}
-                  className="w-full rounded-xl border border-input bg-transparent px-3 py-2 text-sm text-[#1d1d1b] outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-3 focus:ring-ring/50"
-                />
               </Field>
             </div>
 
-            <SheetFooter className="border-t border-[#e7e7e4] bg-white/80 px-5 py-4">
-              <div className="flex w-full items-center justify-between gap-2">
+            <Field label="Notes">
+              <textarea
+                value={form.notes}
+                onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
+                placeholder="Parking bay B, keep fuel above half tank."
+                rows={4}
+                className="w-full rounded-xl border border-input bg-transparent px-3 py-2 text-sm text-[#1d1d1b] outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-3 focus:ring-ring/50"
+              />
+            </Field>
+          </div>
+
+          <SheetFooter className="border-t border-[#e7e7e4] bg-white/80 px-5 py-4">
+            <div className="flex w-full items-center justify-between gap-2">
+              {sheetMode === "edit" && editingVehicleId ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-rose-200 bg-white text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                  disabled={isSaving || isDeletingEditedVehicle}
+                  onClick={() => {
+                    const vehicle = vehicles.find((entry) => entry.id === editingVehicleId);
+
+                    if (!vehicle) {
+                      return;
+                    }
+
+                    void handleDeleteVehicle(vehicle);
+                  }}
+                >
+                  {deletingVehicleId === editingVehicleId ? "Deleting..." : "Delete van"}
+                </Button>
+              ) : (
                 <Button type="button" variant="outline" onClick={fillSampleForm}>
                   Fill sample
                 </Button>
-                <div className="flex items-center gap-2">
-                  <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button type="submit">Save vehicle</Button>
-                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={isSaving || isDeletingEditedVehicle}>
+                  {saveButtonLabel}
+                </Button>
               </div>
-            </SheetFooter>
-          </form>
+            </div>
+          </SheetFooter>
+        </form>
       </EditorSheetLayout>
     </>
   );

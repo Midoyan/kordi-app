@@ -15,7 +15,7 @@ import {
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers"
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { flexRender, type Column, type Row, type Table as ReactTable } from "@tanstack/react-table"
-import { ChevronDown, Settings2 } from "lucide-react"
+import { ChevronDown, FileUp, Settings2 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -29,10 +29,17 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
+type BrowserFileSystemHandle = {
+  kind: "file" | "directory"
+  getFile?: () => Promise<File>
+}
+
 type WorkspaceDataTableProps<TData> = {
   table: ReactTable<TData>
   dataIds: UniqueIdentifier[]
-  renderRow: (row: Row<TData>) => React.ReactNode
+  renderRow: (row: Row<TData>, context: { rowIndex: number }) => React.ReactNode
+  renderRowBefore?: (row: Row<TData>, rowIndex: number) => React.ReactNode
+  renderTableBodyEnd?: React.ReactNode
   toolbar?: React.ReactNode
   footer?: React.ReactNode
   emptyState?: React.ReactNode
@@ -49,6 +56,168 @@ type WorkspaceDataTableProps<TData> = {
 type WorkspaceColumnToggleMenuProps<TData> = {
   columns: Column<TData, unknown>[]
   className?: string
+}
+
+type WorkspaceVCardToolbarControls = {
+  openFilePicker: () => void
+  isDragging: boolean
+  isImporting: boolean
+}
+
+type WorkspaceVCardTableProps<TData> = Omit<
+  WorkspaceDataTableProps<TData>,
+  "toolbar" | "renderRowBefore" | "renderTableBodyEnd"
+> & {
+  toolbar?: React.ReactNode | ((controls: WorkspaceVCardToolbarControls) => React.ReactNode)
+  importPrompt: React.ReactNode
+  activeImportPrompt?: React.ReactNode
+  importNote?: React.ReactNode
+  importButtonLabel?: string
+  importInProgress?: boolean
+  onImportPayloads: (
+    payloads: string[],
+    context: { insertionIndex: number | null }
+  ) => Promise<void> | void
+}
+
+const defaultVCardTransferTypes = [
+  "text/vcard",
+  "text/x-vcard",
+  "text/plain",
+  "text",
+  "public.vcard",
+  "public.utf8-plain-text",
+  "com.apple.traditional-mac-plain-text",
+] as const
+
+function getColumnToggleLabel<TData>(column: Column<TData, unknown>) {
+  const meta = column.columnDef.meta as { label?: string } | undefined
+
+  if (meta?.label) {
+    return meta.label
+  }
+
+  return column.id
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replaceAll("-", " ")
+}
+
+function extractVCardText(payload: string) {
+  const normalizedPayload = payload.trim()
+
+  if (!normalizedPayload) {
+    return null
+  }
+
+  return normalizedPayload.toUpperCase().includes("BEGIN:VCARD")
+    ? normalizedPayload
+    : null
+}
+
+async function readSelectedVCardFiles(files: File[]) {
+  const payloads = await Promise.all(files.map((file) => file.text()))
+  const normalizedPayloads = payloads
+    .map((payload) => extractVCardText(payload))
+    .filter((payload): payload is string => Boolean(payload))
+
+  return Array.from(new Set(normalizedPayloads))
+}
+
+async function readDroppedVCardPayloads(dataTransfer: DataTransfer) {
+  const payloadSet = new Set<string>()
+
+  const appendPayload = (payload: string | null | undefined) => {
+    const normalizedPayload = payload ? extractVCardText(payload) : null
+
+    if (normalizedPayload) {
+      payloadSet.add(normalizedPayload)
+    }
+  }
+
+  const fileReadTasks: Array<Promise<string>> = []
+  const stringReadTasks: Array<Promise<string>> = []
+  const handleReadTasks: Array<Promise<string | null>> = []
+
+  for (const transferType of dataTransfer.types) {
+    appendPayload(dataTransfer.getData(transferType))
+  }
+
+  for (const transferType of defaultVCardTransferTypes) {
+    appendPayload(dataTransfer.getData(transferType))
+  }
+
+  for (const file of Array.from(dataTransfer.files)) {
+    if (
+      file.type === "text/vcard" ||
+      file.type === "public.vcard" ||
+      file.name.toLowerCase().endsWith(".vcf") ||
+      file.type === "text/x-vcard"
+    ) {
+      fileReadTasks.push(file.text())
+    }
+  }
+
+  for (const item of Array.from(dataTransfer.items)) {
+    if (item.kind === "file") {
+      const file = item.getAsFile()
+
+      if (
+        file &&
+        (file.name.toLowerCase().endsWith(".vcf") ||
+          /vcard/i.test(file.type) ||
+          /vcard/i.test(item.type))
+      ) {
+        fileReadTasks.push(file.text())
+      }
+
+      if ("getAsFileSystemHandle" in item && typeof item.getAsFileSystemHandle === "function") {
+        const handlePromise = item
+          .getAsFileSystemHandle()
+          .then(async (handle: BrowserFileSystemHandle | null) => {
+            if (!handle || handle.kind !== "file" || typeof handle.getFile !== "function") {
+              return null
+            }
+
+            const handleFile = await handle.getFile()
+
+            if (
+              handleFile.name.toLowerCase().endsWith(".vcf") ||
+              /vcard/i.test(handleFile.type) ||
+              /vcard/i.test(item.type)
+            ) {
+              return handleFile.text()
+            }
+
+            return null
+          })
+          .catch(() => null)
+
+        handleReadTasks.push(handlePromise)
+      }
+    }
+
+    if (item.kind === "string") {
+      stringReadTasks.push(
+        new Promise<string>((resolve) => {
+          item.getAsString((value) => resolve(value))
+        })
+      )
+    }
+  }
+
+  for (const payload of await Promise.all(fileReadTasks)) {
+    appendPayload(payload)
+  }
+
+  for (const payload of await Promise.all(stringReadTasks)) {
+    appendPayload(payload)
+  }
+
+  for (const payload of await Promise.all(handleReadTasks)) {
+    appendPayload(payload)
+  }
+
+  return Array.from(payloadSet)
 }
 
 export function WorkspaceColumnToggleMenu<TData>({
@@ -83,7 +252,7 @@ export function WorkspaceColumnToggleMenu<TData>({
         onClick={() => setOpen((current) => !current)}
       >
         <Settings2 className="size-4" />
-        <span className="hidden lg:inline">Customize Columns</span>
+        <span className="hidden lg:inline">Columns</span>
         <span className="lg:hidden">Columns</span>
         <ChevronDown className="size-4" />
       </Button>
@@ -94,10 +263,10 @@ export function WorkspaceColumnToggleMenu<TData>({
               key={column.id}
               className="flex cursor-pointer items-center justify-between gap-3 rounded-lg px-3 py-2 text-[13px] text-[#1d1d1b] hover:bg-[#f7f7f4]"
             >
-              <span className="capitalize">{column.id.replaceAll("-", " ")}</span>
+              <span>{getColumnToggleLabel(column)}</span>
               <Checkbox
                 checked={column.getIsVisible()}
-                onCheckedChange={(checked) => column.toggleVisibility(checked)}
+                onCheckedChange={(checked) => column.toggleVisibility(checked === true)}
               />
             </label>
           ))}
@@ -111,6 +280,8 @@ export function WorkspaceDataTable<TData>({
   table,
   dataIds,
   renderRow,
+  renderRowBefore,
+  renderTableBodyEnd,
   toolbar,
   footer,
   emptyState,
@@ -129,19 +300,15 @@ export function WorkspaceDataTable<TData>({
     useSensor(KeyboardSensor, {})
   )
 
+  const rows = table.getRowModel().rows
+
   const tableMarkup = (
     <Table className={tableClassName}>
       <TableHeader className={headerClassName}>
         {table.getHeaderGroups().map((headerGroup) => (
-          <TableRow
-            key={headerGroup.id}
-            className={headerRowClassName}
-          >
+          <TableRow key={headerGroup.id} className={headerRowClassName}>
             {headerGroup.headers.map((header) => (
-              <TableHead
-                key={header.id}
-                className={getHeadClassName?.(header.column.id)}
-              >
+              <TableHead key={header.id} className={getHeadClassName?.(header.column.id)}>
                 {header.isPlaceholder
                   ? null
                   : flexRender(header.column.columnDef.header, header.getContext())}
@@ -151,7 +318,7 @@ export function WorkspaceDataTable<TData>({
         ))}
       </TableHeader>
       <TableBody>
-        {table.getRowModel().rows.length === 0 ? (
+        {rows.length === 0 ? (
           emptyState ?? (
             <TableRow className="hover:bg-transparent">
               <TableCell
@@ -164,10 +331,24 @@ export function WorkspaceDataTable<TData>({
           )
         ) : sortable ? (
           <SortableContext items={dataIds} strategy={verticalListSortingStrategy}>
-            {table.getRowModel().rows.map((row) => renderRow(row))}
+            {rows.map((row, rowIndex) => (
+              <React.Fragment key={row.id}>
+                {renderRowBefore?.(row, rowIndex)}
+                {renderRow(row, { rowIndex })}
+              </React.Fragment>
+            ))}
+            {renderTableBodyEnd}
           </SortableContext>
         ) : (
-          table.getRowModel().rows.map((row) => renderRow(row))
+          <>
+            {rows.map((row, rowIndex) => (
+              <React.Fragment key={row.id}>
+                {renderRowBefore?.(row, rowIndex)}
+                {renderRow(row, { rowIndex })}
+              </React.Fragment>
+            ))}
+            {renderTableBodyEnd}
+          </>
         )}
       </TableBody>
     </Table>
@@ -180,6 +361,7 @@ export function WorkspaceDataTable<TData>({
         {sortable ? (
           <DndContext
             id={sortableId}
+            autoScroll={false}
             collisionDetection={closestCenter}
             modifiers={[restrictToVerticalAxis]}
             sensors={sensors}
@@ -192,6 +374,250 @@ export function WorkspaceDataTable<TData>({
         )}
       </div>
       {footer}
+    </div>
+  )
+}
+
+export function WorkspaceVCardTable<TData>({
+  table,
+  dataIds,
+  renderRow,
+  toolbar,
+  footer,
+  emptyState,
+  sortable = false,
+  sortableId,
+  onDragEnd,
+  containerClassName,
+  tableClassName,
+  headerClassName,
+  headerRowClassName,
+  getHeadClassName,
+  importPrompt,
+  activeImportPrompt = "Release to import these contacts.",
+  importNote,
+  importButtonLabel = "Import .vcf",
+  importInProgress = false,
+  onImportPayloads,
+}: WorkspaceVCardTableProps<TData>) {
+  const fileInputRef = React.useRef<HTMLInputElement>(null)
+  const [isDragging, setIsDragging] = React.useState(false)
+  const [dropTargetIndex, setDropTargetIndex] = React.useState<number | null>(null)
+  const rows = table.getRowModel().rows
+
+  const clearDragState = React.useCallback(() => {
+    setIsDragging(false)
+    setDropTargetIndex(null)
+  }, [])
+
+  const openFilePicker = React.useCallback(() => {
+    fileInputRef.current?.click()
+  }, [])
+
+  const completeImport = React.useCallback(
+    async (payloads: string[], insertionIndex: number | null) => {
+      try {
+        await onImportPayloads(payloads, { insertionIndex })
+      } finally {
+        clearDragState()
+      }
+    },
+    [clearDragState, onImportPayloads]
+  )
+
+  const handleFileSelected = React.useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.target.files ?? [])
+      const payloads = await readSelectedVCardFiles(files)
+      event.target.value = ""
+
+      if (payloads.length === 0) {
+        return
+      }
+
+      await completeImport(payloads, rows.length)
+    },
+    [completeImport, rows.length]
+  )
+
+  const handleDrop = React.useCallback(
+    async (event: React.DragEvent<HTMLDivElement>) => {
+      event.preventDefault()
+      const payloads = await readDroppedVCardPayloads(event.dataTransfer)
+
+      if (payloads.length === 0) {
+        clearDragState()
+        return
+      }
+
+      await completeImport(payloads, dropTargetIndex)
+    },
+    [clearDragState, completeImport, dropTargetIndex]
+  )
+
+  const handleDragOverContainer = React.useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      event.preventDefault()
+      event.dataTransfer.dropEffect = "copy"
+      setIsDragging(true)
+
+      if (rows.length === 0) {
+        setDropTargetIndex(0)
+        return
+      }
+
+      if (dropTargetIndex === null) {
+        const bounds = event.currentTarget.getBoundingClientRect()
+        const insertionIndex =
+          event.clientY < bounds.top + bounds.height / 2 ? 0 : rows.length
+
+        setDropTargetIndex(insertionIndex)
+      }
+    },
+    [dropTargetIndex, rows.length]
+  )
+
+  const handleDragLeaveContainer = React.useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+        return
+      }
+
+      clearDragState()
+    },
+    [clearDragState]
+  )
+
+  const handleDragOverRow = React.useCallback((event: React.DragEvent<HTMLTableRowElement>, rowIndex: number) => {
+    event.preventDefault()
+    event.stopPropagation()
+
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const insertionIndex =
+      event.clientY < bounds.top + bounds.height / 2 ? rowIndex : rowIndex + 1
+
+    setDropTargetIndex(insertionIndex)
+    setIsDragging(true)
+  }, [])
+
+  const resolvedToolbar =
+    typeof toolbar === "function"
+      ? toolbar({
+          openFilePicker,
+          isDragging,
+          isImporting: importInProgress,
+        })
+      : toolbar
+
+  return (
+    <div className="space-y-4">
+      {resolvedToolbar}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".vcf,text/vcard,text/x-vcard"
+        multiple
+        className="hidden"
+        onChange={(event) => {
+          void handleFileSelected(event)
+        }}
+      />
+      <div
+        className={cn(
+          "rounded-xl border border-[#e7e7e4] bg-white p-2 transition-all",
+          isDragging && "border-dashed border-[#90a8ff] bg-[#f7f9ff]"
+        )}
+        onDrop={(event) => {
+          void handleDrop(event)
+        }}
+        onDragOver={handleDragOverContainer}
+        onDragLeave={handleDragLeaveContainer}
+      >
+        <div
+          className={cn(
+            "flex flex-col gap-3 rounded-lg border border-dashed px-4 py-3 text-[12px] leading-5 transition-colors lg:flex-row lg:items-center lg:justify-between",
+            isDragging
+              ? "border-[#90a8ff] bg-[#eef3ff] text-[#3556a8]"
+              : "border-[#d8d8d3] bg-[#fcfcfa] text-[#6b6b67]"
+          )}
+        >
+          <div>
+            <p className="font-medium text-[#1d1d1b]">
+              {isDragging ? activeImportPrompt : importPrompt}
+            </p>
+            {importNote ? (
+              <div className="mt-1 text-[11px] leading-5 text-[#6b6b67]">{importNote}</div>
+            ) : null}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef]"
+            onClick={openFilePicker}
+            disabled={importInProgress}
+          >
+            <FileUp className="size-4" />
+            {importButtonLabel}
+          </Button>
+        </div>
+
+        <WorkspaceDataTable
+          table={table}
+          dataIds={dataIds}
+          renderRow={(row, context) => {
+            const renderedRow = renderRow(row, context)
+
+            if (!React.isValidElement(renderedRow)) {
+              return renderedRow
+            }
+
+            const rowElement = renderedRow as React.ReactElement<{
+              onDragOver?: (event: React.DragEvent<HTMLTableRowElement>) => void
+            }>
+            const existingOnDragOver = rowElement.props.onDragOver
+
+            return React.cloneElement(rowElement, {
+              onDragOver: (event: React.DragEvent<HTMLTableRowElement>) => {
+                existingOnDragOver?.(event)
+                handleDragOverRow(event, context.rowIndex)
+              },
+            })
+          }}
+          renderRowBefore={(row, rowIndex) =>
+            isDragging && dropTargetIndex === rowIndex ? (
+              <TableRow className="border-0 hover:bg-transparent">
+                <TableCell colSpan={table.getVisibleLeafColumns().length} className="p-0">
+                  <div className="px-3 py-1">
+                    <div className="h-7 animate-in fade-in zoom-in-95 rounded-lg border border-dashed border-[#9db1ff] bg-[#eef3ff]" />
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : null
+          }
+          renderTableBodyEnd={
+            isDragging && dropTargetIndex === rows.length ? (
+              <TableRow className="border-0 hover:bg-transparent">
+                <TableCell colSpan={table.getVisibleLeafColumns().length} className="p-0">
+                  <div className="px-3 py-1">
+                    <div className="h-7 animate-in fade-in zoom-in-95 rounded-lg border border-dashed border-[#9db1ff] bg-[#eef3ff]" />
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : null
+          }
+          emptyState={emptyState}
+          sortable={sortable}
+          sortableId={sortableId}
+          onDragEnd={onDragEnd}
+          containerClassName={cn("mt-3", containerClassName)}
+          tableClassName={tableClassName}
+          headerClassName={headerClassName}
+          headerRowClassName={headerRowClassName}
+          getHeadClassName={getHeadClassName}
+        />
+        {footer ? <div className="mt-3">{footer}</div> : null}
+      </div>
     </div>
   )
 }

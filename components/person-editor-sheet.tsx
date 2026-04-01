@@ -41,21 +41,15 @@ export function PersonEditorSheet({
     setDraft((current) => (current ? { ...current, [field]: value } : current));
   };
 
-  const hasEnteredInput = Boolean(
-    draft && [draft.name, draft.address, draft.phone].some((value) => value.trim()),
-  );
-
   return (
     <EditorSheetLayout
       open={open}
-      onOpenChange={(nextOpen, eventDetails) => {
+      onOpenChange={(nextOpen) => {
         if (nextOpen) {
           return;
         }
 
-        if (eventDetails?.reason === "escape-key" || !hasEnteredInput) {
-          onClose();
-        }
+        onClose();
       }}
       title={mode === "create" ? "Add person" : "Edit person"}
       description={
@@ -67,8 +61,6 @@ export function PersonEditorSheet({
       headerClassName="px-4 py-4"
       titleClassName="text-base font-semibold tracking-normal"
       descriptionClassName="mt-0 text-sm"
-      showCloseButton={false}
-      disablePointerDismissal={hasEnteredInput}
     >
       {draft ? (
         <form

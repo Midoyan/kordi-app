@@ -131,6 +131,10 @@
 }
 
 @layer components {
+  .kordi-inline-button {
+    @apply h-8 text-[12px] text-[#000000] hover:bg-[#f3f3ef] hover:text-[#1d1d1b];
+  }
+
   .schedule-time-reveal {
     animation: schedule-time-reveal 220ms cubic-bezier(0.2, 0, 0, 1) both;
     will-change: opacity, transform;

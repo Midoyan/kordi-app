@@ -1,52 +1,12 @@
 import { createClient } from "@/lib/server";
-
-const locationTypes = new Set([
-  "Pickup point",
-  "Venue",
-  "Hotel",
-  "Airport",
-  "Other",
-]);
+import {
+  normalizeLocationPayload,
+  validateLocationPayload,
+} from "@/lib/locations";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
 };
-
-type LocationPayload = {
-  label: string;
-  location_type: string;
-  address: string;
-  access_notes: string;
-};
-
-function normalizeLocationPayload(payload: unknown): LocationPayload {
-  const source = payload && typeof payload === "object" ? payload : {};
-  const record = source as Record<string, unknown>;
-
-  const label = typeof record.label === "string" ? record.label.trim() : "";
-  const location_type = typeof record.location_type === "string" ? record.location_type.trim() : "";
-  const address = typeof record.address === "string" ? record.address.trim() : "";
-  const access_notes = typeof record.access_notes === "string" ? record.access_notes.trim() : "";
-
-  return {
-    label,
-    location_type: locationTypes.has(location_type) ? location_type : "Other",
-    address,
-    access_notes,
-  };
-}
-
-function validateLocationPayload(payload: LocationPayload) {
-  if (!payload.label) {
-    return "label is required.";
-  }
-
-  if (!payload.address) {
-    return "Address is required.";
-  }
-
-  return null;
-}
 
 export async function GET(_: Request, context: RouteContext) {
   const { id } = await context.params;
