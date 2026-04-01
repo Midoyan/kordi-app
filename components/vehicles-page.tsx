@@ -648,6 +648,10 @@ export function VehiclesPage() {
     : sheetMode === "edit"
       ? "Save changes"
       : "Save van";
+  const isDeletingEditedVehicle =
+    sheetMode === "edit" &&
+    editingVehicleId !== null &&
+    deletingVehicleId === editingVehicleId;
 
   return (
     <>
@@ -891,7 +895,7 @@ export function VehiclesPage() {
                   type="button"
                   variant="outline"
                   className="border-rose-200 bg-white text-rose-700 hover:bg-rose-50 hover:text-rose-800"
-                  disabled={isSaving || deletingVehicleId === editingVehicleId}
+                  disabled={isSaving || isDeletingEditedVehicle}
                   onClick={() => {
                     const vehicle = vehicles.find((entry) => entry.id === editingVehicleId);
 
@@ -913,7 +917,7 @@ export function VehiclesPage() {
                 <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>
                   Cancel
                 </Button>
-                <Button type="submit" disabled={isSaving || deletingVehicleId === editingVehicleId}>
+                <Button type="submit" disabled={isSaving || isDeletingEditedVehicle}>
                   {saveButtonLabel}
                 </Button>
               </div>

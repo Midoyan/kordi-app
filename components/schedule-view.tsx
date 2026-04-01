@@ -269,6 +269,7 @@ export function ScheduleView() {
   const [driveDraft, setDriveDraft] = React.useState<DriveEditorDraft | null>(null)
   const [driveError, setDriveError] = React.useState<string | null>(null)
   const [isSavingDrive, setIsSavingDrive] = React.useState(false)
+  const [deletingDriveId, setDeletingDriveId] = React.useState<string | null>(null)
 
   const activeDrive = React.useMemo(
     () => transportPlan?.drives.find((drive) => drive.id === editingDriveId) ?? null,
@@ -390,6 +391,41 @@ export function ScheduleView() {
       setIsSavingDrive(false)
     }
   }, [closeDriveEditor, driveDraft, driveEditorMode, editingDriveId, refreshTransportPlan])
+
+  const handleDriveDelete = React.useCallback(
+    async (drive: Drive) => {
+      const confirmed = window.confirm(
+        `Delete ${drive.label}? This also deletes every pickup stop in the drive.`
+      )
+
+      if (!confirmed) {
+        return
+      }
+
+      setDriveError(null)
+      setDeletingDriveId(drive.id)
+
+      try {
+        const response = await fetch(`/api/travels/${drive.id}`, {
+          method: "DELETE",
+        })
+
+        await parseDriveMutationResponse(response, "Unable to delete this drive.")
+        await refreshTransportPlan()
+
+        if (editingDriveId === drive.id) {
+          closeDriveEditor()
+        }
+      } catch (nextError) {
+        setDriveError(
+          nextError instanceof Error ? nextError.message : "Unable to delete this drive."
+        )
+      } finally {
+        setDeletingDriveId(null)
+      }
+    },
+    [closeDriveEditor, editingDriveId, refreshTransportPlan]
+  )
 
   React.useEffect(() => {
     const cached = getCachedTransportPlan()
@@ -551,15 +587,18 @@ export function ScheduleView() {
                       </h3>
                     </div>
 
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-9 border-[#d8ddd1] bg-white/92 px-3 text-[#1d1d1b] hover:bg-[#f4f7ef]"
-                      onClick={() => openEditDrive(drive)}
-                    >
-                      <PencilLine className="size-4" />
-                      Drive settings
-                    </Button>
+                    <div className="flex flex-wrap items-center justify-start gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-9 border-[#d8ddd1] bg-white/92 px-3 text-[#1d1d1b] hover:bg-[#f4f7ef]"
+                        onClick={() => openEditDrive(drive)}
+                        disabled={deletingDriveId === drive.id}
+                      >
+                        <PencilLine className="size-4" />
+                        Drive settings
+                      </Button>
+                    </div>
                   </div>
                   <ScheduleSection
                     drive={drive}
@@ -624,10 +663,18 @@ export function ScheduleView() {
         vanLabel={activeDrive?.van?.label ?? activeDrive?.van?.plate_number ?? null}
         errorMessage={driveError}
         isSaving={isSavingDrive}
+        isDeleting={editingDriveId !== null && deletingDriveId === editingDriveId}
         onClose={closeDriveEditor}
+        onDelete={
+          activeDrive
+            ? () => {
+                void handleDriveDelete(activeDrive)
+              }
+            : undefined
+        }
         onSave={handleDriveSave}
         setDraft={setDriveDraft}
       />
     </>
-        )
-        }
+  )
+}

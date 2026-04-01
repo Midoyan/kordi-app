@@ -259,10 +259,17 @@ export function LocationsPage() {
   const isSheetOpen = searchParams.get("sheet") === "add-location";
   const isDirty = Object.values(form).some((value) => value.trim().length > 0);
 
-  const loadLocations = useCallback(async (options?: { forceRefresh?: boolean; signal?: AbortSignal }) => {
-    const { forceRefresh = false, signal } = options ?? {};
+  const loadLocations = useCallback(async (options?: {
+    background?: boolean;
+    forceRefresh?: boolean;
+    signal?: AbortSignal;
+  }) => {
+    const { background = false, forceRefresh = false, signal } = options ?? {};
 
-    setIsLoading(true);
+    if (!background) {
+      setIsLoading(true);
+    }
+
     setLoadError(null);
 
     try {
@@ -325,6 +332,7 @@ export function LocationsPage() {
     }
 
     void loadLocations({
+      background: cachedLocations !== null,
       forceRefresh: cachedLocations !== null,
       signal: controller.signal,
     });
@@ -523,12 +531,12 @@ export function LocationsPage() {
     setSubmitMessage(null);
     setIsSaving(true);
 
-      const payload: LocationDraft = {
-        name: validation.trimmedName,
-        type: form.type,
-        address: validation.trimmedAddress,
-        notes: form.notes.trim(),
-      };
+    const payload: LocationDraft = {
+      name: validation.trimmedName,
+      type: form.type,
+      address: validation.trimmedAddress,
+      notes: form.notes.trim(),
+    };
 
     try {
       if (persistenceMode === "connected") {

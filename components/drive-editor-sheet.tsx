@@ -24,7 +24,9 @@ type DriveEditorSheetProps = {
   vanLabel?: string | null
   errorMessage?: string | null
   isSaving?: boolean
+  isDeleting?: boolean
   onClose: () => void
+  onDelete?: () => void
   onSave: () => void
   setDraft: Dispatch<SetStateAction<DriveEditorDraft | null>>
 }
@@ -38,7 +40,9 @@ export function DriveEditorSheet({
   vanLabel,
   errorMessage,
   isSaving = false,
+  isDeleting = false,
   onClose,
+  onDelete,
   onSave,
   setDraft,
 }: DriveEditorSheetProps) {
@@ -142,25 +146,41 @@ export function DriveEditorSheet({
           </div>
 
           <SheetFooter className="border-t border-[#ecece8] bg-[#fcfcfa]">
-            <div className="flex w-full items-center justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                className="border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef]"
-                disabled={isSaving}
-                onClick={onClose}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isSaving}>
-                {isSaving
-                  ? mode === "create"
-                    ? "Adding..."
-                    : "Saving..."
-                  : mode === "create"
-                    ? "Add drive"
-                    : "Save drive"}
-              </Button>
+            <div className="flex w-full items-center justify-between gap-2">
+              {mode === "edit" && onDelete ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-rose-200 bg-white text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                  disabled={isSaving || isDeleting}
+                  onClick={onDelete}
+                >
+                  {isDeleting ? "Deleting..." : "Delete drive"}
+                </Button>
+              ) : (
+                <span />
+              )}
+
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef]"
+                  disabled={isSaving || isDeleting}
+                  onClick={onClose}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={isSaving || isDeleting}>
+                  {isSaving
+                    ? mode === "create"
+                      ? "Adding..."
+                      : "Saving..."
+                    : mode === "create"
+                      ? "Add drive"
+                      : "Save drive"}
+                </Button>
+              </div>
             </div>
           </SheetFooter>
         </form>

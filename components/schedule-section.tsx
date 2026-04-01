@@ -843,6 +843,8 @@ export function ScheduleSection({
   const [databaseError, setDatabaseError] = React.useState<string | null>(null)
   const [showOptimizedGradient, setShowOptimizedGradient] = React.useState(false)
   const [isSavingStop, setIsSavingStop] = React.useState(false)
+  const [deletingStopId, setDeletingStopId] = React.useState<string | null>(null)
+  const [isDeletingSelectedStops, setIsDeletingSelectedStops] = React.useState(false)
   const [isConfirmingChanges, setIsConfirmingChanges] = React.useState(false)
   const [timingAdjustmentsOpen, setTimingAdjustmentsOpen] = React.useState(false)
   const animationTokenRef = React.useRef(0)
@@ -868,6 +870,8 @@ export function ScheduleSection({
     setRouteError(null)
     setDatabaseError(null)
     setShowOptimizedGradient(false)
+    setDeletingStopId(null)
+    setIsDeletingSelectedStops(false)
     setTimingAdjustmentsOpen(false)
     lastSelectedRowIdRef.current = null
   }, [drive])
@@ -1042,6 +1046,54 @@ export function ScheduleSection({
       ])
     },
     []
+  )
+
+  const applyDeletedStops = React.useCallback(
+    (stopIds: string[]) => {
+      if (stopIds.length === 0) {
+        return
+      }
+
+      const deletedIdSet = new Set(stopIds)
+      const nextData = data.filter((item) => !deletedIdSet.has(item.id))
+      const nextDrive = buildDriveFromStopRows(drive, nextData, passengerLookup)
+
+      setData(nextData)
+      setPendingOrder((current) =>
+        current ? current.filter((id) => !deletedIdSet.has(id)) : current
+      )
+      setPendingUpdates((current) => {
+        const next = { ...current }
+
+        for (const stopId of stopIds) {
+          delete next[stopId]
+        }
+
+        return next
+      })
+      setRowSelection((current) => {
+        const next = { ...current }
+
+        for (const stopId of stopIds) {
+          delete next[stopId]
+        }
+
+        return next
+      })
+
+      if (activeId && deletedIdSet.has(activeId)) {
+        setSheetOpen(false)
+        setActiveId(null)
+        setDraft(null)
+      }
+
+      if (lastSelectedRowIdRef.current && deletedIdSet.has(lastSelectedRowIdRef.current)) {
+        lastSelectedRowIdRef.current = null
+      }
+
+      onDriveUpdated?.(nextDrive)
+    },
+    [activeId, data, drive, onDriveUpdated, passengerLookup]
   )
 
   const confirmPendingChanges = React.useCallback(async () => {
@@ -1510,7 +1562,16 @@ export function ScheduleSection({
 
   const handleDelete = React.useCallback(
     async (item: DriveStopRow) => {
+      const confirmed = window.confirm(
+        `Delete this stop${item.stopPickupPassengerIds.length > 0 ? ` for ${getStopPickupPassengerNames(item.stopPickupPassengerIds, passengerLookup).join(", ")}` : ""}?`
+      )
+
+      if (!confirmed) {
+        return
+      }
+
       setDatabaseError(null)
+      setDeletingStopId(item.id)
 
       try {
         const response = await fetch(`/api/trips/${item.id}`, {
@@ -1518,42 +1579,55 @@ export function ScheduleSection({
         })
 
         await parseMutationResponse(response, "Unable to delete this stop.")
-
-        const nextData = data.filter((entry) => entry.id !== item.id)
-        const nextDrive = buildDriveFromStopRows(drive, nextData, passengerLookup)
-
-        setData(nextData)
-        setPendingOrder((current) =>
-          current ? current.filter((id) => id !== item.id) : current
-        )
-        setPendingUpdates((current) => {
-          const next = { ...current }
-          delete next[item.id]
-          return next
-        })
-        setRowSelection((current) => {
-          const next = { ...current }
-          delete next[item.id]
-          return next
-        })
-
-        if (activeId === item.id) {
-          setSheetOpen(false)
-          setActiveId(null)
-          setDraft(null)
-        }
-
-        if (lastSelectedRowIdRef.current === item.id) {
-          lastSelectedRowIdRef.current = null
-        }
-
-        onDriveUpdated?.(nextDrive)
+        applyDeletedStops([item.id])
       } catch (error) {
         setDatabaseError(error instanceof Error ? error.message : "Unable to delete this stop.")
+      } finally {
+        setDeletingStopId((current) => (current === item.id ? null : current))
       }
     },
-    [activeId, data, drive, onDriveUpdated, passengerLookup]
+    [applyDeletedStops, passengerLookup]
   )
+
+  const selectedRows = table.getSelectedRowModel().rows
+  const selectedStopCount = selectedRows.length
+
+  const handleDeleteSelected = React.useCallback(async () => {
+    if (selectedRows.length === 0) {
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Delete ${selectedRows.length} selected stop${selectedRows.length === 1 ? "" : "s"}?`
+    )
+
+    if (!confirmed) {
+      return
+    }
+
+    setDatabaseError(null)
+    setIsDeletingSelectedStops(true)
+
+    try {
+      await Promise.all(
+        selectedRows.map(async (row) => {
+          const response = await fetch(`/api/trips/${row.original.id}`, {
+            method: "DELETE",
+          })
+
+          await parseMutationResponse(response, "Unable to delete the selected stops.")
+        })
+      )
+
+      applyDeletedStops(selectedRows.map((row) => row.original.id))
+    } catch (error) {
+      setDatabaseError(
+        error instanceof Error ? error.message : "Unable to delete the selected stops."
+      )
+    } finally {
+      setIsDeletingSelectedStops(false)
+    }
+  }, [applyDeletedStops, selectedRows])
 
   const visibleColumns = table.getAllColumns().filter((column) => column.getCanHide())
   const stopCount = displayData.length
@@ -1700,7 +1774,7 @@ export function ScheduleSection({
             ) : null}
             {renderHeaderLeading ? renderHeaderLeading({ finalArrivalTime }) : null}
           </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 <ScheduleRoutingControls
                   stops={displayData.map((item) => ({
                     id: item.id,
@@ -1718,6 +1792,28 @@ export function ScheduleSection({
                   onPlanReady={handlePlanReady}
                 />
                 <WorkspaceColumnToggleMenu columns={visibleColumns} />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="border-rose-200 bg-white text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                  disabled={
+                    selectedStopCount === 0 ||
+                    isSavingStop ||
+                    isDeletingSelectedStops ||
+                    deletingStopId !== null
+                  }
+                  onClick={() => {
+                    void handleDeleteSelected()
+                  }}
+                >
+                  <Trash2 className="size-4" />
+                  {isDeletingSelectedStops
+                    ? "Deleting..."
+                    : selectedStopCount > 0
+                      ? `Delete ${selectedStopCount}`
+                      : "Delete"}
+                </Button>
                 <Button
                   type="button"
                   variant="outline"
@@ -1786,13 +1882,35 @@ export function ScheduleSection({
         />
 
         <div className="flex flex-col gap-3 rounded-lg border border-[#f1f1ed] bg-[#fcfcfa] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-          <p className="text-[12px] leading-5 text-[#6b6b67]">
-            {table.getSelectedRowModel().rows.length} of {table.getRowModel().rows.length} stop
-            {table.getRowModel().rows.length === 1 ? "" : "s"} selected.
-          </p>
-          <p className="text-[12px] leading-5 text-[#6b6b67]">
-            Drag to sketch a stop order, then recalculate to backfill pickup times from the final arrival.
-          </p>
+          <div className="flex flex-col gap-1">
+            <p className="text-[12px] leading-5 text-[#6b6b67]">
+              {selectedStopCount} of {table.getRowModel().rows.length} stop
+              {table.getRowModel().rows.length === 1 ? "" : "s"} selected.
+            </p>
+            <p className="text-[12px] leading-5 text-[#6b6b67]">
+              Drag to sketch a stop order, then recalculate to backfill pickup times from the final arrival.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="border-rose-200 bg-white text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+            disabled={
+              selectedStopCount === 0 ||
+              isSavingStop ||
+              isDeletingSelectedStops ||
+              deletingStopId !== null
+            }
+            onClick={() => {
+              void handleDeleteSelected()
+            }}
+          >
+            <Trash2 className="size-4" />
+            {isDeletingSelectedStops
+              ? "Deleting selected..."
+              : `Delete selected${selectedStopCount > 0 ? ` (${selectedStopCount})` : ""}`}
+          </Button>
         </div>
 
         {hasPendingChanges ? (
@@ -2023,12 +2141,52 @@ export function ScheduleSection({
               </div>
 
               <SheetFooter className="px-0 pt-2">
-                <Button type="submit" disabled={isSavingStop}>
-                  {isSavingStop ? "Saving…" : "Save stop"}
-                </Button>
-                <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>
-                  Done
-                </Button>
+                <div className="flex w-full items-center justify-between gap-2">
+                  {draft ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="border-rose-200 bg-white text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                      disabled={
+                        isSavingStop ||
+                        isDeletingSelectedStops ||
+                        deletingStopId === draft.id
+                      }
+                      onClick={() => {
+                        void handleDelete(draft)
+                      }}
+                    >
+                      {deletingStopId === draft.id ? "Deleting..." : "Delete stop"}
+                    </Button>
+                  ) : (
+                    <span />
+                  )}
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setSheetOpen(false)}
+                      disabled={
+                        isSavingStop ||
+                        isDeletingSelectedStops ||
+                        (draft ? deletingStopId === draft.id : false)
+                      }
+                    >
+                      Done
+                    </Button>
+                    <Button
+                      type="submit"
+                      disabled={
+                        isSavingStop ||
+                        isDeletingSelectedStops ||
+                        (draft ? deletingStopId === draft.id : false)
+                      }
+                    >
+                      {isSavingStop ? "Saving…" : "Save stop"}
+                    </Button>
+                  </div>
+                </div>
               </SheetFooter>
             </form>
           </div>

@@ -13,7 +13,6 @@ export type LocationRecord = {
   name: string;
   type: LocationType;
   address: string;
-  zone: string;
   notes: string;
   createdAt: string | null;
 };
@@ -160,7 +159,6 @@ export function normalizeLocationRecord(payload: unknown): LocationRecord {
     name: readString(record.name) || readString(record.label) || "Untitled location",
     type: normalizeLocationType(normalizedType),
     address: readString(record.address),
-    zone: readString(record.zone),
     notes: readString(record.notes) || readString(record.access_notes),
     createdAt:
       typeof record.createdAt === "string"
@@ -266,7 +264,6 @@ function hydrateLocationFromDraft(location: LocationRecord, draft: LocationDraft
     name: readString(draft.name) || location.name,
     type: draft.type,
     address: readString(draft.address),
-    zone: readString(draft.zone),
     notes: readString(draft.notes),
   };
 }

@@ -7,7 +7,9 @@ import { LocationsPage } from "@/components/locations-page";
 import { PeopleSection } from "@/components/people-section";
 import { ScheduleView as ScheduleViewContent } from "@/components/schedule-view";
 import { VehiclesPage } from "@/components/vehicles-page";
+import { DashboardUpcomingRunsTable } from "@/components/dashboard-upcoming-runs-table";
 import { appSectionMap, appSections, type AppSectionSlug } from "@/lib/app-sections";
+import { getDrivePlan } from "@/lib/drive-plan";
 
 type SectionPageProps = {
   params: Promise<{
@@ -166,7 +168,9 @@ function EmptyList({
   );
 }
 
-function DashboardView() {
+async function DashboardView() {
+  const drives = await getDrivePlan();
+
   return (
     <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
       <Panel
@@ -202,11 +206,7 @@ function DashboardView() {
         description="A route list or dispatch table can live here."
         className="lg:col-span-2"
       >
-        <EmptyTable
-          columns={["Route", "Vehicle", "People", "Departure", "Status"]}
-          message="No runs have been created yet."
-          cta="Create first route"
-        />
+        <DashboardUpcomingRunsTable drives={drives} />
       </Panel>
     </div>
   );

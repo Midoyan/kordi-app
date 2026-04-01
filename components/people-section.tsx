@@ -1,8 +1,6 @@
 "use client";
 
 import {
-  type ChangeEvent,
-  type DragEvent,
   useDeferredValue,
   useEffect,
   useRef,
@@ -15,29 +13,26 @@ import {
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
-  type Cell,
   type CellContext,
   type ColumnDef,
-  type Header,
   type HeaderContext,
-  type HeaderGroup,
   type Row,
+  type RowSelectionState,
   type SortingState,
+  type VisibilityState,
   useReactTable,
 } from "@tanstack/react-table";
-import { FileUp, PencilLine, Plus, Search } from "lucide-react";
+import { PencilLine, Plus, Search } from "lucide-react";
 
 import { PersonEditorSheet } from "@/components/person-editor-sheet";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { TableCell, TableRow } from "@/components/ui/table";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  WorkspaceColumnToggleMenu,
+  WorkspaceVCardTable,
+} from "@/components/workspace-data-table";
 import {
   createEmptyPersonDraft,
   createPerson,
@@ -51,21 +46,10 @@ import {
 } from "@/lib/people";
 import { cn } from "@/lib/utils";
 
-type BrowserFileSystemHandle = {
-  kind: "file" | "directory";
-  getFile?: () => Promise<File>;
-};
-
 const defaultDropPrompt = "Drop a contact card from macOS Contacts between rows or import a .vcf file.";
-const vCardTransferTypes = [
-  "text/vcard",
-  "text/x-vcard",
-  "text/plain",
-  "text",
-  "public.vcard",
-  "public.utf8-plain-text",
-  "com.apple.traditional-mac-plain-text",
-] as const;
+const defaultColumnVisibility: VisibilityState = {
+  select: false,
+};
 
 function toDraft(person: PersonRecord): PersonDraft {
   return {
@@ -162,111 +146,6 @@ function parseVCardPayload(payload: string) {
   }
 
   return matches.map((card, index) => parseVCardEntry(card, index));
-}
-
-function extractVCardText(payload: string) {
-  const normalizedPayload = payload.trim();
-
-  if (!normalizedPayload) {
-    return null;
-  }
-
-  return normalizedPayload.toUpperCase().includes("BEGIN:VCARD") ? normalizedPayload : null;
-}
-
-async function readDroppedVCardPayloads(dataTransfer: DataTransfer) {
-  const payloadSet = new Set<string>();
-
-  const appendPayload = (payload: string | null | undefined) => {
-    const normalizedPayload = payload ? extractVCardText(payload) : null;
-
-    if (normalizedPayload) {
-      payloadSet.add(normalizedPayload);
-    }
-  };
-
-  const fileReadTasks: Array<Promise<string>> = [];
-  const stringReadTasks: Array<Promise<string>> = [];
-  const handleReadTasks: Array<Promise<string | null>> = [];
-
-  for (const transferType of dataTransfer.types) {
-    appendPayload(dataTransfer.getData(transferType));
-  }
-
-  for (const transferType of vCardTransferTypes) {
-    appendPayload(dataTransfer.getData(transferType));
-  }
-
-  for (const file of Array.from(dataTransfer.files)) {
-    if (
-      file.type === "text/vcard" ||
-      file.type === "public.vcard" ||
-      file.name.toLowerCase().endsWith(".vcf") ||
-      file.type === "text/x-vcard"
-    ) {
-      fileReadTasks.push(file.text());
-    }
-  }
-
-  for (const item of Array.from(dataTransfer.items)) {
-    if (item.kind === "file") {
-      const file = item.getAsFile();
-
-      if (
-        file &&
-        (file.name.toLowerCase().endsWith(".vcf") ||
-          /vcard/i.test(file.type) ||
-          /vcard/i.test(item.type))
-      ) {
-        fileReadTasks.push(file.text());
-      }
-
-      if ("getAsFileSystemHandle" in item && typeof item.getAsFileSystemHandle === "function") {
-        const handlePromise = item
-          .getAsFileSystemHandle()
-          .then(async (handle: BrowserFileSystemHandle | null) => {
-            if (!handle || handle.kind !== "file" || typeof handle.getFile !== "function") {
-              return null;
-            }
-
-            const handleFile = await handle.getFile();
-
-            if (
-              handleFile.name.toLowerCase().endsWith(".vcf") ||
-              /vcard/i.test(handleFile.type) ||
-              /vcard/i.test(item.type)
-            ) {
-              return handleFile.text();
-            }
-
-            return null;
-          })
-          .catch(() => null);
-
-        handleReadTasks.push(handlePromise);
-      }
-    }
-
-    if (item.kind === "string") {
-      stringReadTasks.push(new Promise<string>((resolve) => {
-        item.getAsString((value) => resolve(value));
-      }));
-    }
-  }
-
-  for (const payload of await Promise.all(fileReadTasks)) {
-    appendPayload(payload);
-  }
-
-  for (const payload of await Promise.all(stringReadTasks)) {
-    appendPayload(payload);
-  }
-
-  for (const payload of await Promise.all(handleReadTasks)) {
-    appendPayload(payload);
-  }
-
-  return Array.from(payloadSet);
 }
 
 function insertAtVisibleIndex(
@@ -388,12 +267,12 @@ export function PeopleSection() {
   const [people, setPeople] = useState<PersonRecord[]>([]);
   const [query, setQuery] = useState("");
   const [sorting, setSorting] = useState<SortingState>([]);
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(defaultColumnVisibility);
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [isLoading, setIsLoading] = useState(true);
-  const [isDragging, setIsDragging] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editorError, setEditorError] = useState<string | null>(null);
@@ -402,7 +281,6 @@ export function PeopleSection() {
   const [editorDraft, setEditorDraft] = useState<PersonDraft | null>(null);
   const [recentlyInsertedIds, setRecentlyInsertedIds] = useState<string[]>([]);
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const insertAnimationTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -495,7 +373,37 @@ export function PeopleSection() {
 
   const columns: ColumnDef<PersonRecord>[] = [
     {
+      id: "select",
+      meta: { label: "Select" },
+      enableSorting: false,
+      cell: ({ row }: CellContext<PersonRecord, unknown>) => (
+        <div className="flex items-center justify-center px-3">
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(checked) => row.toggleSelected(checked === true)}
+            aria-label={`Select ${row.original.name}`}
+          />
+        </div>
+      ),
+      header: ({ table }: HeaderContext<PersonRecord, unknown>) => (
+        <div className="flex items-center justify-center px-3">
+          <Checkbox
+            checked={
+              table.getIsAllPageRowsSelected()
+                ? true
+                : table.getIsSomePageRowsSelected()
+                  ? "indeterminate"
+                  : false
+            }
+            onCheckedChange={(checked) => table.toggleAllPageRowsSelected(checked === true)}
+            aria-label="Select all visible people"
+          />
+        </div>
+      ),
+    },
+    {
       accessorKey: "name",
+      meta: { label: "Name" },
       header: ({ column }: HeaderContext<PersonRecord, unknown>) => (
         <ColumnHeader
           label="Name"
@@ -516,6 +424,7 @@ export function PeopleSection() {
     },
     {
       accessorKey: "address",
+      meta: { label: "Address" },
       header: ({ column }: HeaderContext<PersonRecord, unknown>) => (
         <ColumnHeader
           label="Address"
@@ -531,6 +440,7 @@ export function PeopleSection() {
     },
     {
       accessorKey: "phone",
+      meta: { label: "Phone" },
       header: ({ column }: HeaderContext<PersonRecord, unknown>) => (
         <ColumnHeader
           label="Phone"
@@ -547,17 +457,16 @@ export function PeopleSection() {
     {
       id: "actions",
       enableSorting: false,
+      enableHiding: false,
       header: () => (
-        <div className="px-3 text-right text-[11px] font-semibold tracking-[0.14em] text-[#777772] uppercase">
-          Actions
-        </div>
+        <span className="sr-only">Actions</span>
       ),
       cell: ({ row }: CellContext<PersonRecord, unknown>) => (
-        <div className="flex justify-start px-3">
+        <div className="flex items-center justify-end px-3">
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 text-[#5d5d58] hover:bg-[#f3f3ef] hover:text-[#1d1d1b]"
+            className="h-8 px-2 text-[#5d5d58] hover:bg-[#f3f3ef] hover:text-[#1d1d1b]"
             onClick={() => openEditor(row.original)}
           >
             <PencilLine />
@@ -572,10 +481,16 @@ export function PeopleSection() {
     data: people,
     columns,
     state: {
+      rowSelection,
       sorting,
+      columnVisibility,
       globalFilter: deferredQuery,
     },
+    getRowId: (row) => row.id,
+    enableRowSelection: true,
+    onRowSelectionChange: setRowSelection,
     onSortingChange: setSorting,
+    onColumnVisibilityChange: setColumnVisibility,
     globalFilterFn: (row: Row<PersonRecord>, _columnId: string, filterValue: string) => {
       const searchValue = String(filterValue ?? "").trim().toLowerCase();
 
@@ -591,11 +506,14 @@ export function PeopleSection() {
     getPaginationRowModel: getPaginationRowModel(),
   });
 
-  const visibleRows = table.getRowModel().rows;
+  const visibleColumns = table.getAllColumns().filter((column) => column.getCanHide());
   const missingAddressCount = people.filter((person) => !person.address.trim()).length;
   const missingPhoneCount = people.filter((person) => !person.phone.trim()).length;
 
-  const mergeImportedPeople = async (payloads: string[], insertionIndexOverride?: number | null) => {
+  const mergeImportedPeople = async (
+    payloads: string[],
+    insertionIndex: number | null,
+  ) => {
     const importedDrafts = payloads.flatMap((payload) => parseVCardPayload(payload));
 
     if (importedDrafts.length === 0) {
@@ -615,7 +533,7 @@ export function PeopleSection() {
           currentPeople,
           createdPeople,
           visibleIds,
-          insertionIndexOverride ?? dropTargetIndex,
+          insertionIndex,
         ),
       );
       setRecentlyInsertedIds(createdPeople.map((person) => person.id));
@@ -625,8 +543,6 @@ export function PeopleSection() {
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Failed to import contacts.");
     } finally {
-      setDropTargetIndex(null);
-      setIsDragging(false);
       setIsImporting(false);
 
       if (insertAnimationTimeoutRef.current) {
@@ -637,56 +553,6 @@ export function PeopleSection() {
         setRecentlyInsertedIds([]);
       }, 1400);
     }
-  };
-
-  const onDrop = async (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const payloads = await readDroppedVCardPayloads(event.dataTransfer);
-    await mergeImportedPeople(payloads);
-  };
-
-  const onDragOverTable = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "copy";
-    setIsDragging(true);
-
-    if (visibleRows.length === 0) {
-      setDropTargetIndex(0);
-      return;
-    }
-
-    if (dropTargetIndex === null) {
-      const bounds = event.currentTarget.getBoundingClientRect();
-      const insertionIndex = event.clientY < bounds.top + bounds.height / 2 ? 0 : visibleRows.length;
-      setDropTargetIndex(insertionIndex);
-    }
-  };
-
-  const onDragLeaveTable = (event: DragEvent<HTMLDivElement>) => {
-    if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
-      return;
-    }
-
-    setIsDragging(false);
-    setDropTargetIndex(null);
-  };
-
-  const onDragOverRow = (event: DragEvent<HTMLTableRowElement>, rowIndex: number) => {
-    event.preventDefault();
-    event.stopPropagation();
-
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const insertionIndex = event.clientY < bounds.top + bounds.height / 2 ? rowIndex : rowIndex + 1;
-    setDropTargetIndex(insertionIndex);
-    setIsDragging(true);
-  };
-
-  const onFileSelected = async (event: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files ?? []);
-    const payloads = await Promise.all(files.map((file) => file.text()));
-    setDropTargetIndex(visibleRows.length);
-    await mergeImportedPeople(payloads, visibleRows.length);
-    event.target.value = "";
   };
 
   const saveEditedPerson = async () => {
@@ -753,221 +619,161 @@ export function PeopleSection() {
         <PeoplePanel
           title="People roster"
           description="Load, search, edit, and import crew members from the shared people source."
-          className={cn(
-            "transition-colors",
-            isDragging && "border-[#bed0ff] bg-[#fbfcff] shadow-[0_12px_35px_-28px_rgba(59,130,246,0.65)]",
-          )}
         >
           <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-3 rounded-xl border border-[#ecece8] bg-[#fafaf7] p-3 lg:flex-row lg:items-center lg:justify-between">
-              <div className="relative flex-1">
-                <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-[#72726d]" />
-                <Input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search name, address, or phone"
-                  className="h-10 border-[#ff00ae] bg-white pl-9 text-[13px] shadow-none"
-                />
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".vcf,text/vcard,text/x-vcard"
-                  multiple
-                  className="hidden"
-                  onChange={onFileSelected}
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef]"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isImporting}
-                >
-                  <FileUp />
-                  {isImporting ? "Importing..." : "Import .vcf"}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="border-[#dbdbd6] bg-[#fafaf7] text-[#1d1d1b] hover:bg-[#f1f1ed]"
-                  onClick={openCreateEditor}
-                >
-                  <Plus />
-                  Add person
-                </Button>
-              </div>
-            </div>
-
             {loadError ? (
               <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-[13px] text-rose-800">
                 {loadError}
               </div>
             ) : null}
 
-            <div
-              className={cn(
-                "rounded-xl border border-[#e7e7e4] bg-white p-2 transition-all",
-                isDragging && "border-dashed border-[#90a8ff] bg-[#f7f9ff]",
-              )}
-              onDrop={(event) => {
-                void onDrop(event);
-              }}
-              onDragOver={onDragOverTable}
-              onDragLeave={onDragLeaveTable}
-            >
-              <div
-                className={cn(
-                  "rounded-lg border border-dashed px-4 py-3 text-[12px] leading-5 transition-colors",
-                  isDragging
-                    ? "border-[#90a8ff] bg-[#eef3ff] text-[#3556a8]"
-                    : "border-[#d8d8d3] bg-[#fcfcfa] text-[#6b6b67]",
+            {isLoading ? (
+              <div className="flex min-h-32 items-center justify-center rounded-lg border border-[#e7e7e4] bg-[#fafaf7] text-[13px] text-[#6b6b67]">
+                Loading people from `crew_members`...
+              </div>
+            ) : (
+              <WorkspaceVCardTable
+                table={table}
+                dataIds={people.map((person) => person.id)}
+                toolbar={() => (
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="relative flex-1">
+                      <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-[#72726d]" />
+                      <Input
+                        value={query}
+                        onChange={(event) => setQuery(event.target.value)}
+                        placeholder="Search name, address, or phone"
+                        className="h-10 border-[#dbdbd6] bg-white pl-9 text-[13px] shadow-none"
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-[#dbdbd6] bg-[#fafaf7] text-[#1d1d1b] hover:bg-[#f1f1ed]"
+                        onClick={openCreateEditor}
+                      >
+                        <Plus />
+                        Add person
+                      </Button>
+                      <WorkspaceColumnToggleMenu columns={visibleColumns} />
+                    </div>
+                  </div>
                 )}
-              >
-                <p className="font-medium text-[#1d1d1b]">
-                  {isDragging ? "Release to import these contacts." : defaultDropPrompt}
-                </p>
-                {notice ? (
-                  <p className="mt-1 text-[11px] leading-5 text-[#6b6b67]">
-                    {notice}
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="mt-3 overflow-hidden rounded-xl border border-[#ecece8]">
-                <Table className="table-fixed">
-                  <TableHeader className="bg-[#a0a01e]">
-                    {table.getHeaderGroups().map((headerGroup: HeaderGroup<PersonRecord>) => (
-                      <TableRow key={headerGroup.id} className="border-[#ecece8] hover:bg-transparent">
-                        {headerGroup.headers.map((header: Header<PersonRecord, unknown>) => (
-                          <TableHead
-                            key={header.id}
-                            className={cn(
-                              "h-11 border-b border-[#ece8e8] bg-[#faf7f9] px-0 align-middle",
-                              header.column.id === "actions" && "w-28",
-                            )}
-                          >
-                            {header.isPlaceholder
-                              ? null
-                              : flexRender(header.column.columnDef.header, header.getContext())}
-                          </TableHead>
-                        ))}
-                      </TableRow>
-                    ))}
-                  </TableHeader>
-
-                  <TableBody>
-                    {isLoading ? (
-                      <TableRow className="hover:bg-transparent">
-                        <TableCell
-                          colSpan={table.getVisibleLeafColumns().length}
-                          className="py-14 text-center text-[13px] text-[#6b6b67]"
-                        >
-                          Loading people from `crew_members`...
-                        </TableCell>
-                      </TableRow>
-                    ) : visibleRows.length === 0 ? (
-                      <TableRow className="hover:bg-transparent">
-                        <TableCell
-                          colSpan={table.getVisibleLeafColumns().length}
-                          className="py-14 text-center text-[13px] text-[#6b6b67]"
-                        >
-                          {people.length === 0
-                            ? "No people saved yet. Import a `.vcf` or add someone to create the first record."
-                            : "No matching people found for this filter."}
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      <>
-                        {visibleRows.map((row: Row<PersonRecord>, rowIndex: number) => (
-                          <FragmentRow
-                            key={row.id}
-                            before={
-                              isDragging && dropTargetIndex === rowIndex ? (
-                                <TableRow className="border-0 hover:bg-transparent">
-                                  <TableCell
-                                    colSpan={table.getVisibleLeafColumns().length}
-                                    className="p-0"
-                                  >
-                                    <div className="px-3 py-1">
-                                      <div className="h-7 animate-in fade-in zoom-in-95 rounded-lg border border-dashed border-[#9db1ff] bg-[#eef3ff]" />
-                                    </div>
-                                  </TableCell>
-                                </TableRow>
-                              ) : null
-                            }
-                            row={
-                              <TableRow
-                                key={row.id}
-                                className={cn(
-                                  "border-[#f0f0ec] hover:bg-[#fafaf7]",
-                                  recentlyInsertedIds.includes(row.original.id) &&
-                                  "animate-in fade-in slide-in-from-top-2 duration-300",
-                                )}
-                                onDragOver={(event) => onDragOverRow(event, rowIndex)}
-                              >
-                                {row.getVisibleCells().map((cell: Cell<PersonRecord, unknown>) => (
-                                  <TableCell
-                                    key={cell.id}
-                                    className={cn(
-                                      "px-0 py-4 align-top",
-                                      cell.column.id === "actions" && "py-3",
-                                    )}
-                                  >
-                                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                                  </TableCell>
-                                ))}
-                              </TableRow>
-                            }
-                          />
-                        ))}
-                        {isDragging && dropTargetIndex === visibleRows.length ? (
-                          <TableRow className="border-0 hover:bg-transparent">
-                            <TableCell
-                              colSpan={table.getVisibleLeafColumns().length}
-                              className="p-0"
-                            >
-                              <div className="px-3 py-1">
-                                <div className="h-7 animate-in fade-in zoom-in-95 rounded-lg border border-dashed border-[#9db1ff] bg-[#eef3ff]" />
-                              </div>
-                            </TableCell>
-                          </TableRow>
+                importPrompt={defaultDropPrompt}
+                importButtonLabel={isImporting ? "Importing..." : "Import .vcf"}
+                importInProgress={isImporting}
+                importNote={
+                  notice ? (
+                    <p>{notice}</p>
+                  ) : (
+                    <p>
+                      People load from and save to `/api/crew-members`. vCard imports create real
+                      crew member records instead of demo rows.
+                    </p>
+                  )
+                }
+                onImportPayloads={(payloads, context) =>
+                  mergeImportedPeople(payloads, context.insertionIndex)
+                }
+                containerClassName="overflow-x-auto"
+                tableClassName="min-w-[820px] table-fixed"
+                headerClassName="bg-[#f7f7f4]"
+                headerRowClassName="border-[#ecece8] hover:bg-transparent"
+                getHeadClassName={(columnId) =>
+                  cn(
+                    "h-11 border-b border-[#ecece8] bg-[#f7f7f4] px-0 align-middle",
+                    columnId === "select" && "w-[56px]",
+                    columnId === "name" && "w-[26%]",
+                    columnId === "address" && "w-[40%]",
+                    columnId === "phone" && "w-[20%]",
+                    columnId === "actions" && "w-[14%]",
+                  )
+                }
+                emptyState={
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell
+                      colSpan={table.getVisibleLeafColumns().length}
+                      className="py-14 text-center"
+                    >
+                      <div className="flex flex-col items-center gap-3">
+                        <div>
+                          <p className="text-[14px] font-medium text-[#1d1d1b]">
+                            {people.length === 0
+                              ? "No people saved yet."
+                              : "No matching people found for this filter."}
+                          </p>
+                          <p className="mt-1 text-[13px] text-[#6b6b67]">
+                            {people.length === 0
+                              ? "Import a `.vcf` or add someone to create the first record."
+                              : "Try a different search or adjust the visible columns."}
+                          </p>
+                        </div>
+                        {people.length === 0 ? (
+                          <Button type="button" variant="outline" onClick={openCreateEditor}>
+                            Add first person
+                          </Button>
                         ) : null}
-                      </>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                }
+                footer={
+                  <div className="flex flex-col gap-3 rounded-lg border border-[#f1f1ed] bg-[#fcfcfa] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+                    <p className="text-[12px] leading-5 text-[#6b6b67]">
+                      {people.length === 0
+                        ? "No people in the roster yet."
+                        : `${table.getRowModel().rows.length} visible row${table.getRowModel().rows.length === 1 ? "" : "s"} of ${people.length} total people.`}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef]"
+                        onClick={() => table.previousPage()}
+                        disabled={!table.getCanPreviousPage()}
+                      >
+                        Previous
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef]"
+                        onClick={() => table.nextPage()}
+                        disabled={!table.getCanNextPage()}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  </div>
+                }
+                renderRow={(row) => (
+                  <TableRow
+                    key={row.id}
+                    data-state={row.getIsSelected() ? "selected" : undefined}
+                    className={cn(
+                      "border-[#f0f0ec] hover:bg-[#fafaf7] data-[state=selected]:bg-[#f7f9ff]",
+                      recentlyInsertedIds.includes(row.original.id) &&
+                        "animate-in fade-in slide-in-from-top-2 duration-300",
                     )}
-                  </TableBody>
-                </Table>
-              </div>
-
-              <div className="mt-3 flex flex-col gap-3 rounded-lg border border-[#f1f1ed] bg-[#fcfcfa] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-                <p className="text-[12px] leading-5 text-[#6b6b67]">
-                  People load from and save to `/api/crew-members`. vCard imports create real crew
-                  member records instead of demo rows.
-                </p>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef]"
-                    onClick={() => table.previousPage()}
-                    disabled={!table.getCanPreviousPage()}
                   >
-                    Previous
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef]"
-                    onClick={() => table.nextPage()}
-                    disabled={!table.getCanNextPage()}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
-            </div>
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell
+                        key={cell.id}
+                        className={cn(
+                          "px-0 py-4 align-top",
+                          cell.column.id === "select" && "py-4",
+                          cell.column.id === "actions" && "py-3",
+                        )}
+                      >
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                )}
+              />
+            )}
           </div>
         </PeoplePanel>
 
@@ -1024,20 +830,5 @@ function InfoCard({
       <p className="text-[13px] font-semibold text-[#1d1d1b]">{title}</p>
       <p className="mt-2 text-[13px] leading-6 text-[#6b6b67]">{detail}</p>
     </div>
-  );
-}
-
-function FragmentRow({
-  before,
-  row,
-}: {
-  before: React.ReactNode;
-  row: React.ReactNode;
-}) {
-  return (
-    <>
-      {before}
-      {row}
-    </>
   );
 }

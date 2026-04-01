@@ -44,6 +44,15 @@ export async function DELETE(_: Request, context: RouteContext) {
     const { id } = await context.params;
     const supabase = await createClient();
 
+    const { error: deleteTripPassengersError } = await supabase
+        .from("trip_passengers")
+        .delete()
+        .eq("trip_id", id);
+
+    if (deleteTripPassengersError) {
+        return Response.json({ error: deleteTripPassengersError.message }, { status: 500 });
+    }
+
     const { error } = await supabase
         .from("trips")
         .delete()
