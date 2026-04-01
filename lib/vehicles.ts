@@ -325,13 +325,15 @@ export function normalizeVehiclePayload(payload: unknown): VehiclePayload {
   const seatCapacity = parseSeatCapacity(record.seat_capacity ?? record.seatCapacity);
   const vehicleType = normalizeVehicleType(record.vehicle_type ?? record.vehicleType);
   const notes = readString(record.notes);
-  const isActive =
-    typeof record.is_active === "boolean"
-      ? record.is_active
-      : typeof record.isActive === "boolean"
-        ? record.isActive
-        : true;
 
+  let isActive: boolean;
+  if (typeof record.is_active === "boolean") {
+    isActive = record.is_active;
+  } else if (typeof record.isActive === "boolean") {
+    isActive = record.isActive;
+  } else {
+    throw new Error("Vehicle payload must include a boolean 'is_active' field.");
+  }
   return {
     label,
     plate_number: plateNumber,
