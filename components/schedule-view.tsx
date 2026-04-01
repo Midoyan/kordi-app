@@ -568,26 +568,36 @@ export function ScheduleView() {
                     showDriveSummary={false}
                     renderHeaderLeading={({ finalArrivalTime }) => (
                       <>
-                        <span className="text-[11px] font-semibold tracking-[0.14em] text-[#75816f] uppercase">
-                          Drive to
-                        </span>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="xs"
-                          className="h-7 max-w-[18rem] justify-start overflow-hidden rounded-full border-[#d8ddd1] bg-white/94 px-2.5 text-[#29402d] hover:bg-[#f4f7ef]"
-                          onClick={() => openEditDrive(drive)}
-                        >
-                          <span className="truncate">
-                            {drive.destinationAddress || "Set destination"}
+                        <div className="inline-flex min-w-0 items-center gap-0">
+                          <span className="text-[12px] font-semibold text-[#75816f]">
+                            Drive to
                           </span>
-                        </Button>
-                        <span className="text-[11px] font-semibold tracking-[0.14em] text-[#75816f] uppercase">
-                          arrives
-                        </span>
-                        <span className="rounded-full border border-[#dde3d4] bg-white/90 px-2.5 py-1 text-[11px] font-medium text-[#51614f] shadow-[0_10px_20px_-18px_rgba(15,23,42,0.35)]">
-                          {finalArrivalTime || "Unset"}
-                        </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="xs"
+                            className="kordi-inline-button"
+                            onClick={() => openEditDrive(drive)}
+                          >
+                            <span className="truncate">
+                              {drive.destinationAddress || "Set destination"}
+                            </span>
+                          </Button>
+                          <span className="text-[12px] font-semibold text-[#75816f]">
+                            arrive by
+                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="xs"
+                            className="kordi-inline-button"
+                            onClick={() => openEditDrive(drive)}
+                          >
+                            <span className="truncate">
+                              {finalArrivalTime || "Unset"}
+                            </span>
+                          </Button>
+                        </div>
                         <span className="rounded-full border border-[#dde3d4] bg-white/90 px-2.5 py-1 text-[11px] font-medium text-[#51614f] shadow-[0_10px_20px_-18px_rgba(15,23,42,0.35)]">
                           {vanSummary}
                         </span>
@@ -619,5 +629,5 @@ export function ScheduleView() {
         setDraft={setDriveDraft}
       />
     </>
-  )
-}
+        )
+        }

@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import type { AddressAutofillRetrieveResponse } from "@mapbox/search-js-core";
 import type { ComponentProps, KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 
 import { Input } from "@/components/ui/input";
@@ -26,6 +27,46 @@ const AddressAutofill = dynamic(
   () => import("@mapbox/search-js-react").then((module) => module.AddressAutofill),
   { ssr: false },
 );
+
+function stripTrailingCountry(address: string, country?: string) {
+  if (!country) {
+    return address;
+  }
+
+  const suffix = `, ${country}`;
+
+  if (address.toLowerCase().endsWith(suffix.toLowerCase())) {
+    return address.slice(0, -suffix.length);
+  }
+
+  return address;
+}
+
+function getRetrievedAddress(result: AddressAutofillRetrieveResponse) {
+  const feature = result.features?.[0];
+
+  if (!feature) {
+    return null;
+  }
+
+  const properties = feature.properties;
+  const fullAddress =
+    typeof properties.full_address === "string" ? properties.full_address.trim() : "";
+
+  if (fullAddress) {
+    return stripTrailingCountry(fullAddress, properties.country).trim();
+  }
+
+  const locality = [properties.postcode, properties.address_level2]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join(" ");
+
+  const fallback = [properties.address_line1, locality]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join(", ");
+
+  return fallback || null;
+}
 
 function getHighlightedMapboxOption() {
   return document.querySelector<HTMLElement>(
@@ -137,6 +178,17 @@ export function AddressAutofillInput({
             if (result.suggestions?.length) {
               primeFirstSuggestion();
             }
+          }}
+          onRetrieve={(result) => {
+            const nextAddress = getRetrievedAddress(result);
+
+            if (!nextAddress) {
+              return;
+            }
+
+            window.requestAnimationFrame(() => {
+              onValueChange(nextAddress);
+            });
           }}
         >
           {input}

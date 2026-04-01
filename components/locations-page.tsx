@@ -1,12 +1,21 @@
 "use client";
 
+import {
+  flexRender,
+  getCoreRowModel,
+  getSortedRowModel,
+  type CellContext,
+  type ColumnDef,
+  type HeaderContext,
+  type RowSelectionState,
+  type SortingState,
+  type VisibilityState,
+  useReactTable,
+} from "@tanstack/react-table";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
-  Building2,
-  MapPin,
   PencilLine,
   Plus,
-  Route,
   Trash2,
 } from "lucide-react";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from "react";
@@ -14,49 +23,32 @@ import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from
 import { AddressAutofillInput } from "@/components/address-autofill-input";
 import { EditorSheetLayout } from "@/components/editor-sheet-layout";
 import { LocationMapPreview } from "@/components/location-map-preview";
+import {
+  WorkspaceColumnToggleMenu,
+  WorkspaceDataTable,
+} from "@/components/workspace-data-table";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { SheetFooter } from "@/components/ui/sheet";
+import { TableCell, TableRow } from "@/components/ui/table";
+import {
+  createLocation,
+  deleteLocation,
+  fetchLocations,
+  getCachedLocationsSnapshot,
+  locationTypes,
+  sortLocations,
+  type LocationDraft,
+  type LocationRecord,
+  type LocationType,
+  updateLocation,
+} from "@/lib/locations";
+import { cn } from "@/lib/utils";
 
-const locationTypes = [
-  "Pickup point",
-  "Venue",
-  "Hotel",
-  "Airport",
-  "Other",
-] as const;
-
-type LocationType = (typeof locationTypes)[number];
 type SheetMode = "create" | "edit";
 type PersistenceMode = "checking" | "connected" | "local-only";
-
-type LocationRecord = {
-  id: string;
-  name: string;
-  type: LocationType;
-  address: string;
-  zone: string;
-  notes: string;
-  createdAt: string | null;
-};
-
-type LocationApiRecord = {
-  id: string | number;
-  name: string | null;
-  type: string | null;
-  address: string | null;
-  zone: string | null;
-  notes: string | null;
-  created_at?: string | null;
-};
-
-type LocationForm = {
-  name: string;
-  type: LocationType;
-  address: string;
-  zone: string;
-  notes: string;
-};
+type LocationForm = LocationDraft;
 
 type LocationFieldError = {
   name?: string;
@@ -67,7 +59,6 @@ const initialForm: LocationForm = {
   name: "",
   type: "Pickup point",
   address: "",
-  zone: "",
   notes: "",
 };
 
@@ -86,24 +77,25 @@ const demoLocationForms: LocationForm[] = [
     name: "Artist Hotel Lobby",
     type: "Hotel",
     address: "Alexanderplatz 7, 10178 Berlin",
-    zone: "Mitte",
     notes: "Front canopy pickup only. Hold curbside no longer than 3 minutes.",
   },
   {
     name: "Venue East Gate",
     type: "Venue",
     address: "Karl-Liebknecht-Strasse 8, 10178 Berlin",
-    zone: "Alexanderplatz",
     notes: "Use gate C after load-in starts.",
   },
   {
     name: "Crew Meetup Point",
     type: "Pickup point",
     address: "Dircksenstrasse 2, 10179 Berlin",
-    zone: "Mitte",
     notes: "Meet beside the station taxi stand.",
   },
 ];
+
+const defaultColumnVisibility: VisibilityState = {
+  select: false,
+};
 
 function buildSheetHref(pathname: string, searchParams: URLSearchParams, open: boolean) {
   const params = new URLSearchParams(searchParams.toString());
@@ -139,51 +131,18 @@ function validateLocationForm(form: LocationForm) {
   };
 }
 
-function isLocationType(value: string): value is LocationType {
-  return locationTypes.includes(value as LocationType);
-}
-
-function normalizeLocationRecord(record: LocationApiRecord): LocationRecord {
-  return {
-    id: String(record.id),
-    name: typeof record.name === "string" && record.name.trim() ? record.name.trim() : "Untitled location",
-    type:
-      typeof record.type === "string" && isLocationType(record.type) ? record.type : "Other",
-    address: typeof record.address === "string" ? record.address : "",
-    zone: typeof record.zone === "string" ? record.zone : "",
-    notes: typeof record.notes === "string" ? record.notes : "",
-    createdAt: typeof record.created_at === "string" ? record.created_at : null,
-  };
-}
-
 function createLocalLocationRecord(
   id: string,
-  payload: Pick<LocationForm, "name" | "type" | "address" | "zone" | "notes">,
+  payload: Pick<LocationForm, "name" | "type" | "address" | "notes">,
 ) {
   return {
     id,
     name: payload.name.trim(),
     type: payload.type,
     address: payload.address.trim(),
-    zone: payload.zone.trim(),
     notes: payload.notes.trim(),
     createdAt: new Date().toISOString(),
   } satisfies LocationRecord;
-}
-
-function sortLocations(records: LocationRecord[]) {
-  return [...records].sort((first, second) => {
-    const firstTimestamp = first.createdAt ? Date.parse(first.createdAt) : Number.NEGATIVE_INFINITY;
-    const secondTimestamp = second.createdAt
-      ? Date.parse(second.createdAt)
-      : Number.NEGATIVE_INFINITY;
-
-    if (Number.isFinite(firstTimestamp) || Number.isFinite(secondTimestamp)) {
-      return secondTimestamp - firstTimestamp;
-    }
-
-    return first.name.localeCompare(second.name);
-  });
 }
 
 function toLocationForm(location: LocationRecord): LocationForm {
@@ -191,20 +150,8 @@ function toLocationForm(location: LocationRecord): LocationForm {
     name: location.name,
     type: location.type,
     address: location.address,
-    zone: location.zone,
     notes: location.notes,
   };
-}
-
-function formatApiError(payload: unknown, fallbackMessage: string) {
-  if (!payload || typeof payload !== "object") {
-    return fallbackMessage;
-  }
-
-  const errorMessage =
-    "error" in payload && typeof payload.error === "string" ? payload.error : null;
-
-  return errorMessage?.trim() || fallbackMessage;
 }
 
 function Panel({
@@ -234,125 +181,42 @@ function Panel({
   );
 }
 
-function EmptyLocationsState({ onAddLocation }: { onAddLocation: () => void }) {
-  return (
-    <div className="overflow-hidden rounded-lg border border-[#e7e7e4]">
-      <div
-        className="grid min-h-10 items-center border-b border-[#ecece8] bg-[#f7f7f4] px-4 text-[11px] font-semibold tracking-[0.12em] text-[#777772] uppercase"
-        style={{
-          gridTemplateColumns:
-            "minmax(0,1.2fr) minmax(0,0.9fr) minmax(0,1.5fr) minmax(0,0.8fr) minmax(0,1fr) minmax(0,0.8fr)",
-        }}
-      >
-        {["Name", "Type", "Address", "Zone", "Notes", "Actions"].map((column) => (
-          <span key={column}>{column}</span>
-        ))}
-      </div>
-      <div className="flex min-h-28 flex-col items-center justify-center gap-2 px-4 py-6 text-center">
-        <p className="text-[14px] font-medium text-[#1d1d1b]">No locations added yet.</p>
-        <button
-          type="button"
-          onClick={onAddLocation}
-          className="rounded-md border border-[#dbdbd6] px-3 py-1.5 text-[13px] text-[#43433f] transition-colors hover:bg-[#f3f3ef]"
-        >
-          Add first location
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function LocationsTable({
-  locations,
-  deletingLocationId,
-  onDeleteLocation,
-  onEditLocation,
-}: {
-  locations: LocationRecord[];
-  deletingLocationId: string | null;
-  onDeleteLocation: (location: LocationRecord) => void;
-  onEditLocation: (location: LocationRecord) => void;
-}) {
-  return (
-    <div className="overflow-hidden rounded-lg border border-[#e7e7e4]">
-      <div
-        className="grid min-h-10 items-center border-b border-[#ecece8] bg-[#f7f7f4] px-4 text-[11px] font-semibold tracking-[0.12em] text-[#777772] uppercase"
-        style={{
-          gridTemplateColumns:
-            "minmax(0,1.2fr) minmax(0,0.9fr) minmax(0,1.5fr) minmax(0,0.8fr) minmax(0,1fr) minmax(0,0.8fr)",
-        }}
-      >
-        {["Name", "Type", "Address", "Zone", "Notes", "Actions"].map((column) => (
-          <span key={column}>{column}</span>
-        ))}
-      </div>
-      <div className="divide-y divide-[#ecece8]">
-        {locations.map((location) => (
-          <div
-            key={location.id}
-            className="grid items-center gap-3 px-4 py-4 text-[13px] text-[#3d3d39]"
-            style={{
-              gridTemplateColumns:
-                "minmax(0,1.2fr) minmax(0,0.9fr) minmax(0,1.5fr) minmax(0,0.8fr) minmax(0,1fr) minmax(0,0.8fr)",
-            }}
-          >
-            <div className="min-w-0">
-              <p className="truncate text-[14px] font-medium text-[#1d1d1b]">{location.name}</p>
-            </div>
-            <span>{location.type}</span>
-            <span className="truncate">{location.address}</span>
-            <span className="truncate">{location.zone || "Unassigned"}</span>
-            <span className="truncate text-[#6b6b67]">{location.notes || "No notes"}</span>
-            <div className="flex items-center justify-end gap-1">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-8 px-2 text-[#5d5d58] hover:bg-[#f3f3ef] hover:text-[#1d1d1b]"
-                onClick={() => onEditLocation(location)}
-              >
-                <PencilLine />
-                Edit
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-8 px-2 text-[#8a4d42] hover:bg-[#fff3f0] hover:text-[#6f2f24]"
-                onClick={() => onDeleteLocation(location)}
-                disabled={deletingLocationId === location.id}
-              >
-                <Trash2 />
-                {deletingLocationId === location.id ? "Removing..." : "Remove"}
-              </Button>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function MetricCard({
-  icon: Icon,
+function ColumnHeader({
   label,
-  value,
-  detail,
+  canSort,
+  onClick,
+  className,
 }: {
-  icon: typeof MapPin;
   label: string;
-  value: string;
-  detail: string;
+  canSort: boolean;
+  onClick?: () => void;
+  className?: string;
 }) {
-  return (
-    <div className="rounded-lg border border-[#e7e7e4] bg-[#fbfbf8] p-4">
-      <Icon className="size-4 text-[#4b4b46]" />
-      <p className="mt-3 text-[12px] font-semibold tracking-[0.12em] text-[#777772] uppercase">
+  if (!canSort) {
+    return (
+      <div
+        className={cn(
+          "px-3 text-[11px] font-semibold tracking-[0.14em] text-[#777772] uppercase",
+          className,
+        )}
+      >
         {label}
-      </p>
-      <p className="mt-2 text-[24px] font-semibold tracking-tight text-[#1d1d1b]">{value}</p>
-      <p className="mt-1 text-[13px] text-[#6b6b67]">{detail}</p>
-    </div>
+      </div>
+    );
+  }
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className={cn(
+        "h-7 px-3 text-[11px] font-semibold tracking-[0.14em] text-[#777772] uppercase hover:bg-[#f3f3ef] hover:text-[#1d1d1b]",
+        className,
+      )}
+      onClick={onClick}
+    >
+      {label}
+    </Button>
   );
 }
 
@@ -388,39 +252,28 @@ export function LocationsPage() {
   const [deletingLocationId, setDeletingLocationId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [persistenceMode, setPersistenceMode] = useState<PersistenceMode>("checking");
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(defaultColumnVisibility);
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
 
   const isSheetOpen = searchParams.get("sheet") === "add-location";
-  const pickupPointCount = locations.filter((location) => location.type === "Pickup point").length;
-  const uniqueZonesCount = new Set(
-    locations.map((location) => location.zone.trim()).filter(Boolean),
-  ).size;
-  const latestLocation = locations[0];
   const isDirty = Object.values(form).some((value) => value.trim().length > 0);
 
-  const loadLocations = useCallback(async (signal?: AbortSignal) => {
+  const loadLocations = useCallback(async (options?: { forceRefresh?: boolean; signal?: AbortSignal }) => {
+    const { forceRefresh = false, signal } = options ?? {};
+
     setIsLoading(true);
     setLoadError(null);
 
     try {
-      const response = await fetch("/api/locations", {
-        cache: "no-store",
+      const nextLocations = await fetchLocations({
+        forceRefresh,
         signal,
       });
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(
-          formatApiError(payload, "Unable to load locations from the backend."),
-        );
-      }
 
       if (signal?.aborted) {
         return;
       }
-
-      const nextLocations = Array.isArray(payload)
-        ? sortLocations(payload.map((record) => normalizeLocationRecord(record as LocationApiRecord)))
-        : [];
 
       setLocations(nextLocations);
       setPersistenceMode("connected");
@@ -464,8 +317,17 @@ export function LocationsPage() {
 
   useEffect(() => {
     const controller = new AbortController();
+    const cachedLocations = getCachedLocationsSnapshot();
 
-    void loadLocations(controller.signal);
+    if (cachedLocations !== null) {
+      setLocations(cachedLocations);
+      setIsLoading(false);
+    }
+
+    void loadLocations({
+      forceRefresh: cachedLocations !== null,
+      signal: controller.signal,
+    });
 
     return () => {
       controller.abort();
@@ -490,6 +352,163 @@ export function LocationsPage() {
     setSheetOpen(true);
   }
 
+  const columns: ColumnDef<LocationRecord>[] = [
+    {
+      id: "select",
+      meta: { label: "Select" },
+      enableSorting: false,
+      cell: ({ row }: CellContext<LocationRecord, unknown>) => (
+        <div className="flex items-center justify-center px-3">
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(checked) => row.toggleSelected(checked === true)}
+            aria-label={`Select ${row.original.name}`}
+          />
+        </div>
+      ),
+      header: ({ table }: HeaderContext<LocationRecord, unknown>) => (
+        <div className="flex items-center justify-center px-3">
+          <Checkbox
+            checked={
+              table.getIsAllRowsSelected() || (table.getIsSomeRowsSelected() ? "indeterminate" : false)
+            }
+            onCheckedChange={(checked) => table.toggleAllRowsSelected(checked === true)}
+            aria-label="Select all locations"
+          />
+        </div>
+      ),
+    },
+    {
+      accessorKey: "name",
+      meta: { label: "Name" },
+      header: ({ column }: HeaderContext<LocationRecord, unknown>) => (
+        <ColumnHeader
+          label="Name"
+          canSort={column.getCanSort()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }: CellContext<LocationRecord, unknown>) => (
+        <div className="space-y-1 px-3">
+          <p className="text-[15px] font-semibold tracking-tight text-[#1d1d1b]">
+            {row.original.name}
+          </p>
+          <p className="text-[12px] text-[#7a7a74]">
+            Added {row.original.createdAt ? new Date(row.original.createdAt).toLocaleDateString() : "recently"}
+          </p>
+        </div>
+      ),
+    },
+    {
+      accessorKey: "type",
+      meta: { label: "Type" },
+      header: ({ column }: HeaderContext<LocationRecord, unknown>) => (
+        <ColumnHeader
+          label="Type"
+          canSort={column.getCanSort()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }: CellContext<LocationRecord, unknown>) => (
+        <div className="px-3">
+          <span className="inline-flex rounded-full border border-[#e2e2de] bg-[#f7f7f4] px-2.5 py-1 text-[11px] font-medium text-[#4b4b46]">
+            {row.original.type}
+          </span>
+        </div>
+      ),
+    },
+    {
+      accessorKey: "address",
+      meta: { label: "Address" },
+      enableSorting: false,
+      header: ({ column }: HeaderContext<LocationRecord, unknown>) => (
+        <ColumnHeader
+          label="Address"
+          canSort={column.getCanSort()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }: CellContext<LocationRecord, unknown>) => (
+        <div className="px-3">
+          <p className="whitespace-normal text-[13px] leading-6 text-[#43433f]">
+            {row.original.address}
+          </p>
+        </div>
+      ),
+    },
+    {
+      accessorKey: "notes",
+      meta: { label: "Notes" },
+      enableSorting: false,
+      header: ({ column }: HeaderContext<LocationRecord, unknown>) => (
+        <ColumnHeader
+          label="Notes"
+          canSort={column.getCanSort()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }: CellContext<LocationRecord, unknown>) => (
+        <div className="px-3">
+          <p className="whitespace-normal text-[13px] leading-6 text-[#6b6b67]">
+            {row.original.notes || "No notes"}
+          </p>
+        </div>
+      ),
+    },
+    {
+      id: "actions",
+      enableSorting: false,
+      enableHiding: false,
+      header: () => <span className="sr-only">Actions</span>,
+      cell: ({ row }: CellContext<LocationRecord, unknown>) => (
+        <div className="flex items-center justify-end gap-1 px-3">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 px-2 text-[#5d5d58] hover:bg-[#f3f3ef] hover:text-[#1d1d1b]"
+            onClick={() => openEditSheet(row.original)}
+          >
+            <PencilLine />
+            Edit
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 px-2 text-[#8a4d42] hover:bg-[#fff3f0] hover:text-[#6f2f24]"
+            onClick={() => {
+              void handleDeleteLocation(row.original);
+            }}
+            disabled={deletingLocationId === row.original.id}
+          >
+            <Trash2 />
+            {deletingLocationId === row.original.id ? "Removing..." : "Remove"}
+          </Button>
+        </div>
+      ),
+    },
+  ];
+
+  const table = useReactTable({
+    data: locations,
+    columns,
+    state: {
+      rowSelection,
+      sorting,
+      columnVisibility,
+    },
+    getRowId: (row) => row.id,
+    enableRowSelection: true,
+    onRowSelectionChange: setRowSelection,
+    onSortingChange: setSorting,
+    onColumnVisibilityChange: setColumnVisibility,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
+  const visibleColumns = table.getAllColumns().filter((column) => column.getCanHide());
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const validation = validateLocationForm(form);
@@ -504,39 +523,19 @@ export function LocationsPage() {
     setSubmitMessage(null);
     setIsSaving(true);
 
-    const payload = {
-      name: validation.trimmedName,
-      type: form.type,
-      address: validation.trimmedAddress,
-      zone: form.zone.trim(),
-      notes: form.notes.trim(),
-    };
+      const payload: LocationDraft = {
+        name: validation.trimmedName,
+        type: form.type,
+        address: validation.trimmedAddress,
+        notes: form.notes.trim(),
+      };
 
     try {
       if (persistenceMode === "connected") {
         const isEditing = sheetMode === "edit" && editingLocationId;
-        const response = await fetch(
-          isEditing ? `/api/locations/${editingLocationId}` : "/api/locations",
-          {
-            method: isEditing ? "PATCH" : "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(payload),
-          },
-        );
-        const result = await response.json().catch(() => null);
-
-        if (!response.ok) {
-          throw new Error(
-            formatApiError(
-              result,
-              isEditing ? "Unable to update location." : "Unable to save location.",
-            ),
-          );
-        }
-
-        const savedLocation = normalizeLocationRecord(result as LocationApiRecord);
+        const savedLocation = isEditing
+          ? await updateLocation(editingLocationId, payload)
+          : await createLocation(payload);
 
         setLocations((current) => {
           if (isEditing) {
@@ -555,8 +554,13 @@ export function LocationsPage() {
         const localId =
           sheetMode === "edit" && editingLocationId
             ? editingLocationId
-            : `${payload.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`;
-        const localLocation = createLocalLocationRecord(localId, payload);
+            : `${validation.trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`;
+        const localLocation = createLocalLocationRecord(localId, {
+          name: validation.trimmedName,
+          type: form.type,
+          address: validation.trimmedAddress,
+          notes: form.notes.trim(),
+        });
 
         setLocations((current) => {
           if (sheetMode === "edit" && editingLocationId) {
@@ -602,14 +606,7 @@ export function LocationsPage() {
     setLoadError(null);
 
     try {
-      const response = await fetch(`/api/locations/${location.id}`, {
-        method: "DELETE",
-      });
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(formatApiError(payload, "Unable to delete location."));
-      }
+      await deleteLocation(location.id);
 
       setLocations((current) => current.filter((entry) => entry.id !== location.id));
 
@@ -640,7 +637,7 @@ export function LocationsPage() {
 
   return (
     <>
-      <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+      <div className="grid ">
         <Panel
           title="Locations"
           description="Save pickup points, venues, and shared destination records."
@@ -673,7 +670,7 @@ export function LocationsPage() {
                     variant="outline"
                     size="sm"
                     className="border-amber-300 bg-white/80 text-amber-900 hover:bg-white"
-                    onClick={() => void loadLocations()}
+                    onClick={() => void loadLocations({ forceRefresh: true })}
                   >
                     Retry backend
                   </Button>
@@ -691,101 +688,89 @@ export function LocationsPage() {
               <div className="flex min-h-32 items-center justify-center rounded-lg border border-[#e7e7e4] bg-[#fafaf7] text-[13px] text-[#6b6b67]">
                 Loading saved locations...
               </div>
-            ) : locations.length === 0 ? (
-              <EmptyLocationsState onAddLocation={openCreateSheet} />
             ) : (
-              <LocationsTable
-                locations={locations}
-                deletingLocationId={deletingLocationId}
-                onDeleteLocation={handleDeleteLocation}
-                onEditLocation={openEditSheet}
+              <WorkspaceDataTable
+                table={table}
+                dataIds={locations.map((location) => location.id)}
+                toolbar={
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <p className="text-[13px] leading-6 text-[#6b6b67]">
+                      {locations.length === 0
+                        ? "No locations saved yet."
+                        : `${locations.length} saved location${locations.length === 1 ? "" : "s"} ready for routing and reuse.`}
+                    </p>
+                    <WorkspaceColumnToggleMenu columns={visibleColumns} />
+                  </div>
+                }
+                containerClassName="overflow-x-auto"
+                tableClassName="min-w-[920px] table-fixed"
+                headerClassName="bg-[#f7f7f4]"
+                headerRowClassName="border-[#ecece8] hover:bg-transparent"
+                getHeadClassName={(columnId) =>
+                  cn(
+                    "h-11 border-b border-[#ecece8] bg-[#f7f7f4] px-0 align-middle",
+                    columnId === "select" && "w-[56px]",
+                    columnId === "name" && "w-[20%]",
+                    columnId === "type" && "w-[14%]",
+                    columnId === "address" && "w-[34%]",
+                    columnId === "notes" && "w-[22%]",
+                    columnId === "actions" && "w-[10%]",
+                  )
+                }
+                emptyState={
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell
+                      colSpan={table.getVisibleLeafColumns().length}
+                      className="py-14 text-center"
+                    >
+                      <div className="flex flex-col items-center gap-3">
+                        <div>
+                          <p className="text-[14px] font-medium text-[#1d1d1b]">
+                            No locations added yet.
+                          </p>
+                          <p className="mt-1 text-[13px] text-[#6b6b67]">
+                            Save pickup points, venues, and recurring stops in one shared table.
+                          </p>
+                        </div>
+                        <Button type="button" variant="outline" onClick={openCreateSheet}>
+                          Add first location
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                }
+                renderRow={(row) => (
+                  <TableRow
+                    key={row.id}
+                    data-state={row.getIsSelected() ? "selected" : undefined}
+                    className="border-[#f0f0ec] hover:bg-[#fafaf7] data-[state=selected]:bg-[#f7f9ff]"
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell
+                        key={cell.id}
+                        className={cn(
+                          "px-0 py-4 align-top",
+                          cell.column.id === "select" && "py-4",
+                          cell.column.id === "actions" && "py-3",
+                        )}
+                      >
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                )}
               />
             )}
           </div>
         </Panel>
 
-        <Panel
-          title="Location snapshot"
-          description="Quick coverage for pickup points, shared zones, and the latest saved stop."
-        >
-          <div className="flex flex-col gap-3">
-            <MetricCard
-              icon={MapPin}
-              label="Locations"
-              value={String(locations.length)}
-              detail={
-                isLoading
-                  ? "Loading saved places..."
-                  : locations.length === 0
-                    ? "No saved places yet."
-                    : "Saved pickup points and shared destinations."
-              }
-            />
-            <MetricCard
-              icon={Route}
-              label="Pickup points"
-              value={String(pickupPointCount)}
-              detail={
-                isLoading
-                  ? "Loading pickup coverage..."
-                  : locations.length === 0
-                    ? "Pickup count updates as you add places."
-                    : `${pickupPointCount} location${pickupPointCount === 1 ? "" : "s"} ready for route planning.`
-              }
-            />
-            <MetricCard
-              icon={Building2}
-              label="Zones"
-              value={String(uniqueZonesCount)}
-              detail={
-                isLoading
-                  ? "Loading zone coverage..."
-                  : locations.length === 0
-                    ? "Zone coverage will appear here."
-                    : uniqueZonesCount === 0
-                      ? "No zones assigned yet."
-                      : `${uniqueZonesCount} zone${uniqueZonesCount === 1 ? "" : "s"} currently represented.`
-              }
-            />
-            <div className="rounded-lg border border-[#e7e7e4] bg-[#fafaf7] p-4">
-              {isLoading ? (
-                <div className="flex min-h-40 flex-col items-center justify-center text-center">
-                  <MapPin className="size-5 text-[#4b4b46]" />
-                  <p className="mt-3 text-[14px] font-medium text-[#1d1d1b]">
-                    Loading latest location
-                  </p>
-                </div>
-              ) : latestLocation ? (
-                <>
-                  <p className="text-[12px] font-semibold tracking-[0.12em] text-[#777772] uppercase">
-                    Latest location
-                  </p>
-                  <p className="mt-2 text-[14px] font-medium text-[#1d1d1b]">{latestLocation.name}</p>
-                  <p className="mt-1 text-[13px] text-[#6b6b67]">{latestLocation.address}</p>
-                  <p className="mt-1 text-[13px] text-[#6b6b67]">
-                    {[latestLocation.type, latestLocation.zone || "No zone"].join(" · ")}
-                  </p>
-                  {latestLocation.notes ? (
-                    <p className="mt-2 text-[13px] text-[#6b6b67]">{latestLocation.notes}</p>
-                  ) : null}
-                </>
-              ) : (
-                <div className="flex min-h-40 flex-col items-center justify-center text-center">
-                  <MapPin className="size-5 text-[#4b4b46]" />
-                  <p className="mt-3 text-[14px] font-medium text-[#1d1d1b]">No locations to show yet</p>
-                  <p className="mt-1 text-[13px] text-[#6b6b67]">
-                    Add a location to start building the map view.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        </Panel>
       </div>
 
       <EditorSheetLayout
         open={isSheetOpen}
-        onOpenChange={(open) => setSheetOpen(open)}
+        onOpenChange={(open, eventDetails) =>
+          setSheetOpen(open, !open && eventDetails?.reason === "close-press")
+        }
         title={sheetMode === "edit" ? "Edit location" : "Add location"}
         description={
           sheetMode === "edit"
@@ -859,17 +844,6 @@ export function LocationsPage() {
               {fieldErrors.address ? (
                 <p className="mt-2 text-[12px] text-amber-800">{fieldErrors.address}</p>
               ) : null}
-            </Field>
-
-            <Field label="Zone">
-              <Input
-                value={form.zone}
-                onChange={(event) => {
-                  setForm((current) => ({ ...current, zone: event.target.value }));
-                  setSubmitMessage(null);
-                }}
-                placeholder="Downtown"
-              />
             </Field>
 
             <Field label="Map">
