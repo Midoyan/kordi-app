@@ -294,8 +294,8 @@ function renderSectionBody(section: AppSectionSlug) {
   switch (section) {
     case "dashboard":
       return <DashboardView />;
-    case "route-builder":
-      return <RouteBuilderView />;
+    // case "route-builder":
+    //   return <RouteBuilderView />;
     case "people":
       return <PeopleView />;
     case "vehicles":
@@ -306,8 +306,8 @@ function renderSectionBody(section: AppSectionSlug) {
       return <LocationsView />;
     case "schedule":
       return <ScheduleView />;
-    case "settings":
-      return <SettingsView />;
+    // case "settings":
+    //   return <SettingsView />;
     default:
       return null;
   }
