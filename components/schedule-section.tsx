@@ -82,6 +82,7 @@ export function ScheduleSection({
     isSavingStop,
     isStopDurationColumnVisible,
     isTrafficBufferColumnVisible,
+    openCreateStopEditor,
     onConfirmChanges,
     lastSelectedRowIdRef,
     openEditor,
@@ -105,6 +106,7 @@ export function ScheduleSection({
     stopCount,
     timingAdjustmentsOpen,
     updateStopRow,
+    draftMode,
   } = useScheduleSectionState({
     drive,
     stopPickupPassengerOptions,
@@ -469,8 +471,14 @@ export function ScheduleSection({
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled
                   className="border-[#dbdbd6] bg-[#fafaf7] text-[#1d1d1b] hover:bg-[#f1f1ed]"
+                  disabled={
+                    isSavingStop ||
+                    isDeletingSelectedStops ||
+                    deletingStopId !== null ||
+                    hasPendingChanges
+                  }
+                  onClick={openCreateStopEditor}
                 >
                   <Plus className="size-4" />
                   <span className="hidden lg:inline">Add Stop</span>
@@ -588,13 +596,14 @@ export function ScheduleSection({
         ) : null}
       </div>
 
-      <ScheduleStopEditorSheet
-        open={sheetOpen}
-        driveLabel={drive.label}
-        travelType={drive.travelType}
-        commonLocationLabel={commonLocationLabel}
-        draft={draft}
-        passengerLookup={passengerLookup}
+        <ScheduleStopEditorSheet
+          open={sheetOpen}
+          driveLabel={drive.label}
+          travelType={drive.travelType}
+          commonLocationLabel={commonLocationLabel}
+          draft={draft}
+          draftMode={draftMode}
+          passengerLookup={passengerLookup}
         stopPickupPassengerOptions={stopPickupPassengerOptions}
         timingAdjustmentsOpen={timingAdjustmentsOpen}
         isSavingStop={isSavingStop}

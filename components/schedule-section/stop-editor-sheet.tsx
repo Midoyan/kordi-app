@@ -12,6 +12,7 @@ import {
 } from "@/components/schedule-section/helpers"
 import { StopPickupPassengerCombobox } from "@/components/schedule-section/table-parts"
 import type { DriveStopRow } from "@/components/schedule-section/types"
+import type { ScheduleStopDraftMode } from "@/components/schedule-section/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
@@ -30,6 +31,7 @@ type ScheduleStopEditorSheetProps = {
   travelType: TravelType
   commonLocationLabel: string
   draft: DriveStopRow | null
+  draftMode: ScheduleStopDraftMode
   passengerLookup: Map<string, StopPickupPassengerOption>
   stopPickupPassengerOptions: StopPickupPassengerOption[]
   timingAdjustmentsOpen: boolean
@@ -49,6 +51,7 @@ export function ScheduleStopEditorSheet({
   travelType,
   commonLocationLabel,
   draft,
+  draftMode,
   passengerLookup,
   stopPickupPassengerOptions,
   timingAdjustmentsOpen,
@@ -68,17 +71,21 @@ export function ScheduleStopEditorSheet({
       <SheetContent side="right" className="w-full border-l border-[#ecece8] bg-white sm:max-w-xl">
         <SheetHeader className="gap-1 border-b border-[#ecece8] px-6 py-5">
           <SheetTitle>
-            {draft
+            {draftMode === "create"
+              ? "New stop"
+              : draft
               ? `${getStopPickupPassengerNames(draft.stopPickupPassengerIds, passengerLookup).length} passenger${getStopPickupPassengerNames(draft.stopPickupPassengerIds, passengerLookup).length === 1 ? "" : "s"}`
               : "Stop details"}
           </SheetTitle>
           <SheetDescription>
-            Edit the selected stop in {driveLabel} without leaving this {getTravelTypeLabel(travelType).toLowerCase()} drive.
+            {draftMode === "create"
+              ? `Add a new stop inside ${driveLabel} without leaving this ${getTravelTypeLabel(travelType).toLowerCase()} drive.`
+              : `Edit the selected stop in ${driveLabel} without leaving this ${getTravelTypeLabel(travelType).toLowerCase()} drive.`}
           </SheetDescription>
         </SheetHeader>
 
         <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-6 py-5">
-          <div className="rounded-xl border border-[#ecece8] bg-[#fbfbf8] p-4">
+          {/* <div className="rounded-xl border border-[#ecece8] bg-[#fbfbf8] p-4">
             <p className="text-[12px] font-semibold tracking-[0.12em] text-[#777772] uppercase">
               Stop snapshot
             </p>
@@ -106,7 +113,7 @@ export function ScheduleStopEditorSheet({
             </div>
           </div>
 
-          <Separator className="bg-[#ecece8]" />
+          <Separator className="bg-[#ecece8]" /> */}
 
           <form className="flex flex-col gap-4" onSubmit={onSubmit}>
             <div className="flex flex-col gap-2">
@@ -231,7 +238,7 @@ export function ScheduleStopEditorSheet({
 
             <SheetFooter className="px-0 pt-2">
               <div className="flex w-full items-center justify-between gap-2">
-                {draft ? (
+                {draft && draftMode === "edit" ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -272,7 +279,7 @@ export function ScheduleStopEditorSheet({
                       (draft ? deletingStopId === draft.id : false)
                     }
                   >
-                    {isSavingStop ? "Saving…" : "Save stop"}
+                    {isSavingStop ? "Saving…" : draftMode === "create" ? "Create stop" : "Save stop"}
                   </Button>
                 </div>
               </div>

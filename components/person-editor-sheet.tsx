@@ -168,7 +168,7 @@ export function PersonEditorSheet({
       headerClassName="px-4 py-4"
       titleClassName="text-base font-semibold tracking-normal"
       descriptionClassName="mt-0 text-sm"
-      sheetContentProps={{
+      contentWrapperProps={{
         onDragOver: handleDragOver,
         onDragLeave: handleDragLeave,
         onDrop: (event) => {
@@ -207,28 +207,13 @@ export function PersonEditorSheet({
               ) : null}
 
               {canImportFromVCard ? (
-                <div
-                  className={cn(
-                    "rounded-xl border border-dashed px-4 py-3 transition-colors",
-                    isDraggingImport
-                      ? "border-[#90a8ff] bg-[#eef3ff]"
-                      : "border-[#d8d8d3] bg-[#fcfcfa]",
-                  )}
-                >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="space-y-1">
-                      <p className="text-[13px] font-medium text-[#1d1d1b]">
-                        {isDraggingImport
-                          ? "Release to import this contact into the form."
-                          : "Drop a contact from your Contacts here, or directly into the table."}
-                      </p>
-                      <p className="text-[11px] leading-5 text-[#6b6b67]">
-                        Dropped contact details only fill empty fields, so typed values stay intact.
-                      </p>
-                      {importMessage ? (
-                        <p className="text-[11px] leading-5 text-[#3556a8]">{importMessage}</p>
-                      ) : null}
-                    </div>
+                <div className="space-y-2 border-b border-[#ecece8] pb-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-[13px] leading-6 text-[#4b4b46]">
+                      {isDraggingImport
+                        ? "Release to import this contact into the form."
+                        : "Drop a contact from your Contacts here, or directly into the table."}
+                    </p>
                     <Button
                       type="button"
                       variant="outline"
@@ -240,6 +225,9 @@ export function PersonEditorSheet({
                       Import .vcf
                     </Button>
                   </div>
+                  {importMessage ? (
+                    <p className="text-[11px] leading-5 text-[#3556a8]">{importMessage}</p>
+                  ) : null}
                 </div>
               ) : null}
 

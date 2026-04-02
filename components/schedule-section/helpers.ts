@@ -116,6 +116,29 @@ export function buildInitialStopRows(drive: Drive) {
   }))
 }
 
+export function buildNewStopRow(drive: Drive, index: number): DriveStopRow {
+  const initialArrival = buildInitialArrivalValue(drive)
+  const commonLocationAddress =
+    drive.travelType === "pickup" ? drive.destinationAddress : drive.startLocation
+
+  return {
+    id: `draft-stop-${drive.id}-${Date.now()}`,
+    driveId: drive.id,
+    stopTitle: `Stop ${index + 1}`,
+    pickupAddress: "",
+    pickupTime: "",
+    pickupTimeSource: null,
+    endDestination: commonLocationAddress,
+    arrival: initialArrival,
+    isFavorite: false,
+    notes: "",
+    createdAt: new Date().toISOString(),
+    stopDurationSec: null,
+    trafficBufferSec: null,
+    stopPickupPassengerIds: [],
+  }
+}
+
 export function buildDriveFromStopRows(
   drive: Drive,
   rows: DriveStopRow[],

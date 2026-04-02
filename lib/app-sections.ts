@@ -15,14 +15,14 @@ export const appSections = [
     description:
       "Track route health, vesdhicle readiness, and pickup pressure from one place.",
   },
-  {
-    slug: "route-builder",
-    label: "Route Builder",
-    eyebrow: "Planning",
-    title: "Shape runs before dispatch",
-    description:
-      "Build efficient pickup sequences, check travel load, and prepare routes for the day.",
-  },
+  // {
+  //   slug: "route-builder",
+  //   label: "Route Builder",
+  //   eyebrow: "Planning",
+  //   title: "Shape runs before dispatch",
+  //   description:
+  //     "Build efficient pickup sequences, check travel load, and prepare routes for the day.",
+  // },
   {
     slug: "people",
     label: "People",
@@ -55,14 +55,14 @@ export const appSections = [
     description:
       "Align transport windows, call times, and route changes without juggling multiple tools.",
   },
-  {
-    slug: "settings",
-    label: "Settings",
-    eyebrow: "Workspace",
-    title: "Tune the control room",
-    description:
-      "Adjust defaults, team preferences, and operational rules for the whole workspace.",
-  },
+  // {
+  //   slug: "settings",
+  //   label: "Settings",
+  //   eyebrow: "Workspace",
+  //   title: "Tune the control room",
+  //   description:
+  //     "Adjust defaults, team preferences, and operational rules for the whole workspace.",
+  // },
 ] as const;
 
 export type AppSection = (typeof appSections)[number];

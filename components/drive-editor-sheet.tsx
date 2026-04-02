@@ -117,7 +117,7 @@ export function DriveEditorSheet({
               </div>
             ) : null}
 
-            <div className="rounded-[20px] border border-[#e6e8e1] bg-[linear-gradient(180deg,rgba(250,252,247,0.98)_0%,rgba(244,246,240,0.98)_100%)] p-4 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.26)]">
+            {/* <div className="rounded-[20px] border border-[#e6e8e1] bg-[linear-gradient(180deg,rgba(250,252,247,0.98)_0%,rgba(244,246,240,0.98)_100%)] p-4 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.26)]">
               <p className="text-[11px] font-semibold tracking-[0.14em] text-[#75816f] uppercase">
                 Drive preview
               </p>
@@ -135,7 +135,7 @@ export function DriveEditorSheet({
               <p className="mt-3 text-[12px] leading-5 text-[#6b6b67]">
                 {selectedLocation?.address || "Choose the van, run type, and set location for this drive."}
               </p>
-            </div>
+            </div> */}
 
             <Field label="Travel type">
               <ButtonGroup>

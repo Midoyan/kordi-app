@@ -161,8 +161,8 @@ async function DashboardView() {
   const drives = await getDrivePlan();
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-      <Panel
+    <div className="grid gap-4">
+      {/* <Panel
         title="Workspace setup"
         description="Start building the workspace by adding the first route, rider, and vehicle."
       >
@@ -171,25 +171,7 @@ async function DashboardView() {
           <StatTile icon={Users} title="People" cta="Add person" />
           <StatTile icon={Car} title="Vehicles" cta="Add vehicle" />
         </div>
-      </Panel>
-      <Panel
-        title="Today"
-        description="This panel can hold live operational status once data is connected."
-      >
-        <EmptyList
-          items={[
-            {
-              title: "No routes scheduled yet",
-              description: "Create the first route to begin planning pickups.",
-              cta: "Add route",
-            },
-            {
-              title: "No active dispatch notes",
-              description: "Notes and alerts will appear here when operations start.",
-            },
-          ]}
-        />
-      </Panel>
+      </Panel> */}
       <Panel
         title="Upcoming runs"
         description="A route list or dispatch table can live here."
@@ -203,7 +185,7 @@ async function DashboardView() {
 
 function RouteBuilderView() {
   return (
-    <div className="grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
+    <div className="grid gap-4">
       <Panel
         title="Routes"
         description="Build routes, then connect stops, vehicles, and pickup order."
