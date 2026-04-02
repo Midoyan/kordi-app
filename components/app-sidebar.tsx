@@ -1,53 +1,23 @@
-"use client";
-
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import {
-  CalendarDays,
-  Car,
-  Globe,
-  LayoutDashboard,
-  LogIn,
-  MapPin,
-  Route,
-  Settings,
-  Users,
-} from "lucide-react";
+import { LogIn, Route } from "lucide-react";
 
+import { AppSidebarNav } from "@/components/app-sidebar-nav";
 import { SidebarUserNav } from "@/components/sidebar-user-nav";
 import type { AuthUser } from "@/lib/auth";
-import { appSections } from "@/lib/app-sections";
-import { cn } from "@/lib/utils";
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
   SidebarRail,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
-
-const sectionIcons = {
-  dashboard: LayoutDashboard,
-  "route-builder": Route,
-  people: Users,
-  vehicles: Car,
-  map: Globe,
-  locations: MapPin,
-  schedule: CalendarDays,
-  settings: Settings,
-} as const;
 
 type AppSidebarProps = {
   user: AuthUser | null;
 };
 
 export function AppSidebar({ user }: AppSidebarProps) {
-  const pathname = usePathname();
-
   return (
     <Sidebar className="border-r border-[#e4e4e1] bg-[#f7f7f4]" collapsible="icon">
       <SidebarHeader className="gap-3 px-3 py-3 group-data-[collapsible=icon]:px-2">
@@ -77,29 +47,7 @@ export function AppSidebar({ user }: AppSidebarProps) {
       <SidebarSeparator className="bg-[#e4e4e1]" />
 
       <SidebarContent className="px-2 py-2">
-        <SidebarMenu>
-          {appSections.map((section) => {
-            const Icon = sectionIcons[section.slug];
-            const href = `/${section.slug}`;
-            const isActive = pathname === href;
-
-            return (
-              <SidebarMenuItem key={section.slug}>
-                <SidebarMenuButton
-                  isActive={isActive}
-                  tooltip={section.label}
-                  render={<Link href={href} />}
-                  className={cn(
-                    "h-8 rounded-[10px] px-2.5 text-[13px] font-medium text-[#5c5c57] shadow-none hover:bg-[#ecece8] hover:text-[#181816] data-active:bg-[#d8d8d3] data-active:text-[#181816] data-active:hover:bg-[#d2d2cd] [&_svg]:size-[15px]",
-                  )}
-                >
-                  <Icon />
-                  <span>{section.label}</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            );
-          })}
-        </SidebarMenu>
+        <AppSidebarNav />
       </SidebarContent>
 
       <SidebarSeparator className="bg-[#e4e4e1]" />

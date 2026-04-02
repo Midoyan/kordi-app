@@ -37,7 +37,9 @@ import {
   deleteLocation,
   fetchLocations,
   getCachedLocationsSnapshot,
+  hasFreshLocationsCache,
   locationTypes,
+  primeLocationsCache,
   sortLocations,
   type LocationDraft,
   type LocationRecord,
@@ -237,11 +239,11 @@ function Field({
   );
 }
 
-export function LocationsPage() {
+export function LocationsPage({ initialLocations }: { initialLocations?: LocationRecord[] }) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [locations, setLocations] = useState<LocationRecord[]>([]);
+  const [locations, setLocations] = useState<LocationRecord[]>(initialLocations ?? []);
   const [form, setForm] = useState<LocationForm>(initialForm);
   const [fieldErrors, setFieldErrors] = useState<LocationFieldError>({});
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
@@ -323,24 +325,43 @@ export function LocationsPage() {
   );
 
   useEffect(() => {
+    if (initialLocations) {
+      primeLocationsCache(initialLocations);
+    }
+  }, [initialLocations]);
+
+  useEffect(() => {
     const controller = new AbortController();
-    const cachedLocations = getCachedLocationsSnapshot();
+    const cachedLocations = getCachedLocationsSnapshot({ includeExpired: true });
+    const hasFreshCache = hasFreshLocationsCache();
 
     if (cachedLocations !== null) {
       setLocations(cachedLocations);
       setIsLoading(false);
+      setPersistenceMode("connected");
+    } else if (initialLocations) {
+      setLocations(initialLocations);
+      setIsLoading(false);
+      setLoadError(null);
+      setPersistenceMode("connected");
+    }
+
+    if (hasFreshCache) {
+      return () => {
+        controller.abort();
+      };
     }
 
     void loadLocations({
-      background: cachedLocations !== null,
-      forceRefresh: cachedLocations !== null,
+      background: cachedLocations !== null || Boolean(initialLocations),
+      forceRefresh: true,
       signal: controller.signal,
     });
 
     return () => {
       controller.abort();
     };
-  }, [loadLocations]);
+  }, [initialLocations, loadLocations]);
 
   function openCreateSheet() {
     setSheetMode("create");
@@ -645,7 +666,7 @@ export function LocationsPage() {
 
   return (
     <>
-      <div className="grid ">
+      <div className="grid">
         <Panel
           title="Locations"
           description="Save pickup points, venues, and shared destination records."

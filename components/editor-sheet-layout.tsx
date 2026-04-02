@@ -25,6 +25,7 @@ type EditorSheetLayoutProps = {
   headerClassName?: string;
   titleClassName?: string;
   descriptionClassName?: string;
+  contentWrapperProps?: ComponentProps<"div">;
 };
 
 export function EditorSheetLayout({
@@ -38,6 +39,7 @@ export function EditorSheetLayout({
   headerClassName,
   titleClassName,
   descriptionClassName,
+  contentWrapperProps,
 }: EditorSheetLayoutProps) {
   const handleOpenChange: SheetOpenChange = (nextOpen, eventDetails) => {
     if (!nextOpen && eventDetails?.reason !== "close-press") {
@@ -63,22 +65,27 @@ export function EditorSheetLayout({
           contentClassName,
         )}
       >
-        <SheetHeader className={cn("border-b border-[#e7e7e4] px-5 py-5", headerClassName)}>
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0 flex-1">
-              <SheetTitle className={cn("text-[20px] font-semibold tracking-tight text-[#1d1d1b]", titleClassName)}>
-                {title}
-              </SheetTitle>
-              {description ? (
-                <SheetDescription className={cn("mt-1 text-[13px] leading-6 text-[#6b6b67]", descriptionClassName)}>
-                  {description}
-                </SheetDescription>
-              ) : null}
+        <div
+          {...contentWrapperProps}
+          className={cn("flex min-h-0 flex-1 flex-col", contentWrapperProps?.className)}
+        >
+          <SheetHeader className={cn("border-b border-[#e7e7e4] px-5 py-5", headerClassName)}>
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <SheetTitle className={cn("text-[20px] font-semibold tracking-tight text-[#1d1d1b]", titleClassName)}>
+                  {title}
+                </SheetTitle>
+                {description ? (
+                  <SheetDescription className={cn("mt-1 text-[13px] leading-6 text-[#6b6b67]", descriptionClassName)}>
+                    {description}
+                  </SheetDescription>
+                ) : null}
+              </div>
+              {headerActions}
             </div>
-            {headerActions}
-          </div>
-        </SheetHeader>
-        {children}
+          </SheetHeader>
+          {children}
+        </div>
       </SheetContent>
     </Sheet>
   );

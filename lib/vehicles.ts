@@ -6,6 +6,7 @@ export const vehicleTypes = [
 ] as const;
 
 export type VehicleType = (typeof vehicleTypes)[number];
+export type VehicleTypeValue = "van" | "car" | "shuttle" | "suv";
 
 export type VehicleRecord = {
   id: string;
@@ -24,7 +25,7 @@ export type VehiclePayload = {
   label: string;
   plate_number: string;
   seat_capacity: number;
-  vehicle_type: VehicleType;
+  vehicle_type: VehicleTypeValue;
   notes: string;
   is_active: boolean;
 };
@@ -43,7 +44,22 @@ type FetchVehiclesOptions = {
 const VEHICLE_CACHE_STORAGE_KEY = "kordi.vehicles-cache.v1";
 const VEHICLE_CACHE_TTL_MS = 5 * 60 * 1000;
 const VEHICLE_CACHE_VERSION = 1;
-const vehicleTypesSet = new Set<string>(vehicleTypes);
+const vehicleTypeValueByType: Record<VehicleType, VehicleTypeValue> = {
+  Van: "van",
+  Car: "car",
+  Shuttle: "shuttle",
+  SUV: "suv",
+};
+const vehicleTypeByAlias = new Map<string, VehicleType>([
+  ["van", "Van"],
+  ["Van", "Van"],
+  ["car", "Car"],
+  ["Car", "Car"],
+  ["shuttle", "Shuttle"],
+  ["Shuttle", "Shuttle"],
+  ["suv", "SUV"],
+  ["SUV", "SUV"],
+]);
 
 let vehiclesCache: VehicleCachePayload | null = null;
 let vehiclesRequest: Promise<VehicleRecord[]> | null = null;
@@ -121,7 +137,11 @@ function parseSeatCapacity(value: unknown) {
 
 function normalizeVehicleType(value: unknown): VehicleType {
   const type = readString(value);
-  return vehicleTypesSet.has(type) ? (type as VehicleType) : "Van";
+  return vehicleTypeByAlias.get(type) ?? "Van";
+}
+
+function mapVehicleTypeToValue(type: VehicleType) {
+  return vehicleTypeValueByType[type];
 }
 
 function getResponseErrorMessage(payload: unknown, fallbackMessage: string) {
@@ -289,6 +309,10 @@ function storeVehiclesCache(vehicles: VehicleRecord[]) {
   return cache.vehicles;
 }
 
+export function primeVehiclesCache(vehicles: VehicleRecord[]) {
+  return storeVehiclesCache(vehicles);
+}
+
 function updateVehiclesCache(update: (currentVehicles: VehicleRecord[]) => VehicleRecord[]) {
   const currentVehicles = getCachedVehiclesSnapshot({ includeExpired: true }) ?? [];
   return storeVehiclesCache(update(currentVehicles));
@@ -316,6 +340,11 @@ export function getCachedVehiclesSnapshot(options?: { includeExpired?: boolean }
   return cache.vehicles;
 }
 
+export function hasFreshVehiclesCache() {
+  const cache = readVehiclesCache();
+  return cache ? isVehicleCacheFresh(cache) : false;
+}
+
 export function normalizeVehiclePayload(payload: unknown): VehiclePayload {
   const source = payload && typeof payload === "object" ? payload : {};
   const record = source as Record<string, unknown>;
@@ -338,7 +367,7 @@ export function normalizeVehiclePayload(payload: unknown): VehiclePayload {
     label,
     plate_number: plateNumber,
     seat_capacity: seatCapacity,
-    vehicle_type: vehicleType,
+    vehicle_type: mapVehicleTypeToValue(vehicleType),
     notes,
     is_active: isActive,
   };
@@ -367,6 +396,7 @@ function mapVehicleDraftToPayload(draft: VehicleDraft): VehiclePayload {
 export async function fetchVehicles(options: FetchVehiclesOptions = {}) {
   const { forceRefresh = false, signal } = options;
   const cachedVehicles = !forceRefresh ? getCachedVehiclesSnapshot() : null;
+  const staleCachedVehicles = getCachedVehiclesSnapshot({ includeExpired: true });
 
   if (cachedVehicles !== null) {
     return cachedVehicles;
@@ -402,6 +432,10 @@ export async function fetchVehicles(options: FetchVehiclesOptions = {}) {
   } catch (error) {
     if (isAbortError(error)) {
       throw error;
+    }
+
+    if (staleCachedVehicles !== null) {
+      return staleCachedVehicles;
     }
 
     throw error;

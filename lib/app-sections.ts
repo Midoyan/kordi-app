@@ -15,14 +15,14 @@ export const appSections = [
     description:
       "Track route health, vesdhicle readiness, and pickup pressure from one place.",
   },
-  {
-    slug: "route-builder",
-    label: "Route Builder",
-    eyebrow: "Planning",
-    title: "Shape runs before dispatch",
-    description:
-      "Build efficient pickup sequences, check travel load, and prepare routes for the day.",
-  },
+  // {
+  //   slug: "route-builder",
+  //   label: "Route Builder",
+  //   eyebrow: "Planning",
+  //   title: "Shape runs before dispatch",
+  //   description:
+  //     "Build efficient pickup sequences, check travel load, and prepare routes for the day.",
+  // },
   {
     slug: "people",
     label: "People",
@@ -55,14 +55,14 @@ export const appSections = [
     description:
       "Align transport windows, call times, and route changes without juggling multiple tools.",
   },
-  {
-    slug: "settings",
-    label: "Settings",
-    eyebrow: "Workspace",
-    title: "Tune the control room",
-    description:
-      "Adjust defaults, team preferences, and operational rules for the whole workspace.",
-  },
+  // {
+  //   slug: "settings",
+  //   label: "Settings",
+  //   eyebrow: "Workspace",
+  //   title: "Tune the control room",
+  //   description:
+  //     "Adjust defaults, team preferences, and operational rules for the whole workspace.",
+  // },
 ] as const;
 
 export type AppSection = (typeof appSections)[number];
@@ -71,3 +71,29 @@ export type AppSectionSlug = AppSection["slug"];
 export const appSectionMap = new Map(
   appSections.map((section) => [section.slug, section]),
 );
+
+export const sectionActionLabels: Record<AppSectionSlug, string> = {
+  dashboard: "Create route",
+  "route-builder": "Add route",
+  people: "Add person",
+  vehicles: "Add vehicle",
+  map: "Start tracking",
+  locations: "Add location",
+  schedule: "Add drive",
+  settings: "Add setting",
+};
+
+export function getSectionActionHref(section: AppSectionSlug) {
+  switch (section) {
+    case "people":
+      return `/${section}?add-person=1`;
+    case "vehicles":
+      return `/${section}?sheet=add-vehicle`;
+    case "locations":
+      return `/${section}?sheet=add-location`;
+    case "schedule":
+      return `/${section}?sheet=add-drive`;
+    default:
+      return undefined;
+  }
+}

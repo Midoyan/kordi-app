@@ -1,12 +1,17 @@
 import { createClient } from "@/lib/server";
+import {
+    normalizeTravelPayload,
+    validateTravelPayload,
+} from "@/lib/travels";
 
 export async function GET() {
     const supabase = await createClient()
 
     const { data, error } = await supabase
-        .from("travels")
+        .from("travels2")
         .select("*")
-        .order("created_at", { ascending: false });
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true });
 
     if (error) {
         return Response.json({ error: error.message }, { status: 500 });
@@ -17,11 +22,16 @@ export async function GET() {
 
 export async function POST(req: Request) {
     const supabase = await createClient()
-    const body = await req.json();
+    const payload = normalizeTravelPayload(await req.json());
+    const validationError = validateTravelPayload(payload);
+
+    if (validationError) {
+        return Response.json({ error: validationError }, { status: 400 });
+    }
 
     const { data, error } = await supabase
-        .from("travels")
-        .insert([body])
+        .from("travels2")
+        .insert([payload])
         .select()
         .single();
 

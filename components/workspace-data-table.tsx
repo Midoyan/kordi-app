@@ -17,6 +17,7 @@ import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { flexRender, type Column, type Row, type Table as ReactTable } from "@tanstack/react-table"
 import { ChevronDown, FileUp, Settings2 } from "lucide-react"
 
+import { readDroppedVCardPayloads, readSelectedVCardFiles } from "@/lib/vcard"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -28,11 +29,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-
-type BrowserFileSystemHandle = {
-  kind: "file" | "directory"
-  getFile?: () => Promise<File>
-}
 
 type WorkspaceDataTableProps<TData> = {
   table: ReactTable<TData>
@@ -69,26 +65,17 @@ type WorkspaceVCardTableProps<TData> = Omit<
   "toolbar" | "renderRowBefore" | "renderTableBodyEnd"
 > & {
   toolbar?: React.ReactNode | ((controls: WorkspaceVCardToolbarControls) => React.ReactNode)
-  importPrompt: React.ReactNode
+  importPrompt?: React.ReactNode
   activeImportPrompt?: React.ReactNode
   importNote?: React.ReactNode
   importButtonLabel?: string
   importInProgress?: boolean
+  showImportPanel?: boolean
   onImportPayloads: (
     payloads: string[],
     context: { insertionIndex: number | null }
   ) => Promise<void> | void
 }
-
-const defaultVCardTransferTypes = [
-  "text/vcard",
-  "text/x-vcard",
-  "text/plain",
-  "text",
-  "public.vcard",
-  "public.utf8-plain-text",
-  "com.apple.traditional-mac-plain-text",
-] as const
 
 function getColumnToggleLabel<TData>(column: Column<TData, unknown>) {
   const meta = column.columnDef.meta as { label?: string } | undefined
@@ -100,124 +87,6 @@ function getColumnToggleLabel<TData>(column: Column<TData, unknown>) {
   return column.id
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replaceAll("-", " ")
-}
-
-function extractVCardText(payload: string) {
-  const normalizedPayload = payload.trim()
-
-  if (!normalizedPayload) {
-    return null
-  }
-
-  return normalizedPayload.toUpperCase().includes("BEGIN:VCARD")
-    ? normalizedPayload
-    : null
-}
-
-async function readSelectedVCardFiles(files: File[]) {
-  const payloads = await Promise.all(files.map((file) => file.text()))
-  const normalizedPayloads = payloads
-    .map((payload) => extractVCardText(payload))
-    .filter((payload): payload is string => Boolean(payload))
-
-  return Array.from(new Set(normalizedPayloads))
-}
-
-async function readDroppedVCardPayloads(dataTransfer: DataTransfer) {
-  const payloadSet = new Set<string>()
-
-  const appendPayload = (payload: string | null | undefined) => {
-    const normalizedPayload = payload ? extractVCardText(payload) : null
-
-    if (normalizedPayload) {
-      payloadSet.add(normalizedPayload)
-    }
-  }
-
-  const fileReadTasks: Array<Promise<string>> = []
-  const stringReadTasks: Array<Promise<string>> = []
-  const handleReadTasks: Array<Promise<string | null>> = []
-
-  for (const transferType of dataTransfer.types) {
-    appendPayload(dataTransfer.getData(transferType))
-  }
-
-  for (const transferType of defaultVCardTransferTypes) {
-    appendPayload(dataTransfer.getData(transferType))
-  }
-
-  for (const file of Array.from(dataTransfer.files)) {
-    if (
-      file.type === "text/vcard" ||
-      file.type === "public.vcard" ||
-      file.name.toLowerCase().endsWith(".vcf") ||
-      file.type === "text/x-vcard"
-    ) {
-      fileReadTasks.push(file.text())
-    }
-  }
-
-  for (const item of Array.from(dataTransfer.items)) {
-    if (item.kind === "file") {
-      const file = item.getAsFile()
-
-      if (
-        file &&
-        (file.name.toLowerCase().endsWith(".vcf") ||
-          /vcard/i.test(file.type) ||
-          /vcard/i.test(item.type))
-      ) {
-        fileReadTasks.push(file.text())
-      }
-
-      if ("getAsFileSystemHandle" in item && typeof item.getAsFileSystemHandle === "function") {
-        const handlePromise = item
-          .getAsFileSystemHandle()
-          .then(async (handle: BrowserFileSystemHandle | null) => {
-            if (!handle || handle.kind !== "file" || typeof handle.getFile !== "function") {
-              return null
-            }
-
-            const handleFile = await handle.getFile()
-
-            if (
-              handleFile.name.toLowerCase().endsWith(".vcf") ||
-              /vcard/i.test(handleFile.type) ||
-              /vcard/i.test(item.type)
-            ) {
-              return handleFile.text()
-            }
-
-            return null
-          })
-          .catch(() => null)
-
-        handleReadTasks.push(handlePromise)
-      }
-    }
-
-    if (item.kind === "string") {
-      stringReadTasks.push(
-        new Promise<string>((resolve) => {
-          item.getAsString((value) => resolve(value))
-        })
-      )
-    }
-  }
-
-  for (const payload of await Promise.all(fileReadTasks)) {
-    appendPayload(payload)
-  }
-
-  for (const payload of await Promise.all(stringReadTasks)) {
-    appendPayload(payload)
-  }
-
-  for (const payload of await Promise.all(handleReadTasks)) {
-    appendPayload(payload)
-  }
-
-  return Array.from(payloadSet)
 }
 
 export function WorkspaceColumnToggleMenu<TData>({
@@ -398,6 +267,7 @@ export function WorkspaceVCardTable<TData>({
   importNote,
   importButtonLabel = "Import .vcf",
   importInProgress = false,
+  showImportPanel = true,
   onImportPayloads,
 }: WorkspaceVCardTableProps<TData>) {
   const fileInputRef = React.useRef<HTMLInputElement>(null)
@@ -533,34 +403,40 @@ export function WorkspaceVCardTable<TData>({
         onDragOver={handleDragOverContainer}
         onDragLeave={handleDragLeaveContainer}
       >
-        <div
-          className={cn(
-            "flex flex-col gap-3 rounded-lg border border-dashed px-4 py-3 text-[12px] leading-5 transition-colors lg:flex-row lg:items-center lg:justify-between",
-            isDragging
-              ? "border-[#90a8ff] bg-[#eef3ff] text-[#3556a8]"
-              : "border-[#d8d8d3] bg-[#fcfcfa] text-[#6b6b67]"
-          )}
-        >
-          <div>
-            <p className="font-medium text-[#1d1d1b]">
-              {isDragging ? activeImportPrompt : importPrompt}
-            </p>
-            {importNote ? (
-              <div className="mt-1 text-[11px] leading-5 text-[#6b6b67]">{importNote}</div>
-            ) : null}
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef]"
-            onClick={openFilePicker}
-            disabled={importInProgress}
+        {showImportPanel ? (
+          <div
+            className={cn(
+              "flex flex-col gap-3 rounded-lg border border-dashed px-4 py-3 text-[12px] leading-5 transition-colors lg:flex-row lg:items-center lg:justify-between",
+              isDragging
+                ? "border-[#90a8ff] bg-[#eef3ff] text-[#3556a8]"
+                : "border-[#d8d8d3] bg-[#fcfcfa] text-[#6b6b67]"
+            )}
           >
-            <FileUp className="size-4" />
-            {importButtonLabel}
-          </Button>
-        </div>
+            <div>
+              {importPrompt ? (
+                <p className="font-medium text-[#1d1d1b]">
+                  {isDragging ? activeImportPrompt : importPrompt}
+                </p>
+              ) : null}
+              {importNote ? (
+                <div className={cn(importPrompt ? "mt-1" : undefined, "text-[11px] leading-5 text-[#6b6b67]")}>
+                  {importNote}
+                </div>
+              ) : null}
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef]"
+              onClick={openFilePicker}
+              disabled={importInProgress}
+            >
+              <FileUp className="size-4" />
+              {importButtonLabel}
+            </Button>
+          </div>
+        ) : null}
 
         <WorkspaceDataTable
           table={table}
@@ -610,7 +486,7 @@ export function WorkspaceVCardTable<TData>({
           sortable={sortable}
           sortableId={sortableId}
           onDragEnd={onDragEnd}
-          containerClassName={cn("mt-3", containerClassName)}
+          containerClassName={cn(showImportPanel && "mt-3", containerClassName)}
           tableClassName={tableClassName}
           headerClassName={headerClassName}
           headerRowClassName={headerRowClassName}

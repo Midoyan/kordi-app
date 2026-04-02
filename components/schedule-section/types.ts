@@ -20,6 +20,8 @@ export type DriveStopRow = {
   stopPickupPassengerIds: string[]
 }
 
+export type ScheduleStopDraftMode = "create" | "edit"
+
 export type PendingDriveStopUpdate = {
   pickupTime: string
   arrival: string

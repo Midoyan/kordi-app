@@ -1,5 +1,9 @@
 import { createClient } from "@/lib/server";
 import { deleteTravelCascade } from "@/lib/transport-cascade";
+import {
+    normalizeTravelPayload,
+    validateTravelPayload,
+} from "@/lib/travels";
 
 type RouteContext = {
     params: Promise<{ id: string }>;
@@ -10,7 +14,7 @@ export async function GET(_: Request, context: RouteContext) {
     const supabase = await createClient();
 
     const { data, error } = await supabase
-        .from("travels")
+        .from("travels2")
         .select("*")
         .eq("id", id)
         .single();
@@ -25,11 +29,16 @@ export async function GET(_: Request, context: RouteContext) {
 export async function PATCH(req: Request, context: RouteContext) {
     const { id } = await context.params;
     const supabase = await createClient();
-    const body = await req.json();
+    const payload = normalizeTravelPayload(await req.json());
+    const validationError = validateTravelPayload(payload);
+
+    if (validationError) {
+        return Response.json({ error: validationError }, { status: 400 });
+    }
 
     const { data, error } = await supabase
-        .from("travels")
-        .update(body)
+        .from("travels2")
+        .update(payload)
         .eq("id", id)
         .select()
         .single();

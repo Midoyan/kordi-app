@@ -1,19 +1,39 @@
 "use client";
 
+import {
+  flexRender,
+  getCoreRowModel,
+  getSortedRowModel,
+  type CellContext,
+  type ColumnDef,
+  type HeaderContext,
+  type RowSelectionState,
+  type SortingState,
+  type VisibilityState,
+  useReactTable,
+} from "@tanstack/react-table";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Car, Pencil, Plus, Trash2, Wrench } from "lucide-react";
+import { Car, PencilLine, Plus, Trash2, Wrench } from "lucide-react";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from "react";
 
 import { EditorSheetLayout } from "@/components/editor-sheet-layout";
+import {
+  WorkspaceColumnToggleMenu,
+  WorkspaceDataTable,
+} from "@/components/workspace-data-table";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { SheetFooter } from "@/components/ui/sheet";
+import { TableCell, TableRow } from "@/components/ui/table";
 import {
   createLocalVehicleRecord,
   createVehicle,
   deleteVehicle,
   fetchVehicles,
   getCachedVehiclesSnapshot,
+  hasFreshVehiclesCache,
+  primeVehiclesCache,
   sortVehicles,
   updateVehicle,
   vehicleTypes,
@@ -21,6 +41,7 @@ import {
   type VehicleRecord,
   type VehicleType,
 } from "@/lib/vehicles";
+import { cn } from "@/lib/utils";
 
 type VehicleAvailability = "Active" | "Inactive";
 type PersistenceMode = "checking" | "connected" | "local-only";
@@ -48,6 +69,13 @@ const initialForm: VehicleForm = {
   vehicleType: "Van",
   availability: "Active",
   notes: "",
+};
+
+const defaultColumnVisibility: VisibilityState = {
+  select: false,
+  status: false,
+  plateNumber: false,
+  seatCapacity: false,
 };
 
 const sampleVehicleForms: VehicleForm[] = [
@@ -171,109 +199,6 @@ function Panel({
   );
 }
 
-function EmptyFleetState({ onAddVehicle }: { onAddVehicle: () => void }) {
-  return (
-    <div className="overflow-hidden rounded-lg border border-[#e7e7e4]">
-      <div
-        className="grid min-h-10 items-center border-b border-[#ecece8] bg-[#f7f7f4] px-4 text-[11px] font-semibold tracking-[0.12em] text-[#777772] uppercase"
-        style={{ gridTemplateColumns: "minmax(0,1.2fr) repeat(4, minmax(0, 1fr))" }}
-      >
-        {["Vehicle", "Plate", "Type", "Capacity", "Status"].map((column) => (
-          <span key={column}>{column}</span>
-        ))}
-      </div>
-      <div className="flex min-h-28 flex-col items-center justify-center gap-2 px-4 py-6 text-center">
-        <p className="text-[14px] font-medium text-[#1d1d1b]">No vans added yet.</p>
-        <button
-          type="button"
-          onClick={onAddVehicle}
-          className="rounded-md border border-[#dbdbd6] px-3 py-1.5 text-[13px] text-[#43433f] transition-colors hover:bg-[#f3f3ef]"
-        >
-          Add first van
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function FleetTable({
-  vehicles,
-  deletingVehicleId,
-  onEditVehicle,
-  onDeleteVehicle,
-}: {
-  vehicles: VehicleRecord[];
-  deletingVehicleId: string | null;
-  onEditVehicle: (vehicle: VehicleRecord) => void;
-  onDeleteVehicle: (vehicle: VehicleRecord) => void;
-}) {
-  return (
-    <div className="overflow-hidden rounded-lg border border-[#e7e7e4]">
-      <div
-        className="grid min-h-10 items-center border-b border-[#ecece8] bg-[#f7f7f4] px-4 text-[11px] font-semibold tracking-[0.12em] text-[#777772] uppercase"
-        style={{ gridTemplateColumns: "minmax(0,1.2fr) repeat(4, minmax(0, 1fr)) 112px" }}
-      >
-        {["Vehicle", "Plate", "Type", "Capacity", "Status", ""].map((column, index) => (
-          <span key={`${column}-${index}`}>{column}</span>
-        ))}
-      </div>
-      <div className="divide-y divide-[#ecece8]">
-        {vehicles.map((vehicle) => {
-          const availability: VehicleAvailability = vehicle.isActive ? "Active" : "Inactive";
-
-          return (
-            <div
-              key={vehicle.id}
-              className="grid items-center gap-3 px-4 py-4 text-[13px] text-[#3d3d39]"
-              style={{ gridTemplateColumns: "minmax(0,1.2fr) repeat(4, minmax(0, 1fr)) 112px" }}
-            >
-              <div className="min-w-0">
-                <p className="truncate text-[14px] font-medium text-[#1d1d1b]">{vehicle.label}</p>
-                <p className="mt-1 truncate text-[12px] text-[#6b6b67]">
-                  {vehicle.notes || "No notes added"}
-                </p>
-              </div>
-              <span className="truncate">{vehicle.plateNumber || "No plate"}</span>
-              <span>{vehicle.vehicleType}</span>
-              <span>{vehicle.seatCapacity} seats</span>
-              <span>
-                <span
-                  className={`inline-flex rounded-full border px-2.5 py-1 text-[12px] font-medium ${availabilityTone(availability)}`}
-                >
-                  {availability}
-                </span>
-              </span>
-              <div className="flex items-center justify-end gap-1">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-8 text-[#5f5f59]"
-                  onClick={() => onEditVehicle(vehicle)}
-                  aria-label={`Edit ${vehicle.label}`}
-                >
-                  <Pencil className="size-4" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-8 text-[#8a3b34] hover:text-[#8a3b34]"
-                  onClick={() => onDeleteVehicle(vehicle)}
-                  disabled={deletingVehicleId === vehicle.id}
-                  aria-label={`Delete ${vehicle.label}`}
-                >
-                  <Trash2 className="size-4" />
-                </Button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 function MetricCard({
   icon: Icon,
   label,
@@ -297,6 +222,45 @@ function MetricCard({
   );
 }
 
+function ColumnHeader({
+  label,
+  canSort,
+  onClick,
+  className,
+}: {
+  label: string;
+  canSort: boolean;
+  onClick?: () => void;
+  className?: string;
+}) {
+  if (!canSort) {
+    return (
+      <div
+        className={cn(
+          "px-3 text-[11px] font-semibold tracking-[0.14em] text-[#777772] uppercase",
+          className,
+        )}
+      >
+        {label}
+      </div>
+    );
+  }
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className={cn(
+        "h-7 px-3 text-[11px] font-semibold tracking-[0.14em] text-[#777772] uppercase hover:bg-[#f3f3ef] hover:text-[#1d1d1b]",
+        className,
+      )}
+      onClick={onClick}
+    >
+      {label}
+    </Button>
+  );
+}
+
 function Field({
   label,
   children,
@@ -314,11 +278,11 @@ function Field({
   );
 }
 
-export function VehiclesPage() {
+export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRecord[] }) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [vehicles, setVehicles] = useState<VehicleRecord[]>([]);
+  const [vehicles, setVehicles] = useState<VehicleRecord[]>(initialVehicles ?? []);
   const [form, setForm] = useState<VehicleForm>(initialForm);
   const [fieldErrors, setFieldErrors] = useState<VehicleFieldError>({});
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
@@ -329,6 +293,9 @@ export function VehiclesPage() {
   const [deletingVehicleId, setDeletingVehicleId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [persistenceMode, setPersistenceMode] = useState<PersistenceMode>("checking");
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(defaultColumnVisibility);
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
 
   const isSheetOpen = searchParams.get("sheet") === "add-vehicle";
   const activeCount = vehicles.filter((vehicle) => vehicle.isActive).length;
@@ -398,22 +365,39 @@ export function VehiclesPage() {
   );
 
   useEffect(() => {
+    if (initialVehicles) {
+      primeVehiclesCache(initialVehicles);
+    }
+  }, [initialVehicles]);
+
+  useEffect(() => {
     const controller = new AbortController();
-    const cachedVehicles = getCachedVehiclesSnapshot();
+    const cachedVehicles = getCachedVehiclesSnapshot({ includeExpired: true });
+    const hasFreshCache = hasFreshVehiclesCache();
 
     if (cachedVehicles !== null) {
       setVehicles(cachedVehicles);
       setIsLoading(false);
+      setPersistenceMode("connected");
+    } else if (initialVehicles) {
+      setVehicles(initialVehicles);
+      setIsLoading(false);
+      setLoadError(null);
+      setPersistenceMode("connected");
+    }
+
+    if (hasFreshCache) {
+      return () => controller.abort();
     }
 
     void loadVehicles({
-      background: cachedVehicles !== null,
-      forceRefresh: cachedVehicles !== null,
+      background: cachedVehicles !== null || Boolean(initialVehicles),
+      forceRefresh: true,
       signal: controller.signal,
     });
 
     return () => controller.abort();
-  }, [loadVehicles]);
+  }, [initialVehicles, loadVehicles]);
 
   function openCreateSheet() {
     setSheetMode("create");
@@ -432,6 +416,203 @@ export function VehiclesPage() {
     setSubmitMessage(null);
     setSheetOpen(true);
   }
+
+  const columns: ColumnDef<VehicleRecord>[] = [
+    {
+      id: "select",
+      meta: { label: "Select" },
+      enableSorting: false,
+      cell: ({ row }: CellContext<VehicleRecord, unknown>) => (
+        <div className="flex items-center justify-center px-3">
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(checked) => row.toggleSelected(checked === true)}
+            aria-label={`Select ${row.original.label}`}
+          />
+        </div>
+      ),
+      header: ({ table }: HeaderContext<VehicleRecord, unknown>) => (
+        <div className="flex items-center justify-center px-3">
+          <Checkbox
+            checked={
+              table.getIsAllRowsSelected() || (table.getIsSomeRowsSelected() ? "indeterminate" : false)
+            }
+            onCheckedChange={(checked) => table.toggleAllRowsSelected(checked === true)}
+            aria-label="Select all vehicles"
+          />
+        </div>
+      ),
+    },
+    {
+      accessorKey: "label",
+      meta: { label: "Vehicle" },
+      header: ({ column }: HeaderContext<VehicleRecord, unknown>) => (
+        <ColumnHeader
+          label="Vehicle"
+          canSort={column.getCanSort()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }: CellContext<VehicleRecord, unknown>) => (
+        <div className="space-y-1 px-3">
+          <p className="text-[15px] font-semibold tracking-tight text-[#1d1d1b]">
+            {row.original.label}
+          </p>
+          <p className="text-[12px] text-[#7a7a74]">
+            Added {row.original.createdAt ? new Date(row.original.createdAt).toLocaleDateString() : "recently"}
+          </p>
+        </div>
+      ),
+    },
+    {
+      accessorKey: "vehicleType",
+      meta: { label: "Type" },
+      header: ({ column }: HeaderContext<VehicleRecord, unknown>) => (
+        <ColumnHeader
+          label="Type"
+          canSort={column.getCanSort()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }: CellContext<VehicleRecord, unknown>) => (
+        <div className="px-3">
+          <span className="text-[12px] text-[#000000]">
+            {row.original.vehicleType}
+          </span>
+        </div>
+      ),
+    },
+    {
+      accessorKey: "notes",
+      meta: { label: "Notes" },
+      enableSorting: false,
+      header: ({ column }: HeaderContext<VehicleRecord, unknown>) => (
+        <ColumnHeader
+          label="Notes"
+          canSort={column.getCanSort()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }: CellContext<VehicleRecord, unknown>) => (
+        <div className="px-3">
+          <p className="whitespace-normal text-[13px] leading-6 text-[#6b6b67]">
+            {row.original.notes || "No notes"}
+          </p>
+        </div>
+      ),
+    },
+    {
+      id: "plateNumber",
+      accessorFn: (row) => row.plateNumber,
+      meta: { label: "Plate" },
+      header: ({ column }: HeaderContext<VehicleRecord, unknown>) => (
+        <ColumnHeader
+          label="Plate"
+          canSort={column.getCanSort()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }: CellContext<VehicleRecord, unknown>) => (
+        <div className="px-3 text-[13px] text-[#43433f]">
+          {row.original.plateNumber || "No plate"}
+        </div>
+      ),
+    },
+    {
+      id: "seatCapacity",
+      accessorFn: (row) => row.seatCapacity,
+      meta: { label: "Capacity" },
+      header: ({ column }: HeaderContext<VehicleRecord, unknown>) => (
+        <ColumnHeader
+          label="Capacity"
+          canSort={column.getCanSort()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }: CellContext<VehicleRecord, unknown>) => (
+        <div className="px-3 text-[13px] text-[#43433f]">
+          {row.original.seatCapacity} seats
+        </div>
+      ),
+    },
+    {
+      id: "status",
+      accessorFn: (row) => (row.isActive ? "Active" : "Inactive"),
+      meta: { label: "Status" },
+      header: ({ column }: HeaderContext<VehicleRecord, unknown>) => (
+        <ColumnHeader
+          label="Status"
+          canSort={column.getCanSort()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }: CellContext<VehicleRecord, unknown>) => {
+        const availability: VehicleAvailability = row.original.isActive ? "Active" : "Inactive";
+
+        return (
+          <div className="px-3">
+            <span
+              className={`inline-flex rounded-full border px-2.5 py-1 text-[12px] font-medium ${availabilityTone(availability)}`}
+            >
+              {availability}
+            </span>
+          </div>
+        );
+      },
+    },
+    {
+      id: "actions",
+      enableSorting: false,
+      enableHiding: false,
+      header: () => <span className="sr-only">Actions</span>,
+      cell: ({ row }: CellContext<VehicleRecord, unknown>) => (
+        <div className="flex items-center justify-end gap-1 px-3">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 px-2 text-[#5d5d58] hover:bg-[#f3f3ef] hover:text-[#1d1d1b]"
+            onClick={() => openEditSheet(row.original)}
+          >
+            <PencilLine />
+            Edit
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 px-2 text-[#8a4d42] hover:bg-[#fff3f0] hover:text-[#6f2f24]"
+            onClick={() => {
+              void handleDeleteVehicle(row.original);
+            }}
+            disabled={deletingVehicleId === row.original.id}
+          >
+            <Trash2 />
+            {deletingVehicleId === row.original.id ? "Removing..." : "Remove"}
+          </Button>
+        </div>
+      ),
+    },
+  ];
+
+  const table = useReactTable({
+    data: vehicles,
+    columns,
+    state: {
+      rowSelection,
+      sorting,
+      columnVisibility,
+    },
+    getRowId: (row) => row.id,
+    enableRowSelection: true,
+    onRowSelectionChange: setRowSelection,
+    onSortingChange: setSorting,
+    onColumnVisibilityChange: setColumnVisibility,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
+
+  const visibleColumns = table.getAllColumns().filter((column) => column.getCanHide());
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -546,10 +727,10 @@ export function VehiclesPage() {
 
   return (
     <>
-      <div className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
+      <div className="grid">
         <Panel
           title="Vehicles"
-          description="Load and manage the vans table with real backend CRUD."
+          description="Load and manage the vans."
           action={
             <button
               type="button"
@@ -597,22 +778,87 @@ export function VehiclesPage() {
               <div className="flex min-h-32 items-center justify-center rounded-lg border border-[#e7e7e4] bg-[#fafaf7] text-[13px] text-[#6b6b67]">
                 Loading saved vans...
               </div>
-            ) : vehicles.length === 0 ? (
-              <EmptyFleetState onAddVehicle={openCreateSheet} />
             ) : (
-              <FleetTable
-                vehicles={vehicles}
-                deletingVehicleId={deletingVehicleId}
-                onEditVehicle={openEditSheet}
-                onDeleteVehicle={handleDeleteVehicle}
+              <WorkspaceDataTable
+                table={table}
+                dataIds={vehicles.map((vehicle) => vehicle.id)}
+                toolbar={
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <p className="text-[13px] leading-6 text-[#6b6b67]">
+                      {vehicles.length === 0
+                        ? "No vans saved yet."
+                        : `${vehicles.length} saved van${vehicles.length === 1 ? "" : "s"} ready for assignment.`}
+                    </p>
+                    <WorkspaceColumnToggleMenu columns={visibleColumns} />
+                  </div>
+                }
+                containerClassName="overflow-x-auto"
+                tableClassName="min-w-[920px] table-fixed"
+                headerClassName="bg-[#f7f7f4]"
+                headerRowClassName="border-[#ecece8] hover:bg-transparent"
+                getHeadClassName={(columnId) =>
+                  cn(
+                    "h-11 border-b border-[#ecece8] bg-[#f7f7f4] px-0 align-middle",
+                    columnId === "select" && "w-[56px]",
+                    columnId === "label" && "w-[24%]",
+                    columnId === "vehicleType" && "w-[14%]",
+                    columnId === "notes" && "w-[28%]",
+                    columnId === "plateNumber" && "w-[12%]",
+                    columnId === "seatCapacity" && "w-[12%]",
+                    columnId === "status" && "w-[12%]",
+                    columnId === "actions" && "w-[14%]",
+                  )
+                }
+                emptyState={
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell
+                      colSpan={table.getVisibleLeafColumns().length}
+                      className="py-14 text-center"
+                    >
+                      <div className="flex flex-col items-center gap-3">
+                        <div>
+                          <p className="text-[14px] font-medium text-[#1d1d1b]">
+                            No vans added yet.
+                          </p>
+                          <p className="mt-1 text-[13px] text-[#6b6b67]">
+                            Keep fleet records in one shared table and show only the columns you need.
+                          </p>
+                        </div>
+                        <Button type="button" variant="outline" onClick={openCreateSheet}>
+                          Add first van
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                }
+                renderRow={(row) => (
+                  <TableRow
+                    key={row.id}
+                    data-state={row.getIsSelected() ? "selected" : undefined}
+                    className="border-[#f0f0ec] hover:bg-[#fafaf7] data-[state=selected]:bg-[#f7f9ff]"
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell
+                        key={cell.id}
+                        className={cn(
+                          "px-0 py-4 align-top",
+                          cell.column.id === "select" && "py-4",
+                          cell.column.id === "actions" && "py-3",
+                        )}
+                      >
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                )}
               />
             )}
           </div>
         </Panel>
 
-        <Panel
+        {/* <Panel
           title="Fleet snapshot"
-          description="Seat count and availability are now derived from the vans backend."
+          description="Seat count and availability from the current vans list."
         >
           <div className="space-y-3">
             <MetricCard
@@ -643,22 +889,8 @@ export function VehiclesPage() {
                   : `${totalSeats} total seat${totalSeats === 1 ? "" : "s"} across the fleet.`
               }
             />
-            {latestVehicle ? (
-              <div className="rounded-lg border border-[#e7e7e4] px-4 py-3">
-                <p className="text-[12px] font-semibold tracking-[0.12em] text-[#777772] uppercase">
-                  Latest van
-                </p>
-                <p className="mt-2 text-[14px] font-medium text-[#1d1d1b]">{latestVehicle.label}</p>
-                <p className="mt-1 text-[13px] text-[#6b6b67]">
-                  {[latestVehicle.vehicleType, latestVehicle.plateNumber].filter(Boolean).join(" · ")}
-                </p>
-                <p className="mt-1 text-[13px] text-[#6b6b67]">
-                  {latestVehicle.seatCapacity} seats · {latestVehicle.isActive ? "active" : "inactive"}
-                </p>
-              </div>
-            ) : null}
           </div>
-        </Panel>
+        </Panel> */}
       </div>
 
       <EditorSheetLayout

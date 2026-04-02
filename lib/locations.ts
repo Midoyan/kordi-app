@@ -253,6 +253,10 @@ function storeLocationsCache(locations: LocationRecord[]) {
   return cache.locations;
 }
 
+export function primeLocationsCache(locations: LocationRecord[]) {
+  return storeLocationsCache(locations);
+}
+
 function updateLocationsCache(update: (currentLocations: LocationRecord[]) => LocationRecord[]) {
   const currentLocations = getCachedLocationsSnapshot({ includeExpired: true }) ?? [];
   return storeLocationsCache(update(currentLocations));
@@ -290,6 +294,11 @@ export function getCachedLocationsSnapshot(options?: { includeExpired?: boolean 
   return cache.locations;
 }
 
+export function hasFreshLocationsCache() {
+  const cache = readLocationsCache();
+  return cache ? isLocationCacheFresh(cache) : false;
+}
+
 export function normalizeLocationPayload(payload: unknown): LocationPayload {
   const source = payload && typeof payload === "object" ? payload : {};
   const record = source as Record<string, unknown>;
@@ -320,6 +329,7 @@ export function validateLocationPayload(payload: LocationPayload) {
 export async function fetchLocations(options: FetchLocationsOptions = {}) {
   const { forceRefresh = false, signal } = options;
   const cachedLocations = !forceRefresh ? getCachedLocationsSnapshot() : null;
+  const staleCachedLocations = getCachedLocationsSnapshot({ includeExpired: true });
 
   if (cachedLocations !== null) {
     return cachedLocations;
@@ -355,6 +365,10 @@ export async function fetchLocations(options: FetchLocationsOptions = {}) {
   } catch (error) {
     if (isAbortError(error)) {
       throw error;
+    }
+
+    if (staleCachedLocations !== null) {
+      return staleCachedLocations;
     }
 
     throw error;

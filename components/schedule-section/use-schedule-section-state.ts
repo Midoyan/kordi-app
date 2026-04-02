@@ -13,6 +13,7 @@ import { type RecalculatedScheduleStop } from "@/lib/schedule-recalculation"
 import {
   areOrdersEqual,
   buildDriveFromStopRows,
+  buildNewStopRow,
   buildInitialStopRows,
   buildRouteTone,
   getStopPickupPassengerNames,
@@ -27,6 +28,7 @@ import type {
   PendingDriveStopUpdate,
   PositionChange,
   RouteTone,
+  ScheduleStopDraftMode,
   ScheduleSectionProps,
 } from "@/components/schedule-section/types"
 import { defaultColumnVisibility } from "@/components/schedule-section/types"
@@ -63,6 +65,7 @@ export function useScheduleSectionState({
   const [activeId, setActiveId] = React.useState<string | null>(null)
   const [sheetOpen, setSheetOpen] = React.useState(false)
   const [draft, setDraft] = React.useState<DriveStopRow | null>(null)
+  const [draftMode, setDraftMode] = React.useState<ScheduleStopDraftMode>("edit")
   const [routeError, setRouteError] = React.useState<string | null>(null)
   const [databaseError, setDatabaseError] = React.useState<string | null>(null)
   const [showOptimizedGradient, setShowOptimizedGradient] = React.useState(false)
@@ -89,6 +92,7 @@ export function useScheduleSectionState({
     setActiveId(null)
     setSheetOpen(false)
     setDraft(null)
+    setDraftMode("edit")
     setRouteError(null)
     setDatabaseError(null)
     setShowOptimizedGradient(false)
@@ -135,12 +139,16 @@ export function useScheduleSectionState({
   }, [activeId, data, getVisibleItem])
 
   React.useEffect(() => {
+    if (draftMode === "create") {
+      return
+    }
+
     if (activeItem) {
       setDraft(activeItem)
     } else if (!sheetOpen) {
       setDraft(null)
     }
-  }, [activeItem, sheetOpen])
+  }, [activeItem, draftMode, sheetOpen])
 
   React.useEffect(() => {
     if (!sheetOpen || !activeItem) {
@@ -149,10 +157,11 @@ export function useScheduleSectionState({
     }
 
     setTimingAdjustmentsOpen(hasAdvancedTimingValue(activeItem))
-  }, [activeId, activeItem, sheetOpen])
+  }, [activeId, activeItem, draftMode, sheetOpen])
 
   const openEditor = React.useCallback(
     (item: DriveStopRow) => {
+      setDraftMode("edit")
       setActiveId(item.id)
       setDraft(getVisibleItem(item))
       setSheetOpen(true)
@@ -166,8 +175,17 @@ export function useScheduleSectionState({
 
     if (!open) {
       setActiveId(null)
+      setDraftMode("edit")
     }
   }, [])
+
+  const openCreateStopEditor = React.useCallback(() => {
+    setDraftMode("create")
+    setActiveId(null)
+    setDraft(buildNewStopRow(drive, data.length))
+    setSheetOpen(true)
+    setDatabaseError(null)
+  }, [data.length, drive])
 
   const dataIds = React.useMemo<UniqueIdentifier[]>(
     () => displayData.map(({ id }) => id),
@@ -579,16 +597,12 @@ export function useScheduleSectionState({
         return
       }
 
-      const currentItem = data.find((item) => item.id === draft.id)
-
-      if (!currentItem) {
-        return
-      }
-
       const normalizedPassengerIds = Array.from(new Set(draft.stopPickupPassengerIds))
-      const nextDestination = draft.endDestination.trim()
-      const nextArrival = draft.arrival.trim()
-      const pickupTimeSource = toDatabaseTimeValue(draft.pickupTime, currentItem.pickupTimeSource)
+      const currentItem = data.find((item) => item.id === draft.id)
+      const pickupTimeSource = toDatabaseTimeValue(
+        draft.pickupTime,
+        currentItem?.pickupTimeSource ?? null
+      )
       const persistedStopDurationSec = normalizePersistedTimingSeconds(draft.stopDurationSec)
       const persistedTrafficBufferSec = normalizePersistedTimingSeconds(draft.trafficBufferSec)
 
@@ -596,8 +610,53 @@ export function useScheduleSectionState({
       setIsSavingStop(true)
 
       try {
-        const [stopResponse, travelResponse] = await Promise.all([
-          fetch(`/api/trips/${draft.id}`, {
+        let nextData = data
+
+        if (draftMode === "create") {
+          const stopResponse = await fetch("/api/trips", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              travel_id: drive.id,
+              pickup_address: draft.pickupAddress.trim(),
+              pickup_time: pickupTimeSource,
+              trip_title: draft.stopTitle.trim() || `Stop ${data.length + 1}`,
+              stop_duration_sec: persistedStopDurationSec,
+              traffic_buffer_sec: persistedTrafficBufferSec,
+              notes: draft.notes.trim() || null,
+            }),
+          })
+
+          const createdStop = await parseMutationResponse<{ id: string }>(
+            stopResponse,
+            "Unable to create this stop."
+          )
+
+          await syncStopPickupPassengers(createdStop.id, [], normalizedPassengerIds)
+
+          nextData = [
+            ...data,
+            {
+              ...draft,
+              id: createdStop.id,
+              stopPickupPassengerIds: normalizedPassengerIds,
+              pickupAddress: draft.pickupAddress.trim(),
+              pickupTime: draft.pickupTime.trim(),
+              pickupTimeSource,
+              stopTitle: draft.stopTitle.trim() || `Stop ${data.length + 1}`,
+              stopDurationSec: persistedStopDurationSec,
+              trafficBufferSec: persistedTrafficBufferSec,
+              notes: draft.notes.trim(),
+            },
+          ]
+        } else {
+          if (!currentItem) {
+            return
+          }
+
+          const stopResponse = await fetch(`/api/trips/${draft.id}`, {
             method: "PATCH",
             headers: {
               "Content-Type": "application/json",
@@ -610,61 +669,35 @@ export function useScheduleSectionState({
               traffic_buffer_sec: persistedTrafficBufferSec,
               notes: draft.notes.trim() || null,
             }),
-          }),
-          nextDestination !== currentItem.endDestination
-            ? fetch(`/api/travels/${drive.id}`, {
-                method: "PATCH",
-                headers: {
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  destination_address: nextDestination,
-                }),
-              })
-            : Promise.resolve(null),
-        ])
+          })
 
-        await parseMutationResponse(stopResponse, "Unable to save this stop.")
+          await parseMutationResponse(stopResponse, "Unable to save this stop.")
 
-        if (travelResponse) {
-          await parseMutationResponse(
-            travelResponse,
-            "Unable to update the drive destination."
+          await syncStopPickupPassengers(
+            draft.id,
+            currentItem.stopPickupPassengerIds,
+            normalizedPassengerIds
           )
-        }
 
-        await syncStopPickupPassengers(
-          draft.id,
-          currentItem.stopPickupPassengerIds,
-          normalizedPassengerIds
-        )
+          nextData = data.map((item) => {
+            if (item.id !== draft.id) {
+              return item
+            }
 
-        const nextData = data.map((item) => {
-          const sharedFields = {
-            endDestination: nextDestination,
-            arrival: nextArrival,
-          }
-
-          if (item.id !== draft.id) {
             return {
               ...item,
-              ...sharedFields,
+              stopPickupPassengerIds: normalizedPassengerIds,
+              pickupAddress: draft.pickupAddress.trim(),
+              pickupTime: draft.pickupTime.trim(),
+              pickupTimeSource,
+              stopTitle: draft.stopTitle.trim() || item.stopTitle,
+              stopDurationSec: persistedStopDurationSec,
+              trafficBufferSec: persistedTrafficBufferSec,
+              notes: draft.notes.trim(),
             }
-          }
+          })
+        }
 
-          return {
-            ...item,
-            ...sharedFields,
-            stopPickupPassengerIds: normalizedPassengerIds,
-            pickupAddress: draft.pickupAddress.trim(),
-            pickupTime: draft.pickupTime.trim(),
-            pickupTimeSource,
-            stopTitle: draft.stopTitle.trim() || item.stopTitle,
-            stopDurationSec: persistedStopDurationSec,
-            trafficBufferSec: persistedTrafficBufferSec,
-            notes: draft.notes.trim(),
-          }
-        })
         const nextDrive = buildDriveFromStopRows(drive, nextData, passengerLookup)
 
         setData(nextData)
@@ -675,6 +708,7 @@ export function useScheduleSectionState({
         })
         setSheetOpen(false)
         setActiveId(null)
+        setDraftMode("edit")
         onDriveUpdated?.(nextDrive)
       } catch (error) {
         setDatabaseError(error instanceof Error ? error.message : "Unable to save this stop.")
@@ -682,7 +716,7 @@ export function useScheduleSectionState({
         setIsSavingStop(false)
       }
     },
-    [data, draft, drive, onDriveUpdated, passengerLookup, syncStopPickupPassengers]
+    [data, draft, draftMode, onDriveUpdated, passengerLookup, syncStopPickupPassengers, drive]
   )
 
   return {
@@ -705,6 +739,7 @@ export function useScheduleSectionState({
     isSavingStop,
     isStopDurationColumnVisible,
     isTrafficBufferColumnVisible,
+    openCreateStopEditor,
     onConfirmChanges: confirmPendingChanges,
     lastSelectedRowIdRef,
     openEditor,
@@ -728,5 +763,6 @@ export function useScheduleSectionState({
     stopCount,
     timingAdjustmentsOpen,
     updateStopRow,
+    draftMode,
   }
 }

@@ -91,7 +91,7 @@ async function deleteTravelsByIds(supabase: SupabaseClient, travelIds: string[])
   await deleteTripsByIds(supabase, tripIds);
 
   const { error } = await supabase
-    .from("travels")
+    .from("travels2")
     .delete()
     .in("id", travelIds);
 
@@ -106,7 +106,7 @@ async function deleteTravelsByIds(supabase: SupabaseClient, travelIds: string[])
 
 async function getTravelIdsForVanId(supabase: SupabaseClient, vanId: string) {
   const { data, error } = await supabase
-    .from("travels")
+    .from("travels2")
     .select("id")
     .eq("van_id", vanId);
 
