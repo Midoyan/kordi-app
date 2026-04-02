@@ -377,7 +377,7 @@ export function AnimatedScheduleTime({
         {confirmedValue || "--:--"}
       </span>
       <span
-        className="schedule-time-reveal inline-flex min-w-[3rem] rounded-md bg-[#ecf3ff] px-.5 py-0.5 text-[12.5px] font-semibold text-[#335f9f] shadow-[inset_0_0_0_1px_rgba(79,107,189,0.12)]"
+        className="schedule-time-reveal inline-flex min-w-[3rem] rounded-md bg-[#ecf3ff] px-0.5 py-0.5 text-[12.5px] font-semibold text-[#335f9f] shadow-[inset_0_0_0_1px_rgba(79,107,189,0.12)]"
         style={{ animationDelay: `${(revealOrder ?? 0) * 120}ms` }}
       >
         {pendingValue}
