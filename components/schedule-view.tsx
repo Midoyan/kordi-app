@@ -188,7 +188,7 @@ export function ScheduleView({ initialTransportPlan }: { initialTransportPlan?: 
               No drives yet
             </p>
             <h3 className="mt-3 text-[22px] font-semibold tracking-tight text-[#1d1d1b] text-balance">
-              Start with the drive, then add stops inside it.
+              Create a drive, then add stops inside it.
             </h3>
             <div className="mt-5">
               <Button

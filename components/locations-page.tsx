@@ -798,7 +798,12 @@ export function LocationsPage({ initialLocations }: { initialLocations?: Locatio
       <EditorSheetLayout
         open={isSheetOpen}
         onOpenChange={(open, eventDetails) =>
-          setSheetOpen(open, !open && eventDetails?.reason === "close-press")
+          setSheetOpen(
+            open,
+            !open &&
+              (eventDetails?.reason === "close-press" ||
+                eventDetails?.reason === "escape-key"),
+          )
         }
         title={sheetMode === "edit" ? "Edit location" : "Add location"}
         description={
