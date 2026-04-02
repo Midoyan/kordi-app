@@ -1,15 +1,12 @@
 import { createClient } from "@/lib/server";
+import { deleteVanCascade } from "@/lib/transport-cascade";
+import {
+    normalizeVehiclePayload,
+    validateVehiclePayload,
+} from "@/lib/vehicles";
 
 type RouteContext = {
     params: Promise<{ id: string }>;
-};
-
-type TravelIdRecord = {
-    id: string;
-};
-
-type TripIdRecord = {
-    id: string;
 };
 
 export async function GET(_: Request, context: RouteContext) {
@@ -18,7 +15,7 @@ export async function GET(_: Request, context: RouteContext) {
 
     const { data, error } = await supabase
         .from("vans")
-        .select("*")
+        .select("id, label, plate_number, seat_capacity, vehicle_type, notes, is_active, created_at")
         .eq("id", id)
         .single();
 
@@ -32,13 +29,18 @@ export async function GET(_: Request, context: RouteContext) {
 export async function PATCH(req: Request, context: RouteContext) {
     const { id } = await context.params;
     const supabase = await createClient();
-    const body = await req.json();
+    const payload = normalizeVehiclePayload(await req.json());
+    const validationError = validateVehiclePayload(payload);
+
+    if (validationError) {
+        return Response.json({ error: validationError }, { status: 400 });
+    }
 
     const { data, error } = await supabase
         .from("vans")
-        .update(body)
+        .update(payload)
         .eq("id", id)
-        .select()
+        .select("id, label, plate_number, seat_capacity, vehicle_type, notes, is_active, created_at")
         .single();
 
     if (error) {
@@ -50,79 +52,14 @@ export async function PATCH(req: Request, context: RouteContext) {
 
 export async function DELETE(_: Request, context: RouteContext) {
     const { id } = await context.params;
-    const supabase = await createClient();
-
-    const { data: travelRows, error: travelLookupError } = await supabase
-        .from("travels")
-        .select("id")
-        .eq("van_id", id);
-
-    if (travelLookupError) {
-        return Response.json({ error: travelLookupError.message }, { status: 500 });
+    
+    try {
+        const result = await deleteVanCascade(id);
+        return Response.json(result, { status: 200 });
+    } catch (error) {
+        return Response.json(
+            { error: error instanceof Error ? error.message : "Unexpected server error" },
+            { status: 500 }
+        );
     }
-
-    const travelIds = (travelRows ?? [])
-        .map((row) => (row as TravelIdRecord).id)
-        .filter((travelId): travelId is string => typeof travelId === "string" && travelId.length > 0);
-
-    if (travelIds.length > 0) {
-        const { data: tripRows, error: tripLookupError } = await supabase
-            .from("trips")
-            .select("id")
-            .in("travel_id", travelIds);
-
-        if (tripLookupError) {
-            return Response.json({ error: tripLookupError.message }, { status: 500 });
-        }
-
-        const tripIds = (tripRows ?? [])
-            .map((row) => (row as TripIdRecord).id)
-            .filter((tripId): tripId is string => typeof tripId === "string" && tripId.length > 0);
-
-        if (tripIds.length > 0) {
-            const { error: deleteTripPassengersError } = await supabase
-                .from("trip_passengers")
-                .delete()
-                .in("trip_id", tripIds);
-
-            if (deleteTripPassengersError) {
-                return Response.json({ error: deleteTripPassengersError.message }, { status: 500 });
-            }
-
-            const { error: deleteTripsError } = await supabase
-                .from("trips")
-                .delete()
-                .in("id", tripIds);
-
-            if (deleteTripsError) {
-                return Response.json({ error: deleteTripsError.message }, { status: 500 });
-            }
-        }
-
-        const { error: deleteTravelsError } = await supabase
-            .from("travels")
-            .delete()
-            .in("id", travelIds);
-
-        if (deleteTravelsError) {
-            return Response.json({ error: deleteTravelsError.message }, { status: 500 });
-        }
-    }
-
-    const { error } = await supabase
-        .from("vans")
-        .delete()
-        .eq("id", id);
-
-    if (error) {
-        return Response.json({ error: error.message }, { status: 500 });
-    }
-
-    return Response.json(
-        {
-            success: true,
-            deletedTravelCount: travelIds.length,
-        },
-        { status: 200 }
-    );
 }

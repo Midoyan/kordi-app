@@ -1,190 +1,20 @@
 "use client"
 
 import * as React from "react"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   PencilLine,
   Plus,
 } from "lucide-react"
 
-import type { Drive, TransportPlan } from "@/lib/drive-plan"
-import { parseTimeString } from "@/lib/schedule-recalculation"
-import { DriveEditorSheet, type DriveEditorDraft } from "@/components/drive-editor-sheet"
+import { DriveEditorSheet } from "@/components/drive-editor-sheet"
 import { ScheduleSection } from "@/components/schedule-section"
+import {
+  getDriveCardKey,
+  useDriveEditorState,
+} from "@/components/schedule-view/use-drive-editor"
+import { useTransportPlanState } from "@/components/schedule-view/use-transport-plan"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-
-const TRANSPORT_PLAN_CACHE_TTL_MS = 5 * 60 * 1000
-
-let cachedTransportPlan: TransportPlan | null = null
-let cachedTransportPlanAt = 0
-let transportPlanPromise: Promise<TransportPlan> | null = null
-
-type DriveEditorMode = "create" | "edit" | null
-
-function getCachedTransportPlan() {
-  if (!cachedTransportPlan) {
-    return null
-  }
-
-  if (Date.now() - cachedTransportPlanAt > TRANSPORT_PLAN_CACHE_TTL_MS) {
-    cachedTransportPlan = null
-    cachedTransportPlanAt = 0
-    return null
-  }
-
-  return cachedTransportPlan
-}
-
-function setCachedTransportPlan(transportPlan: TransportPlan) {
-  cachedTransportPlan = transportPlan
-  cachedTransportPlanAt = Date.now()
-}
-
-function replaceDriveInTransportPlan(transportPlan: TransportPlan, nextDrive: Drive) {
-  return {
-    ...transportPlan,
-    drives: transportPlan.drives.map((drive) =>
-      drive.id === nextDrive.id ? nextDrive : drive
-    ),
-  }
-}
-
-function patchCachedTransportPlan(nextDrive: Drive) {
-  const currentTransportPlan = getCachedTransportPlan()
-
-  if (!currentTransportPlan) {
-    return
-  }
-
-  setCachedTransportPlan(replaceDriveInTransportPlan(currentTransportPlan, nextDrive))
-}
-
-async function loadTransportPlan(forceRefresh = false) {
-  if (!forceRefresh) {
-    const cached = getCachedTransportPlan()
-
-    if (cached) {
-      return cached
-    }
-
-    if (transportPlanPromise) {
-      return transportPlanPromise
-    }
-  }
-
-  transportPlanPromise = fetch("/api/transport-plan")
-    .then(async (response) => {
-      const payload = (await response.json().catch(() => null)) as
-        | (Partial<TransportPlan> & { error?: string })
-        | null
-
-      if (!response.ok || !payload?.drives || !payload.stopPickupPassengerOptions) {
-        throw new Error(payload?.error ?? "Unable to load drives.")
-      }
-
-      const nextTransportPlan: TransportPlan = {
-        drives: payload.drives,
-        stopPickupPassengerOptions: payload.stopPickupPassengerOptions,
-      }
-
-      setCachedTransportPlan(nextTransportPlan)
-      return nextTransportPlan
-    })
-    .finally(() => {
-      transportPlanPromise = null
-    })
-
-  return transportPlanPromise
-}
-
-function buildDriveDraft(drive?: Drive): DriveEditorDraft {
-  return {
-    startLocation: drive?.startLocation ?? "",
-    startTime: drive?.startTimeLabel ?? "",
-    destinationAddress: drive?.destinationAddress ?? "",
-    notes: drive?.notes ?? "",
-  }
-}
-
-function formatDatabaseTimeValue(value: string) {
-  const parsed = parseTimeString(value.trim())
-
-  if (!parsed) {
-    return null
-  }
-
-  const hours = parsed.hours.toString().padStart(2, "0")
-  const minutes = parsed.minutes.toString().padStart(2, "0")
-  return `${hours}:${minutes}:00`
-}
-
-function buildDriveSheetHref(pathname: string, searchParams: URLSearchParams, open: boolean) {
-  const params = new URLSearchParams(searchParams.toString())
-
-  if (open) {
-    params.set("sheet", "add-drive")
-  } else if (params.get("sheet") === "add-drive") {
-    params.delete("sheet")
-  }
-
-  const query = params.toString()
-  return query ? `${pathname}?${query}` : pathname
-}
-
-async function parseDriveMutationResponse<T>(
-  response: Response,
-  fallbackMessage: string
-) {
-  const payload = (await response.json().catch(() => null)) as
-    | {
-      error?: string
-    }
-    | T
-    | null
-
-  if (!response.ok) {
-    throw new Error(
-      payload && typeof payload === "object" && "error" in payload
-        ? payload.error || fallbackMessage
-        : fallbackMessage
-    )
-  }
-
-  return payload as T
-}
-
-function getDriveCardKey(drive: Drive) {
-  return [
-    drive.id,
-    drive.label,
-    drive.startLocation,
-    drive.startTime ?? "",
-    drive.destinationAddress,
-  ].join("::")
-}
-
-function getPrimaryAddressLine(value: string) {
-  return value.split(",")[0]?.trim() || value || "Not set"
-}
-
-function getDriveLabelPreview(
-  drive: Drive | null,
-  draft: DriveEditorDraft | null,
-  driveCount: number
-) {
-  if (drive) {
-    return drive.label
-  }
-
-  const primaryDestination = getPrimaryAddressLine(draft?.destinationAddress?.trim() || "")
-
-  if (primaryDestination && primaryDestination !== "Not set") {
-    return `Drive to ${primaryDestination}`
-  }
-
-  return `Drive ${driveCount + 1}`
-}
 
 function SchedulePanel({
   title,
@@ -253,230 +83,34 @@ function ScheduleSkeletonPanel() {
 }
 
 export function ScheduleView() {
-  const pathname = usePathname()
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const driveSheetParam = searchParams.get("sheet")
-
-  const [transportPlan, setTransportPlan] = React.useState<TransportPlan | null>(() =>
-    getCachedTransportPlan()
-  )
-  const [isLoading, setIsLoading] = React.useState(() => !getCachedTransportPlan())
-  const [error, setError] = React.useState<string | null>(null)
-  const [retryToken, setRetryToken] = React.useState(0)
-  const [driveEditorMode, setDriveEditorMode] = React.useState<DriveEditorMode>(null)
-  const [editingDriveId, setEditingDriveId] = React.useState<string | null>(null)
-  const [driveDraft, setDriveDraft] = React.useState<DriveEditorDraft | null>(null)
-  const [driveError, setDriveError] = React.useState<string | null>(null)
-  const [isSavingDrive, setIsSavingDrive] = React.useState(false)
-  const [deletingDriveId, setDeletingDriveId] = React.useState<string | null>(null)
-
-  const activeDrive = React.useMemo(
-    () => transportPlan?.drives.find((drive) => drive.id === editingDriveId) ?? null,
-    [editingDriveId, transportPlan]
-  )
-
-  const handleDriveUpdated = React.useCallback((nextDrive: Drive) => {
-    patchCachedTransportPlan(nextDrive)
-
-    React.startTransition(() => {
-      setTransportPlan((currentTransportPlan) =>
-        currentTransportPlan
-          ? replaceDriveInTransportPlan(currentTransportPlan, nextDrive)
-          : currentTransportPlan
-      )
-    })
-  }, [])
-
-  const refreshTransportPlan = React.useCallback(async () => {
-    const nextTransportPlan = await loadTransportPlan(true)
-
-    React.startTransition(() => {
-      setTransportPlan(nextTransportPlan)
-      setError(null)
-      setIsLoading(false)
-    })
-
-    return nextTransportPlan
-  }, [])
-
-  const closeDriveEditor = React.useCallback(() => {
-    setDriveEditorMode(null)
-    setEditingDriveId(null)
-    setDriveDraft(null)
-    setDriveError(null)
-
-    if (driveSheetParam === "add-drive") {
-      router.replace(
-        buildDriveSheetHref(pathname, new URLSearchParams(searchParams.toString()), false),
-        { scroll: false }
-      )
-    }
-  }, [driveSheetParam, pathname, router, searchParams])
-
-  const openCreateDrive = React.useCallback(
-    (syncUrl = false) => {
-      setDriveEditorMode("create")
-      setEditingDriveId(null)
-      setDriveDraft(buildDriveDraft())
-      setDriveError(null)
-
-      if (syncUrl) {
-        router.replace(
-          buildDriveSheetHref(pathname, new URLSearchParams(searchParams.toString()), true),
-          { scroll: false }
-        )
-      }
-    },
-    [pathname, router, searchParams]
-  )
-
-  const openEditDrive = React.useCallback((drive: Drive) => {
-    setDriveEditorMode("edit")
-    setEditingDriveId(drive.id)
-    setDriveDraft(buildDriveDraft(drive))
-    setDriveError(null)
-  }, [])
-
-  const handleDriveSave = React.useCallback(async () => {
-    if (!driveDraft || !driveEditorMode) {
-      return
-    }
-
-    const trimmedStartTime = driveDraft.startTime.trim()
-
-    if (trimmedStartTime && !parseTimeString(trimmedStartTime)) {
-      setDriveError('Start time must use 24-hour "HH:mm" format.')
-      return
-    }
-
-    const payload = {
-      start_location: driveDraft.startLocation.trim() || null,
-      start_time: trimmedStartTime ? formatDatabaseTimeValue(trimmedStartTime) : null,
-      destination_address: driveDraft.destinationAddress.trim() || null,
-      notes: driveDraft.notes.trim() || null,
-    }
-
-    setDriveError(null)
-    setIsSavingDrive(true)
-
-    try {
-      if (driveEditorMode === "create") {
-        const response = await fetch("/api/travels", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(payload),
-        })
-
-        await parseDriveMutationResponse(response, "Unable to create a new drive.")
-      } else if (editingDriveId) {
-        const response = await fetch(`/api/travels/${editingDriveId}`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(payload),
-        })
-
-        await parseDriveMutationResponse(response, "Unable to update this drive.")
-      }
-
-      await refreshTransportPlan()
-      closeDriveEditor()
-    } catch (nextError) {
-      setDriveError(nextError instanceof Error ? nextError.message : "Unable to save this drive.")
-    } finally {
-      setIsSavingDrive(false)
-    }
-  }, [closeDriveEditor, driveDraft, driveEditorMode, editingDriveId, refreshTransportPlan])
-
-  const handleDriveDelete = React.useCallback(
-    async (drive: Drive) => {
-      const confirmed = window.confirm(
-        `Delete ${drive.label}? This also deletes every pickup stop in the drive.`
-      )
-
-      if (!confirmed) {
-        return
-      }
-
-      setDriveError(null)
-      setDeletingDriveId(drive.id)
-
-      try {
-        const response = await fetch(`/api/travels/${drive.id}`, {
-          method: "DELETE",
-        })
-
-        await parseDriveMutationResponse(response, "Unable to delete this drive.")
-        await refreshTransportPlan()
-
-        if (editingDriveId === drive.id) {
-          closeDriveEditor()
-        }
-      } catch (nextError) {
-        setDriveError(
-          nextError instanceof Error ? nextError.message : "Unable to delete this drive."
-        )
-      } finally {
-        setDeletingDriveId(null)
-      }
-    },
-    [closeDriveEditor, editingDriveId, refreshTransportPlan]
-  )
-
-  React.useEffect(() => {
-    const cached = getCachedTransportPlan()
-
-    if (cached) {
-      React.startTransition(() => {
-        setTransportPlan(cached)
-        setError(null)
-        setIsLoading(false)
-      })
-      return
-    }
-
-    let cancelled = false
-
-    setIsLoading(true)
-    setError(null)
-
-    void loadTransportPlan(retryToken > 0)
-      .then((nextTransportPlan) => {
-        if (cancelled) {
-          return
-        }
-
-        React.startTransition(() => {
-          setTransportPlan(nextTransportPlan)
-          setError(null)
-          setIsLoading(false)
-        })
-      })
-      .catch((nextError) => {
-        if (cancelled) {
-          return
-        }
-
-        React.startTransition(() => {
-          setError(nextError instanceof Error ? nextError.message : "Unable to load drives.")
-          setIsLoading(false)
-        })
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [retryToken])
-
-  React.useEffect(() => {
-    if (driveSheetParam === "add-drive") {
-      openCreateDrive(false)
-    }
-  }, [driveSheetParam, openCreateDrive])
+  const {
+    transportPlan,
+    isLoading,
+    error,
+    retryLoad,
+    refreshTransportPlan,
+    handleDriveUpdated,
+  } = useTransportPlanState()
+  const drives = transportPlan?.drives ?? []
+  const stopPickupPassengerOptions = transportPlan?.stopPickupPassengerOptions ?? []
+  const {
+    activeDrive,
+    driveDraft,
+    driveEditorMode,
+    driveError,
+    deletingDriveId,
+    isSavingDrive,
+    labelPreview,
+    openCreateDrive,
+    openEditDrive,
+    closeDriveEditor,
+    handleDriveSave,
+    handleDriveDelete,
+    setDriveDraft,
+  } = useDriveEditorState({
+    drives,
+    refreshTransportPlan,
+  })
 
   if (isLoading && !transportPlan) {
     return (
@@ -497,7 +131,7 @@ export function ScheduleView() {
                 type="button"
                 variant="outline"
                 className="border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef]"
-                onClick={() => setRetryToken((current) => current + 1)}
+                onClick={retryLoad}
               >
                 Retry
               </Button>
@@ -508,9 +142,8 @@ export function ScheduleView() {
     )
   }
 
-  const driveCount = transportPlan?.drives.length ?? 0
-  const totalStopCount = transportPlan?.drives.reduce((count, drive) => count + drive.stops.length, 0) ?? 0
-  const labelPreview = getDriveLabelPreview(activeDrive, driveDraft, driveCount)
+  const driveCount = drives.length
+  const totalStopCount = drives.reduce((count, drive) => count + drive.stops.length, 0)
 
   return (
     <>
@@ -568,7 +201,7 @@ export function ScheduleView() {
           </div>
         ) : (
           <div className="mt-4 grid gap-5">
-            {transportPlan?.drives.map((drive) => {
+            {drives.map((drive) => {
               const driverSummary = drive.driver?.name || "No driver assigned"
               const vanSummary =
                 drive.van?.label?.trim() ||
@@ -602,7 +235,7 @@ export function ScheduleView() {
                   </div>
                   <ScheduleSection
                     drive={drive}
-                    stopPickupPassengerOptions={transportPlan.stopPickupPassengerOptions}
+                    stopPickupPassengerOptions={stopPickupPassengerOptions}
                     onDriveUpdated={handleDriveUpdated}
                     showDriveSummary={false}
                     renderHeaderLeading={({ finalArrivalTime }) => (
@@ -663,7 +296,7 @@ export function ScheduleView() {
         vanLabel={activeDrive?.van?.label ?? activeDrive?.van?.plate_number ?? null}
         errorMessage={driveError}
         isSaving={isSavingDrive}
-        isDeleting={editingDriveId !== null && deletingDriveId === editingDriveId}
+        isDeleting={activeDrive !== null && deletingDriveId === activeDrive.id}
         onClose={closeDriveEditor}
         onDelete={
           activeDrive

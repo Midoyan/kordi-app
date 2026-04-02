@@ -1,0 +1,732 @@
+"use client"
+
+import * as React from "react"
+import { type DragEndEvent, type UniqueIdentifier } from "@dnd-kit/core"
+import { arrayMove } from "@dnd-kit/sortable"
+import type {
+  RowSelectionState,
+  SortingState,
+  VisibilityState,
+} from "@tanstack/react-table"
+
+import { type RecalculatedScheduleStop } from "@/lib/schedule-recalculation"
+import {
+  areOrdersEqual,
+  buildDriveFromStopRows,
+  buildInitialStopRows,
+  buildRouteTone,
+  getStopPickupPassengerNames,
+  hasAdvancedTimingValue,
+  normalizePersistedTimingSeconds,
+  orderDriveStops,
+  parseMutationResponse,
+  toDatabaseTimeValue,
+} from "@/components/schedule-section/helpers"
+import type {
+  DriveStopRow,
+  PendingDriveStopUpdate,
+  PositionChange,
+  RouteTone,
+  ScheduleSectionProps,
+} from "@/components/schedule-section/types"
+import { defaultColumnVisibility } from "@/components/schedule-section/types"
+
+type UseScheduleSectionStateOptions = Pick<
+  ScheduleSectionProps,
+  "drive" | "stopPickupPassengerOptions" | "onDriveUpdated"
+>
+
+export function useScheduleSectionState({
+  drive,
+  stopPickupPassengerOptions,
+  onDriveUpdated,
+}: UseScheduleSectionStateOptions) {
+  const initialData = React.useMemo(() => buildInitialStopRows(drive), [drive])
+  const passengerLookup = React.useMemo(
+    () => new Map(stopPickupPassengerOptions.map((person) => [person.id, person])),
+    [stopPickupPassengerOptions]
+  )
+  const currentDriveIdRef = React.useRef(drive.id)
+  const lastSelectedRowIdRef = React.useRef<string | null>(null)
+  const animationTokenRef = React.useRef(0)
+
+  const [data, setData] = React.useState(initialData)
+  const [pendingUpdates, setPendingUpdates] = React.useState<
+    Record<string, PendingDriveStopUpdate>
+  >({})
+  const [pendingOrder, setPendingOrder] = React.useState<string[] | null>(null)
+  const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
+  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(
+    defaultColumnVisibility
+  )
+  const [sorting, setSorting] = React.useState<SortingState>([])
+  const [activeId, setActiveId] = React.useState<string | null>(null)
+  const [sheetOpen, setSheetOpen] = React.useState(false)
+  const [draft, setDraft] = React.useState<DriveStopRow | null>(null)
+  const [routeError, setRouteError] = React.useState<string | null>(null)
+  const [databaseError, setDatabaseError] = React.useState<string | null>(null)
+  const [showOptimizedGradient, setShowOptimizedGradient] = React.useState(false)
+  const [isSavingStop, setIsSavingStop] = React.useState(false)
+  const [deletingStopId, setDeletingStopId] = React.useState<string | null>(null)
+  const [isDeletingSelectedStops, setIsDeletingSelectedStops] = React.useState(false)
+  const [isConfirmingChanges, setIsConfirmingChanges] = React.useState(false)
+  const [timingAdjustmentsOpen, setTimingAdjustmentsOpen] = React.useState(false)
+
+  React.useEffect(() => {
+    if (currentDriveIdRef.current === drive.id) {
+      return
+    }
+
+    currentDriveIdRef.current = drive.id
+    const nextData = buildInitialStopRows(drive)
+
+    setData(nextData)
+    setPendingUpdates({})
+    setPendingOrder(null)
+    setRowSelection({})
+    setColumnVisibility(defaultColumnVisibility)
+    setSorting([])
+    setActiveId(null)
+    setSheetOpen(false)
+    setDraft(null)
+    setRouteError(null)
+    setDatabaseError(null)
+    setShowOptimizedGradient(false)
+    setDeletingStopId(null)
+    setIsDeletingSelectedStops(false)
+    setTimingAdjustmentsOpen(false)
+    lastSelectedRowIdRef.current = null
+  }, [drive])
+
+  const displayData = React.useMemo(
+    () => (pendingOrder ? orderDriveStops(data, pendingOrder) : data),
+    [data, pendingOrder]
+  )
+
+  const getVisibleItem = React.useCallback(
+    (item: DriveStopRow) => {
+      const pendingUpdate = pendingUpdates[item.id]
+
+      if (!pendingUpdate) {
+        return item
+      }
+
+      return {
+        ...item,
+        pickupTime: pendingUpdate.pickupTime,
+        arrival: pendingUpdate.arrival,
+      }
+    },
+    [pendingUpdates]
+  )
+
+  const updateStopRow = React.useCallback(
+    <K extends keyof DriveStopRow>(id: string, key: K, value: DriveStopRow[K]) => {
+      setData((current) =>
+        current.map((item) => (item.id === id ? { ...item, [key]: value } : item))
+      )
+    },
+    []
+  )
+
+  const activeItem = React.useMemo(() => {
+    const item = data.find((entry) => entry.id === activeId) ?? null
+    return item ? getVisibleItem(item) : null
+  }, [activeId, data, getVisibleItem])
+
+  React.useEffect(() => {
+    if (activeItem) {
+      setDraft(activeItem)
+    } else if (!sheetOpen) {
+      setDraft(null)
+    }
+  }, [activeItem, sheetOpen])
+
+  React.useEffect(() => {
+    if (!sheetOpen || !activeItem) {
+      setTimingAdjustmentsOpen(false)
+      return
+    }
+
+    setTimingAdjustmentsOpen(hasAdvancedTimingValue(activeItem))
+  }, [activeId, activeItem, sheetOpen])
+
+  const openEditor = React.useCallback(
+    (item: DriveStopRow) => {
+      setActiveId(item.id)
+      setDraft(getVisibleItem(item))
+      setSheetOpen(true)
+      setDatabaseError(null)
+    },
+    [getVisibleItem]
+  )
+
+  const handleSheetOpenChange = React.useCallback((open: boolean) => {
+    setSheetOpen(open)
+
+    if (!open) {
+      setActiveId(null)
+    }
+  }, [])
+
+  const dataIds = React.useMemo<UniqueIdentifier[]>(
+    () => displayData.map(({ id }) => id),
+    [displayData]
+  )
+
+  const finalArrivalTime = React.useMemo(
+    () =>
+      displayData[displayData.length - 1]?.arrival.trim() ||
+      displayData.find((item) => item.arrival.trim())?.arrival.trim() ||
+      "",
+    [displayData]
+  )
+
+  const pendingChangeCount = React.useMemo(
+    () => Object.keys(pendingUpdates).length,
+    [pendingUpdates]
+  )
+
+  const routeTones = React.useMemo<Record<string, RouteTone>>(
+    () =>
+      data.reduce<Record<string, RouteTone>>((accumulator, item, index) => {
+        accumulator[item.id] = buildRouteTone(index, data.length)
+        return accumulator
+      }, {}),
+    [data]
+  )
+
+  const positionChanges = React.useMemo<Record<string, PositionChange>>(() => {
+    if (!pendingOrder) {
+      return {}
+    }
+
+    const confirmedOrder = data.map((item) => item.id)
+
+    return pendingOrder.reduce<Record<string, PositionChange>>((accumulator, id, index) => {
+      const confirmedIndex = confirmedOrder.indexOf(id)
+
+      if (confirmedIndex === -1 || confirmedIndex === index) {
+        return accumulator
+      }
+
+      accumulator[id] = {
+        from: confirmedIndex + 1,
+        to: index + 1,
+      }
+
+      return accumulator
+    }, {})
+  }, [data, pendingOrder])
+
+  const hasPendingRouteChange = pendingOrder !== null
+  const hasPendingChanges = pendingChangeCount > 0 || hasPendingRouteChange
+  const isStopDurationColumnVisible = columnVisibility.stopDurationSec !== false
+  const isTrafficBufferColumnVisible = columnVisibility.trafficBufferSec !== false
+
+  const pendingSummary = React.useMemo(() => {
+    const parts: string[] = []
+
+    if (hasPendingRouteChange) {
+      parts.push("Optimized stop order staged.")
+    }
+
+    if (pendingChangeCount > 0) {
+      parts.push(
+        `${pendingChangeCount} stop${pendingChangeCount === 1 ? "" : "s"} recalculated.`
+      )
+    }
+
+    parts.push("Review the staged drive, then confirm when the timing looks right.")
+
+    return parts.join(" ")
+  }, [hasPendingRouteChange, pendingChangeCount])
+
+  const syncStopPickupPassengers = React.useCallback(
+    async (stopId: string, currentIds: string[], nextIds: string[]) => {
+      const currentIdSet = new Set(currentIds)
+      const nextIdSet = new Set(nextIds)
+      const removals = currentIds.filter((id) => !nextIdSet.has(id))
+      const additions = nextIds.filter((id) => !currentIdSet.has(id))
+
+      await Promise.all([
+        ...removals.map(async (crewMemberId) => {
+          const response = await fetch(
+            `/api/trips/${stopId}/passengers/${crewMemberId}`,
+            {
+              method: "DELETE",
+            }
+          )
+
+          await parseMutationResponse(response, "Unable to remove a passenger from this stop.")
+        }),
+        ...additions.map(async (crewMemberId) => {
+          const response = await fetch(`/api/trips/${stopId}/passengers`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              crew_member_id: crewMemberId,
+            }),
+          })
+
+          await parseMutationResponse(response, "Unable to add a passenger to this stop.")
+        }),
+      ])
+    },
+    []
+  )
+
+  const applyDeletedStops = React.useCallback(
+    (stopIds: string[]) => {
+      if (stopIds.length === 0) {
+        return
+      }
+
+      const deletedIdSet = new Set(stopIds)
+      const nextData = data.filter((item) => !deletedIdSet.has(item.id))
+      const nextDrive = buildDriveFromStopRows(drive, nextData, passengerLookup)
+
+      setData(nextData)
+      setPendingOrder((current) =>
+        current ? current.filter((id) => !deletedIdSet.has(id)) : current
+      )
+      setPendingUpdates((current) => {
+        const next = { ...current }
+
+        for (const stopId of stopIds) {
+          delete next[stopId]
+        }
+
+        return next
+      })
+      setRowSelection((current) => {
+        const next = { ...current }
+
+        for (const stopId of stopIds) {
+          delete next[stopId]
+        }
+
+        return next
+      })
+
+      if (activeId && deletedIdSet.has(activeId)) {
+        setSheetOpen(false)
+        setActiveId(null)
+        setDraft(null)
+      }
+
+      if (lastSelectedRowIdRef.current && deletedIdSet.has(lastSelectedRowIdRef.current)) {
+        lastSelectedRowIdRef.current = null
+      }
+
+      onDriveUpdated?.(nextDrive)
+    },
+    [activeId, data, drive, onDriveUpdated, passengerLookup]
+  )
+
+  const confirmPendingChanges = React.useCallback(async () => {
+    const nextData = (pendingOrder ? orderDriveStops(data, pendingOrder) : data).map((item) => {
+      const pendingUpdate = pendingUpdates[item.id]
+
+      if (!pendingUpdate) {
+        return item
+      }
+
+      return {
+        ...item,
+        pickupTime: pendingUpdate.pickupTime,
+        pickupTimeSource: toDatabaseTimeValue(pendingUpdate.pickupTime, item.pickupTimeSource),
+        arrival: pendingUpdate.arrival,
+      }
+    })
+    const changedStops = nextData.filter((item) => pendingUpdates[item.id])
+
+    if (changedStops.length === 0) {
+      setData(nextData)
+      setPendingOrder(null)
+      setPendingUpdates({})
+      setShowOptimizedGradient(false)
+      setRouteError(null)
+      setDraft((current) => {
+        if (!current) {
+          return current
+        }
+
+        return nextData.find((item) => item.id === current.id) ?? current
+      })
+      return
+    }
+
+    setDatabaseError(null)
+    setIsConfirmingChanges(true)
+
+    try {
+      await Promise.all(
+        changedStops.map(async (item) => {
+          const response = await fetch(`/api/trips/${item.id}`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              pickup_time: item.pickupTimeSource,
+            }),
+          })
+
+          await parseMutationResponse(response, "Unable to save recalculated stop times.")
+        })
+      )
+
+      const nextDrive = buildDriveFromStopRows(drive, nextData, passengerLookup)
+
+      setData(nextData)
+      setPendingOrder(null)
+      setPendingUpdates({})
+      setShowOptimizedGradient(false)
+      setRouteError(null)
+      setDraft((current) => {
+        if (!current) {
+          return current
+        }
+
+        return nextData.find((item) => item.id === current.id) ?? current
+      })
+      onDriveUpdated?.(nextDrive)
+    } catch (error) {
+      setDatabaseError(
+        error instanceof Error ? error.message : "Unable to save the staged drive changes."
+      )
+    } finally {
+      setIsConfirmingChanges(false)
+    }
+  }, [data, drive, onDriveUpdated, passengerLookup, pendingOrder, pendingUpdates])
+
+  const handlePlanReady = React.useCallback(
+    (
+      plannedStops: RecalculatedScheduleStop[],
+      source: "optimize" | "recalculate"
+    ) => {
+      animationTokenRef.current += 1
+
+      const nextOrder = plannedStops.map((stop) => stop.id)
+      const confirmedOrder = data.map((item) => item.id)
+      const hasRouteChange = !areOrdersEqual(nextOrder, confirmedOrder)
+      const nextPendingUpdates = plannedStops.reduce<Record<string, PendingDriveStopUpdate>>(
+        (accumulator, plannedStop, index) => {
+          const currentItem = data.find((item) => item.id === plannedStop.id)
+
+          if (!currentItem) {
+            return accumulator
+          }
+
+          if (
+            currentItem.pickupTime === plannedStop.pickupTime &&
+            currentItem.arrival === plannedStop.arrival
+          ) {
+            return accumulator
+          }
+
+          accumulator[plannedStop.id] = {
+            pickupTime: plannedStop.pickupTime,
+            arrival: plannedStop.arrival,
+            revealOrder: index,
+            animationToken: animationTokenRef.current,
+          }
+
+          return accumulator
+        },
+        {}
+      )
+
+      setPendingOrder(hasRouteChange ? nextOrder : null)
+      setPendingUpdates(nextPendingUpdates)
+      setShowOptimizedGradient(source === "optimize" && hasRouteChange)
+
+      return hasRouteChange || Object.keys(nextPendingUpdates).length > 0
+    },
+    [data]
+  )
+
+  const handleDragEnd = React.useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event
+
+      if (!over || active.id === over.id) {
+        return
+      }
+
+      if (pendingOrder) {
+        setPendingOrder((current) => {
+          if (!current) {
+            return current
+          }
+
+          const oldIndex = current.indexOf(String(active.id))
+          const newIndex = current.indexOf(String(over.id))
+
+          if (oldIndex === -1 || newIndex === -1) {
+            return current
+          }
+
+          const nextOrder = arrayMove(current, oldIndex, newIndex)
+          return areOrdersEqual(
+            nextOrder,
+            data.map((item) => item.id)
+          )
+            ? null
+            : nextOrder
+        })
+        return
+      }
+
+      setData((current) => {
+        const ids = current.map((item) => item.id)
+        const oldIndex = ids.indexOf(String(active.id))
+        const newIndex = ids.indexOf(String(over.id))
+
+        if (oldIndex === -1 || newIndex === -1) {
+          return current
+        }
+
+        return arrayMove(current, oldIndex, newIndex)
+      })
+    },
+    [data, pendingOrder]
+  )
+
+  const handleDelete = React.useCallback(
+    async (item: DriveStopRow) => {
+      const confirmed = window.confirm(
+        `Delete this stop${item.stopPickupPassengerIds.length > 0 ? ` for ${getStopPickupPassengerNames(item.stopPickupPassengerIds, passengerLookup).join(", ")}` : ""}?`
+      )
+
+      if (!confirmed) {
+        return
+      }
+
+      setDatabaseError(null)
+      setDeletingStopId(item.id)
+
+      try {
+        const response = await fetch(`/api/trips/${item.id}`, {
+          method: "DELETE",
+        })
+
+        await parseMutationResponse(response, "Unable to delete this stop.")
+        applyDeletedStops([item.id])
+      } catch (error) {
+        setDatabaseError(error instanceof Error ? error.message : "Unable to delete this stop.")
+      } finally {
+        setDeletingStopId((current) => (current === item.id ? null : current))
+      }
+    },
+    [applyDeletedStops, passengerLookup]
+  )
+
+  const handleDeleteSelected = React.useCallback(
+    async (stopIds: string[]) => {
+      if (stopIds.length === 0) {
+        return
+      }
+
+      const confirmed = window.confirm(
+        `Delete ${stopIds.length} selected stop${stopIds.length === 1 ? "" : "s"}?`
+      )
+
+      if (!confirmed) {
+        return
+      }
+
+      setDatabaseError(null)
+      setIsDeletingSelectedStops(true)
+
+      try {
+        await Promise.all(
+          stopIds.map(async (stopId) => {
+            const response = await fetch(`/api/trips/${stopId}`, {
+              method: "DELETE",
+            })
+
+            await parseMutationResponse(response, "Unable to delete the selected stops.")
+          })
+        )
+
+        applyDeletedStops(stopIds)
+      } catch (error) {
+        setDatabaseError(
+          error instanceof Error ? error.message : "Unable to delete the selected stops."
+        )
+      } finally {
+        setIsDeletingSelectedStops(false)
+      }
+    },
+    [applyDeletedStops]
+  )
+
+  const stopCount = displayData.length
+  const passengerCount = React.useMemo(
+    () => new Set(displayData.flatMap((item) => item.stopPickupPassengerIds)).size,
+    [displayData]
+  )
+
+  const handleDraftSubmit = React.useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault()
+
+      if (!draft) {
+        return
+      }
+
+      const currentItem = data.find((item) => item.id === draft.id)
+
+      if (!currentItem) {
+        return
+      }
+
+      const normalizedPassengerIds = Array.from(new Set(draft.stopPickupPassengerIds))
+      const nextDestination = draft.endDestination.trim()
+      const nextArrival = draft.arrival.trim()
+      const pickupTimeSource = toDatabaseTimeValue(draft.pickupTime, currentItem.pickupTimeSource)
+      const persistedStopDurationSec = normalizePersistedTimingSeconds(draft.stopDurationSec)
+      const persistedTrafficBufferSec = normalizePersistedTimingSeconds(draft.trafficBufferSec)
+
+      setDatabaseError(null)
+      setIsSavingStop(true)
+
+      try {
+        const [stopResponse, travelResponse] = await Promise.all([
+          fetch(`/api/trips/${draft.id}`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              pickup_address: draft.pickupAddress.trim(),
+              pickup_time: pickupTimeSource,
+              trip_title: draft.stopTitle.trim() || currentItem.stopTitle,
+              stop_duration_sec: persistedStopDurationSec,
+              traffic_buffer_sec: persistedTrafficBufferSec,
+              notes: draft.notes.trim() || null,
+            }),
+          }),
+          nextDestination !== currentItem.endDestination
+            ? fetch(`/api/travels/${drive.id}`, {
+                method: "PATCH",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  destination_address: nextDestination,
+                }),
+              })
+            : Promise.resolve(null),
+        ])
+
+        await parseMutationResponse(stopResponse, "Unable to save this stop.")
+
+        if (travelResponse) {
+          await parseMutationResponse(
+            travelResponse,
+            "Unable to update the drive destination."
+          )
+        }
+
+        await syncStopPickupPassengers(
+          draft.id,
+          currentItem.stopPickupPassengerIds,
+          normalizedPassengerIds
+        )
+
+        const nextData = data.map((item) => {
+          const sharedFields = {
+            endDestination: nextDestination,
+            arrival: nextArrival,
+          }
+
+          if (item.id !== draft.id) {
+            return {
+              ...item,
+              ...sharedFields,
+            }
+          }
+
+          return {
+            ...item,
+            ...sharedFields,
+            stopPickupPassengerIds: normalizedPassengerIds,
+            pickupAddress: draft.pickupAddress.trim(),
+            pickupTime: draft.pickupTime.trim(),
+            pickupTimeSource,
+            stopTitle: draft.stopTitle.trim() || item.stopTitle,
+            stopDurationSec: persistedStopDurationSec,
+            trafficBufferSec: persistedTrafficBufferSec,
+            notes: draft.notes.trim(),
+          }
+        })
+        const nextDrive = buildDriveFromStopRows(drive, nextData, passengerLookup)
+
+        setData(nextData)
+        setPendingUpdates((current) => {
+          const next = { ...current }
+          delete next[draft.id]
+          return next
+        })
+        setSheetOpen(false)
+        setActiveId(null)
+        onDriveUpdated?.(nextDrive)
+      } catch (error) {
+        setDatabaseError(error instanceof Error ? error.message : "Unable to save this stop.")
+      } finally {
+        setIsSavingStop(false)
+      }
+    },
+    [data, draft, drive, onDriveUpdated, passengerLookup, syncStopPickupPassengers]
+  )
+
+  return {
+    columnVisibility,
+    dataIds,
+    databaseError,
+    deletingStopId,
+    displayData,
+    draft,
+    finalArrivalTime,
+    handleDelete,
+    handleDeleteSelected,
+    handleDraftSubmit,
+    handleDragEnd,
+    handlePlanReady,
+    handleSheetOpenChange,
+    hasPendingChanges,
+    isConfirmingChanges,
+    isDeletingSelectedStops,
+    isSavingStop,
+    isStopDurationColumnVisible,
+    isTrafficBufferColumnVisible,
+    onConfirmChanges: confirmPendingChanges,
+    lastSelectedRowIdRef,
+    openEditor,
+    passengerCount,
+    passengerLookup,
+    pendingSummary,
+    pendingUpdates,
+    positionChanges,
+    routeError,
+    routeTones,
+    rowSelection,
+    setColumnVisibility,
+    setDraft,
+    setRouteError,
+    setRowSelection,
+    setSorting,
+    setTimingAdjustmentsOpen,
+    sheetOpen,
+    showOptimizedGradient,
+    sorting,
+    stopCount,
+    timingAdjustmentsOpen,
+    updateStopRow,
+  }
+}

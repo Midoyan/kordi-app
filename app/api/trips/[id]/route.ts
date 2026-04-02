@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/server";
+import { deleteTripCascade } from "@/lib/transport-cascade";
 
 type RouteContext = {
     params: Promise<{ id: string }>;
@@ -42,25 +43,14 @@ export async function PATCH(req: Request, context: RouteContext) {
 
 export async function DELETE(_: Request, context: RouteContext) {
     const { id } = await context.params;
-    const supabase = await createClient();
-
-    const { error: deleteTripPassengersError } = await supabase
-        .from("trip_passengers")
-        .delete()
-        .eq("trip_id", id);
-
-    if (deleteTripPassengersError) {
-        return Response.json({ error: deleteTripPassengersError.message }, { status: 500 });
+    
+    try {
+        const result = await deleteTripCascade(id);
+        return Response.json(result, { status: 200 });
+    } catch (error) {
+        return Response.json(
+            { error: error instanceof Error ? error.message : "Unexpected server error" },
+            { status: 500 }
+        );
     }
-
-    const { error } = await supabase
-        .from("trips")
-        .delete()
-        .eq("id", id);
-
-    if (error) {
-        return Response.json({ error: error.message }, { status: 500 });
-    }
-
-    return Response.json({ success: true }, { status: 200 });
 }

@@ -8,38 +8,29 @@ import { EditorSheetLayout } from "@/components/editor-sheet-layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SheetFooter } from "@/components/ui/sheet";
+import {
+  createLocalVehicleRecord,
+  createVehicle,
+  deleteVehicle,
+  fetchVehicles,
+  getCachedVehiclesSnapshot,
+  sortVehicles,
+  updateVehicle,
+  vehicleTypes,
+  type VehicleDraft,
+  type VehicleRecord,
+  type VehicleType,
+} from "@/lib/vehicles";
 
 type VehicleAvailability = "Active" | "Inactive";
 type PersistenceMode = "checking" | "connected" | "local-only";
 type SheetMode = "create" | "edit";
 
-type VehicleApiRecord = {
-  id?: unknown;
-  label?: unknown;
-  plate_number?: unknown;
-  seat_capacity?: unknown;
-  vehicle_type?: unknown;
-  notes?: unknown;
-  is_active?: unknown;
-  created_at?: unknown;
-};
-
-type VehicleRecord = {
-  id: string;
-  label: string;
-  plateNumber: string;
-  seatCapacity: number;
-  vehicleType: string;
-  notes: string;
-  isActive: boolean;
-  createdAt: string | null;
-};
-
 type VehicleForm = {
   label: string;
   plateNumber: string;
   seatCapacity: string;
-  vehicleType: string;
+  vehicleType: VehicleType;
   availability: VehicleAvailability;
   notes: string;
 };
@@ -86,96 +77,15 @@ const sampleVehicleForms: VehicleForm[] = [
   },
 ];
 
-function readString(value: unknown) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function parseSeatCapacity(value: unknown) {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.max(0, value);
-  }
-
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
-  }
-
-  return 0;
-}
-
-function normalizeVehicleRecord(payload: VehicleApiRecord): VehicleRecord {
-  return {
-    id: readString(payload.id),
-    label: readString(payload.label) || "Untitled van",
-    plateNumber: readString(payload.plate_number),
-    seatCapacity: parseSeatCapacity(payload.seat_capacity),
-    vehicleType: readString(payload.vehicle_type) || "Van",
-    notes: readString(payload.notes),
-    isActive: payload.is_active !== false,
-    createdAt: typeof payload.created_at === "string" ? payload.created_at : null,
-  };
-}
-
-function sortVehicles(vehicles: VehicleRecord[]) {
-  return [...vehicles].sort((first, second) => {
-    const firstCreatedAt = first.createdAt ?? "";
-    const secondCreatedAt = second.createdAt ?? "";
-
-    if (firstCreatedAt && secondCreatedAt && firstCreatedAt !== secondCreatedAt) {
-      return secondCreatedAt.localeCompare(firstCreatedAt);
-    }
-
-    if (firstCreatedAt) {
-      return -1;
-    }
-
-    if (secondCreatedAt) {
-      return 1;
-    }
-
-    return first.label.localeCompare(second.label);
-  });
-}
-
-function createLocalVehicleRecord(
-  id: string,
-  payload: {
-    label: string;
-    plate_number: string;
-    seat_capacity: number;
-    vehicle_type: string;
-    notes: string;
-    is_active: boolean;
-  },
-): VehicleRecord {
-  return normalizeVehicleRecord({
-    id,
-    created_at: new Date().toISOString(),
-    ...payload,
-  });
-}
-
 function toVehicleForm(vehicle: VehicleRecord): VehicleForm {
   return {
     label: vehicle.label,
     plateNumber: vehicle.plateNumber,
     seatCapacity: String(vehicle.seatCapacity || ""),
-    vehicleType: vehicle.vehicleType || "Van",
+    vehicleType: vehicle.vehicleType,
     availability: vehicle.isActive ? "Active" : "Inactive",
     notes: vehicle.notes,
   };
-}
-
-function formatApiError(payload: unknown, fallbackMessage: string) {
-  if (payload && typeof payload === "object") {
-    const error = (payload as { error?: unknown }).error;
-
-    if (typeof error === "string" && error.trim()) {
-      return error;
-    }
-  }
-
-  return fallbackMessage;
 }
 
 function availabilityTone(availability: VehicleAvailability) {
@@ -204,17 +114,13 @@ function buildSheetHref(pathname: string, searchParams: URLSearchParams, open: b
 
 function validateVehicleForm(form: VehicleForm) {
   const errors: VehicleFieldError = {};
-  const trimmedLabel = form.label.trim();
-  const trimmedPlateNumber = form.plateNumber.trim();
-  const trimmedVehicleType = form.vehicleType.trim() || "Van";
-  const trimmedNotes = form.notes.trim();
   const seatCapacity = Number(form.seatCapacity);
 
-  if (!trimmedLabel) {
+  if (!form.label.trim()) {
     errors.label = "Enter a vehicle title.";
   }
 
-  if (!trimmedPlateNumber) {
+  if (!form.plateNumber.trim()) {
     errors.plateNumber = "Enter the license plate.";
   }
 
@@ -226,12 +132,15 @@ function validateVehicleForm(form: VehicleForm) {
 
   return {
     errors,
-    trimmedLabel,
-    trimmedPlateNumber,
-    trimmedVehicleType,
-    trimmedNotes,
-    seatCapacity,
     isValid: Object.keys(errors).length === 0,
+    draft: {
+      label: form.label.trim(),
+      plateNumber: form.plateNumber.trim(),
+      seatCapacity,
+      vehicleType: form.vehicleType,
+      notes: form.notes.trim(),
+      isActive: form.availability === "Active",
+    } satisfies VehicleDraft,
   };
 }
 
@@ -427,28 +336,28 @@ export function VehiclesPage() {
   const totalSeats = vehicles.reduce((sum, vehicle) => sum + vehicle.seatCapacity, 0);
   const latestVehicle = vehicles[0];
 
-  const loadVehicles = useCallback(async (signal?: AbortSignal) => {
-    setIsLoading(true);
+  const loadVehicles = useCallback(async (options?: {
+    background?: boolean;
+    forceRefresh?: boolean;
+    signal?: AbortSignal;
+  }) => {
+    const { background = false, forceRefresh = false, signal } = options ?? {};
+
+    if (!background) {
+      setIsLoading(true);
+    }
+
     setLoadError(null);
 
     try {
-      const response = await fetch("/api/vans", {
-        cache: "no-store",
+      const nextVehicles = await fetchVehicles({
+        forceRefresh,
         signal,
       });
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(formatApiError(payload, "Unable to load vans from the backend."));
-      }
 
       if (signal?.aborted) {
         return;
       }
-
-      const nextVehicles = Array.isArray(payload)
-        ? sortVehicles(payload.map((record) => normalizeVehicleRecord(record as VehicleApiRecord)))
-        : [];
 
       setVehicles(nextVehicles);
       setPersistenceMode("connected");
@@ -490,8 +399,18 @@ export function VehiclesPage() {
 
   useEffect(() => {
     const controller = new AbortController();
+    const cachedVehicles = getCachedVehiclesSnapshot();
 
-    void loadVehicles(controller.signal);
+    if (cachedVehicles !== null) {
+      setVehicles(cachedVehicles);
+      setIsLoading(false);
+    }
+
+    void loadVehicles({
+      background: cachedVehicles !== null,
+      forceRefresh: cachedVehicles !== null,
+      signal: controller.signal,
+    });
 
     return () => controller.abort();
   }, [loadVehicles]);
@@ -527,38 +446,17 @@ export function VehiclesPage() {
     setFieldErrors({});
     setSubmitMessage(null);
     setIsSaving(true);
-
-    const payload = {
-      label: validation.trimmedLabel,
-      plate_number: validation.trimmedPlateNumber,
-      seat_capacity: validation.seatCapacity,
-      vehicle_type: validation.trimmedVehicleType,
-      notes: validation.trimmedNotes,
-      is_active: form.availability === "Active",
-    };
+    const draft = validation.draft;
 
     try {
       if (persistenceMode === "connected") {
-        const isEditing = sheetMode === "edit" && editingVehicleId;
-        const response = await fetch(isEditing ? `/api/vans/${editingVehicleId}` : "/api/vans", {
-          method: isEditing ? "PATCH" : "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(payload),
-        });
-        const result = await response.json().catch(() => null);
-
-        if (!response.ok) {
-          throw new Error(
-            formatApiError(result, isEditing ? "Unable to update van." : "Unable to save van."),
-          );
-        }
-
-        const savedVehicle = normalizeVehicleRecord(result as VehicleApiRecord);
+        const savedVehicle =
+          sheetMode === "edit" && editingVehicleId
+            ? await updateVehicle(editingVehicleId, draft)
+            : await createVehicle(draft);
 
         setVehicles((current) => {
-          if (isEditing) {
+          if (sheetMode === "edit" && editingVehicleId) {
             return sortVehicles(
               current.map((vehicle) => (vehicle.id === savedVehicle.id ? savedVehicle : vehicle)),
             );
@@ -570,8 +468,8 @@ export function VehiclesPage() {
         const localId =
           sheetMode === "edit" && editingVehicleId
             ? editingVehicleId
-            : `${payload.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`;
-        const localVehicle = createLocalVehicleRecord(localId, payload);
+            : `${draft.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`;
+        const localVehicle = createLocalVehicleRecord(localId, draft);
 
         setVehicles((current) => {
           if (sheetMode === "edit" && editingVehicleId) {
@@ -615,14 +513,7 @@ export function VehiclesPage() {
     setLoadError(null);
 
     try {
-      const response = await fetch(`/api/vans/${vehicle.id}`, {
-        method: "DELETE",
-      });
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(formatApiError(payload, "Unable to delete van."));
-      }
+      await deleteVehicle(vehicle.id);
 
       setVehicles((current) => current.filter((entry) => entry.id !== vehicle.id));
 
@@ -688,7 +579,7 @@ export function VehiclesPage() {
                     variant="outline"
                     size="sm"
                     className="border-amber-300 bg-white/80 text-amber-900 hover:bg-white"
-                    onClick={() => void loadVehicles()}
+                    onClick={() => void loadVehicles({ forceRefresh: true })}
                   >
                     Retry backend
                   </Button>
@@ -826,14 +717,18 @@ export function VehiclesPage() {
                 <select
                   value={form.vehicleType}
                   onChange={(event) =>
-                    setForm((current) => ({ ...current, vehicleType: event.target.value }))
+                    setForm((current) => ({
+                      ...current,
+                      vehicleType: event.target.value as VehicleType,
+                    }))
                   }
                   className="flex h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm text-[#1d1d1b] outline-none transition-colors focus:border-ring focus:ring-3 focus:ring-ring/50"
                 >
-                  <option>Van</option>
-                  <option>Car</option>
-                  <option>Shuttle</option>
-                  <option>SUV</option>
+                  {vehicleTypes.map((vehicleType) => (
+                    <option key={vehicleType} value={vehicleType}>
+                      {vehicleType}
+                    </option>
+                  ))}
                 </select>
               </Field>
             </div>
