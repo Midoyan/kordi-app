@@ -14,6 +14,8 @@ import {
   deleteVehicle,
   fetchVehicles,
   getCachedVehiclesSnapshot,
+  hasFreshVehiclesCache,
+  primeVehiclesCache,
   sortVehicles,
   updateVehicle,
   vehicleTypes,
@@ -314,11 +316,11 @@ function Field({
   );
 }
 
-export function VehiclesPage() {
+export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRecord[] }) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [vehicles, setVehicles] = useState<VehicleRecord[]>([]);
+  const [vehicles, setVehicles] = useState<VehicleRecord[]>(initialVehicles ?? []);
   const [form, setForm] = useState<VehicleForm>(initialForm);
   const [fieldErrors, setFieldErrors] = useState<VehicleFieldError>({});
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
@@ -398,22 +400,39 @@ export function VehiclesPage() {
   );
 
   useEffect(() => {
+    if (initialVehicles) {
+      primeVehiclesCache(initialVehicles);
+    }
+  }, [initialVehicles]);
+
+  useEffect(() => {
     const controller = new AbortController();
-    const cachedVehicles = getCachedVehiclesSnapshot();
+    const cachedVehicles = getCachedVehiclesSnapshot({ includeExpired: true });
+    const hasFreshCache = hasFreshVehiclesCache();
 
     if (cachedVehicles !== null) {
       setVehicles(cachedVehicles);
       setIsLoading(false);
+      setPersistenceMode("connected");
+    } else if (initialVehicles) {
+      setVehicles(initialVehicles);
+      setIsLoading(false);
+      setLoadError(null);
+      setPersistenceMode("connected");
+    }
+
+    if (hasFreshCache) {
+      return () => controller.abort();
     }
 
     void loadVehicles({
-      background: cachedVehicles !== null,
-      forceRefresh: cachedVehicles !== null,
+      background: cachedVehicles !== null || Boolean(initialVehicles),
+      forceRefresh: true,
       signal: controller.signal,
     });
 
     return () => controller.abort();
-  }, [loadVehicles]);
+  }, [initialVehicles, loadVehicles]);
 
   function openCreateSheet() {
     setSheetMode("create");

@@ -4,7 +4,7 @@ import type { Drive, StopPickupPassengerOption } from "@/lib/drive-plan"
 import type { DriveStopRow, RouteTone } from "@/components/schedule-section/types"
 
 function buildInitialArrivalValue(drive: Drive) {
-  return drive.stops[drive.stops.length - 1]?.pickupTimeLabel || drive.startTimeLabel || ""
+  return drive.scheduledTimeLabel || drive.stops[drive.stops.length - 1]?.pickupTimeLabel || ""
 }
 
 export function normalizeTimingSeconds(value: number | null | undefined) {
@@ -95,6 +95,8 @@ export function buildAdvancedTimingCaption(
 
 export function buildInitialStopRows(drive: Drive) {
   const initialArrival = buildInitialArrivalValue(drive)
+  const commonLocationAddress =
+    drive.travelType === "pickup" ? drive.destinationAddress : drive.startLocation
 
   return drive.stops.map((stop) => ({
     id: stop.id,
@@ -103,7 +105,7 @@ export function buildInitialStopRows(drive: Drive) {
     pickupAddress: stop.pickupAddress,
     pickupTime: stop.pickupTimeLabel,
     pickupTimeSource: stop.pickupTime,
-    endDestination: drive.destinationAddress,
+    endDestination: commonLocationAddress,
     arrival: initialArrival,
     isFavorite: false,
     notes: stop.notes ?? "",
@@ -119,12 +121,8 @@ export function buildDriveFromStopRows(
   rows: DriveStopRow[],
   passengerLookup: Map<string, StopPickupPassengerOption>
 ): Drive {
-  const destinationAddress =
-    rows[0]?.endDestination.trim() || drive.destinationAddress
-
   return {
     ...drive,
-    destinationAddress,
     stops: rows.map((row) => ({
       id: row.id,
       driveId: drive.id,

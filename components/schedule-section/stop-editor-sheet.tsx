@@ -4,6 +4,7 @@ import * as React from "react"
 import { ChevronRight } from "lucide-react"
 
 import type { StopPickupPassengerOption } from "@/lib/drive-plan"
+import { getTravelTypeLabel, type TravelType } from "@/lib/travels"
 import { cn } from "@/lib/utils"
 import {
   getStopPickupPassengerNames,
@@ -26,6 +27,8 @@ import {
 type ScheduleStopEditorSheetProps = {
   open: boolean
   driveLabel: string
+  travelType: TravelType
+  commonLocationLabel: string
   draft: DriveStopRow | null
   passengerLookup: Map<string, StopPickupPassengerOption>
   stopPickupPassengerOptions: StopPickupPassengerOption[]
@@ -43,6 +46,8 @@ type ScheduleStopEditorSheetProps = {
 export function ScheduleStopEditorSheet({
   open,
   driveLabel,
+  travelType,
+  commonLocationLabel,
   draft,
   passengerLookup,
   stopPickupPassengerOptions,
@@ -56,6 +61,8 @@ export function ScheduleStopEditorSheet({
   onDelete,
   onSubmit,
 }: ScheduleStopEditorSheetProps) {
+  const scheduledTimeLabel = travelType === "pickup" ? "Arrive by" : "Depart at"
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full border-l border-[#ecece8] bg-white sm:max-w-xl">
@@ -66,7 +73,7 @@ export function ScheduleStopEditorSheet({
               : "Stop details"}
           </SheetTitle>
           <SheetDescription>
-            Edit the selected stop in {driveLabel} without leaving the schedule table.
+            Edit the selected stop in {driveLabel} without leaving this {getTravelTypeLabel(travelType).toLowerCase()} drive.
           </SheetDescription>
         </SheetHeader>
 
@@ -77,21 +84,23 @@ export function ScheduleStopEditorSheet({
             </p>
             <div className="mt-3 grid gap-3 sm:grid-cols-3">
               <div className="rounded-lg border border-[#e7e7e4] bg-white px-3 py-2">
-                <p className="text-[11px] text-[#777772] uppercase">Pickup</p>
+                <p className="text-[11px] text-[#777772] uppercase">
+                  {travelType === "pickup" ? "Pickup" : "Stop time"}
+                </p>
                 <p className="mt-2 text-[13px] font-medium text-[#1d1d1b]">
                   {draft?.pickupTime || "--:--"}
                 </p>
               </div>
               <div className="rounded-lg border border-[#e7e7e4] bg-white px-3 py-2">
-                <p className="text-[11px] text-[#777772] uppercase">Arrival</p>
+                <p className="text-[11px] text-[#777772] uppercase">{scheduledTimeLabel}</p>
                 <p className="mt-2 text-[13px] font-medium text-[#1d1d1b]">
                   {draft?.arrival || "--:--"}
                 </p>
               </div>
               <div className="rounded-lg border border-[#e7e7e4] bg-white px-3 py-2">
-                <p className="text-[11px] text-[#777772] uppercase">Destination</p>
+                <p className="text-[11px] text-[#777772] uppercase">Set location</p>
                 <p className="mt-2 text-[13px] font-medium text-[#1d1d1b]">
-                  {draft?.endDestination || "--"}
+                  {commonLocationLabel || "--"}
                 </p>
               </div>
             </div>
@@ -118,7 +127,7 @@ export function ScheduleStopEditorSheet({
 
             <div className="flex flex-col gap-2">
               <label htmlFor="schedule-pickup-address" className="text-[13px] font-medium text-[#1d1d1b]">
-                Pickup Address
+                {travelType === "pickup" ? "Pickup Address" : "Stop Address"}
               </label>
               <Input
                 id="schedule-pickup-address"
@@ -131,48 +140,16 @@ export function ScheduleStopEditorSheet({
               />
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="flex flex-col gap-2">
-                <label htmlFor="schedule-pickup-time" className="text-[13px] font-medium text-[#1d1d1b]">
-                  PU Time
-                </label>
-                <Input
-                  id="schedule-pickup-time"
-                  value={draft?.pickupTime ?? ""}
-                  onChange={(event) =>
-                    setDraft((current) =>
-                      current ? { ...current, pickupTime: event.target.value } : current
-                    )
-                  }
-                />
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <label htmlFor="schedule-arrival" className="text-[13px] font-medium text-[#1d1d1b]">
-                  Arrival
-                </label>
-                <Input
-                  id="schedule-arrival"
-                  value={draft?.arrival ?? ""}
-                  onChange={(event) =>
-                    setDraft((current) =>
-                      current ? { ...current, arrival: event.target.value } : current
-                    )
-                  }
-                />
-              </div>
-            </div>
-
             <div className="flex flex-col gap-2">
-              <label htmlFor="schedule-end-destination" className="text-[13px] font-medium text-[#1d1d1b]">
-                Drop off
+              <label htmlFor="schedule-pickup-time" className="text-[13px] font-medium text-[#1d1d1b]">
+                {travelType === "pickup" ? "PU Time" : "Stop time"}
               </label>
               <Input
-                id="schedule-end-destination"
-                value={draft?.endDestination ?? ""}
+                id="schedule-pickup-time"
+                value={draft?.pickupTime ?? ""}
                 onChange={(event) =>
                   setDraft((current) =>
-                    current ? { ...current, endDestination: event.target.value } : current
+                    current ? { ...current, pickupTime: event.target.value } : current
                   )
                 }
               />

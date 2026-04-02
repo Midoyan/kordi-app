@@ -71,3 +71,29 @@ export type AppSectionSlug = AppSection["slug"];
 export const appSectionMap = new Map(
   appSections.map((section) => [section.slug, section]),
 );
+
+export const sectionActionLabels: Record<AppSectionSlug, string> = {
+  dashboard: "Create route",
+  "route-builder": "Add route",
+  people: "Add person",
+  vehicles: "Add vehicle",
+  map: "Start tracking",
+  locations: "Add location",
+  schedule: "Add drive",
+  settings: "Add setting",
+};
+
+export function getSectionActionHref(section: AppSectionSlug) {
+  switch (section) {
+    case "people":
+      return `/${section}?add-person=1`;
+    case "vehicles":
+      return `/${section}?sheet=add-vehicle`;
+    case "locations":
+      return `/${section}?sheet=add-location`;
+    case "schedule":
+      return `/${section}?sheet=add-drive`;
+    default:
+      return undefined;
+  }
+}

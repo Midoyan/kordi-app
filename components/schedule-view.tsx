@@ -6,6 +6,7 @@ import {
   Plus,
 } from "lucide-react"
 
+import { getTravelTypeLabel } from "@/lib/travels"
 import { DriveEditorSheet } from "@/components/drive-editor-sheet"
 import { ScheduleSection } from "@/components/schedule-section"
 import {
@@ -82,7 +83,7 @@ function ScheduleSkeletonPanel() {
   )
 }
 
-export function ScheduleView() {
+export function ScheduleView({ initialTransportPlan }: { initialTransportPlan?: import("@/lib/drive-plan").TransportPlan | null }) {
   const {
     transportPlan,
     isLoading,
@@ -90,7 +91,7 @@ export function ScheduleView() {
     retryLoad,
     refreshTransportPlan,
     handleDriveUpdated,
-  } = useTransportPlanState()
+  } = useTransportPlanState(initialTransportPlan)
   const drives = transportPlan?.drives ?? []
   const stopPickupPassengerOptions = transportPlan?.stopPickupPassengerOptions ?? []
   const {
@@ -100,13 +101,17 @@ export function ScheduleView() {
     driveError,
     deletingDriveId,
     isSavingDrive,
+    isLoadingResources,
     labelPreview,
+    locationOptions,
     openCreateDrive,
     openEditDrive,
     closeDriveEditor,
     handleDriveSave,
     handleDriveDelete,
+    resourceErrorMessage,
     setDriveDraft,
+    vehicleOptions,
   } = useDriveEditorState({
     drives,
     refreshTransportPlan,
@@ -185,9 +190,6 @@ export function ScheduleView() {
             <h3 className="mt-3 text-[22px] font-semibold tracking-tight text-[#1d1d1b] text-balance">
               Start with the drive, then add stops inside it.
             </h3>
-            <p className="mx-auto mt-2 max-w-xl text-[14px] leading-6 text-[#61685d] text-pretty">
-              A drive owns the final destination and route settings. Once it exists, the familiar stop table underneath can take over.
-            </p>
             <div className="mt-5">
               <Button
                 type="button"
@@ -202,11 +204,22 @@ export function ScheduleView() {
         ) : (
           <div className="mt-4 grid gap-5">
             {drives.map((drive) => {
-              const driverSummary = drive.driver?.name || "No driver assigned"
               const vanSummary =
                 drive.van?.label?.trim() ||
                 drive.van?.plate_number?.trim() ||
                 "No van assigned"
+              const travelTypeLabel = getTravelTypeLabel(drive.travelType)
+              const commonLocation =
+                drive.location?.address ||
+                drive.location?.name ||
+                drive.destinationAddress ||
+                drive.startLocation ||
+                "Set location"
+              const scheduleVerb = drive.travelType === "pickup" ? "arrive by" : "depart at"
+              const routeVerb = drive.travelType === "pickup" ? "Drive to" : "Leave set"
+              const locationMeta =
+                drive.location?.type?.trim() ||
+                `${travelTypeLabel} drive`
 
               return (
                 <article
@@ -242,7 +255,7 @@ export function ScheduleView() {
                       <>
                         <div className="inline-flex min-w-0 items-center gap-0">
                           <span className="text-[12px] font-semibold text-[#75816f]">
-                            Drive to
+                            {routeVerb}
                           </span>
                           <Button
                             type="button"
@@ -252,11 +265,11 @@ export function ScheduleView() {
                             onClick={() => openEditDrive(drive)}
                           >
                             <span className="truncate">
-                              {drive.destinationAddress || "Set destination"}
+                              {commonLocation}
                             </span>
                           </Button>
                           <span className="text-[12px] font-semibold text-[#75816f]">
-                            arrive by
+                            {scheduleVerb}
                           </span>
                           <Button
                             type="button"
@@ -274,7 +287,7 @@ export function ScheduleView() {
                           {vanSummary}
                         </span>
                         <span className="rounded-full border border-[#dde3d4] bg-white/90 px-2.5 py-1 text-[11px] font-medium text-[#51614f] shadow-[0_10px_20px_-18px_rgba(15,23,42,0.35)]">
-                          {driverSummary}
+                          {locationMeta}
                         </span>
                       </>
                     )}
@@ -292,11 +305,14 @@ export function ScheduleView() {
         mode={driveEditorMode}
         open={driveEditorMode !== null}
         labelPreview={labelPreview}
-        driverLabel={activeDrive?.driver?.name ?? null}
+        locationOptions={locationOptions}
+        vehicleOptions={vehicleOptions}
         vanLabel={activeDrive?.van?.label ?? activeDrive?.van?.plate_number ?? null}
         errorMessage={driveError}
+        resourceErrorMessage={resourceErrorMessage}
         isSaving={isSavingDrive}
         isDeleting={activeDrive !== null && deletingDriveId === activeDrive.id}
+        isLoadingResources={isLoadingResources}
         onClose={closeDriveEditor}
         onDelete={
           activeDrive

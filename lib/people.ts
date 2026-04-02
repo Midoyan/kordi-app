@@ -218,6 +218,10 @@ function storePeopleCache(people: PersonRecord[]) {
   return cache.people;
 }
 
+export function primePeopleCache(people: PersonRecord[]) {
+  return storePeopleCache(people);
+}
+
 function updatePeopleCache(
   update: (currentPeople: PersonRecord[]) => PersonRecord[],
 ) {
@@ -288,6 +292,7 @@ export function normalizeCrewMemberRecord(payload: unknown): CrewMemberRecord {
     created_at: typeof record.created_at === "string" ? record.created_at : null,
   };
 }
+
 
 export async function fetchPeople(signal?: AbortSignal) {
   const cachedPeople = getCachedPeopleSnapshot();

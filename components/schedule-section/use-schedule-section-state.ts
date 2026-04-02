@@ -586,8 +586,6 @@ export function useScheduleSectionState({
       }
 
       const normalizedPassengerIds = Array.from(new Set(draft.stopPickupPassengerIds))
-      const nextDestination = draft.endDestination.trim()
-      const nextArrival = draft.arrival.trim()
       const pickupTimeSource = toDatabaseTimeValue(draft.pickupTime, currentItem.pickupTimeSource)
       const persistedStopDurationSec = normalizePersistedTimingSeconds(draft.stopDurationSec)
       const persistedTrafficBufferSec = normalizePersistedTimingSeconds(draft.trafficBufferSec)
@@ -596,42 +594,22 @@ export function useScheduleSectionState({
       setIsSavingStop(true)
 
       try {
-        const [stopResponse, travelResponse] = await Promise.all([
-          fetch(`/api/trips/${draft.id}`, {
-            method: "PATCH",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              pickup_address: draft.pickupAddress.trim(),
-              pickup_time: pickupTimeSource,
-              trip_title: draft.stopTitle.trim() || currentItem.stopTitle,
-              stop_duration_sec: persistedStopDurationSec,
-              traffic_buffer_sec: persistedTrafficBufferSec,
-              notes: draft.notes.trim() || null,
-            }),
+        const stopResponse = await fetch(`/api/trips/${draft.id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            pickup_address: draft.pickupAddress.trim(),
+            pickup_time: pickupTimeSource,
+            trip_title: draft.stopTitle.trim() || currentItem.stopTitle,
+            stop_duration_sec: persistedStopDurationSec,
+            traffic_buffer_sec: persistedTrafficBufferSec,
+            notes: draft.notes.trim() || null,
           }),
-          nextDestination !== currentItem.endDestination
-            ? fetch(`/api/travels/${drive.id}`, {
-                method: "PATCH",
-                headers: {
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  destination_address: nextDestination,
-                }),
-              })
-            : Promise.resolve(null),
-        ])
+        })
 
         await parseMutationResponse(stopResponse, "Unable to save this stop.")
-
-        if (travelResponse) {
-          await parseMutationResponse(
-            travelResponse,
-            "Unable to update the drive destination."
-          )
-        }
 
         await syncStopPickupPassengers(
           draft.id,
@@ -640,21 +618,12 @@ export function useScheduleSectionState({
         )
 
         const nextData = data.map((item) => {
-          const sharedFields = {
-            endDestination: nextDestination,
-            arrival: nextArrival,
-          }
-
           if (item.id !== draft.id) {
-            return {
-              ...item,
-              ...sharedFields,
-            }
+            return item
           }
 
           return {
             ...item,
-            ...sharedFields,
             stopPickupPassengerIds: normalizedPassengerIds,
             pickupAddress: draft.pickupAddress.trim(),
             pickupTime: draft.pickupTime.trim(),
@@ -682,7 +651,7 @@ export function useScheduleSectionState({
         setIsSavingStop(false)
       }
     },
-    [data, draft, drive, onDriveUpdated, passengerLookup, syncStopPickupPassengers]
+    [data, draft, onDriveUpdated, passengerLookup, syncStopPickupPassengers, drive]
   )
 
   return {

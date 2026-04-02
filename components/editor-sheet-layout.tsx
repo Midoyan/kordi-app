@@ -25,6 +25,10 @@ type EditorSheetLayoutProps = {
   headerClassName?: string;
   titleClassName?: string;
   descriptionClassName?: string;
+  sheetContentProps?: Omit<
+    ComponentProps<typeof SheetContent>,
+    "side" | "showOverlay" | "showCloseButton" | "children"
+  >;
 };
 
 export function EditorSheetLayout({
@@ -38,6 +42,7 @@ export function EditorSheetLayout({
   headerClassName,
   titleClassName,
   descriptionClassName,
+  sheetContentProps,
 }: EditorSheetLayoutProps) {
   const handleOpenChange: SheetOpenChange = (nextOpen, eventDetails) => {
     if (!nextOpen && eventDetails?.reason !== "close-press") {
@@ -58,9 +63,11 @@ export function EditorSheetLayout({
         side="right"
         showOverlay={false}
         showCloseButton
+        {...sheetContentProps}
         className={cn(
           "w-full overflow-hidden border-[#e4e4e1] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(251,251,248,0.97)_52%,rgba(244,244,239,0.98)_100%)] shadow-[0_24px_80px_-32px_rgba(15,23,42,0.38)] sm:max-w-[420px]",
           contentClassName,
+          sheetContentProps?.className,
         )}
       >
         <SheetHeader className={cn("border-b border-[#e7e7e4] px-5 py-5", headerClassName)}>

@@ -10,12 +10,15 @@ let cachedTransportPlan: TransportPlan | null = null
 let cachedTransportPlanAt = 0
 let transportPlanPromise: Promise<TransportPlan> | null = null
 
-function getCachedTransportPlan() {
+function getCachedTransportPlan(options?: { includeExpired?: boolean }) {
   if (!cachedTransportPlan) {
     return null
   }
 
-  if (Date.now() - cachedTransportPlanAt > TRANSPORT_PLAN_CACHE_TTL_MS) {
+  if (
+    !options?.includeExpired &&
+    Date.now() - cachedTransportPlanAt > TRANSPORT_PLAN_CACHE_TTL_MS
+  ) {
     cachedTransportPlan = null
     cachedTransportPlanAt = 0
     return null
@@ -27,6 +30,11 @@ function getCachedTransportPlan() {
 function setCachedTransportPlan(transportPlan: TransportPlan) {
   cachedTransportPlan = transportPlan
   cachedTransportPlanAt = Date.now()
+}
+
+export function primeTransportPlanCache(transportPlan: TransportPlan) {
+  setCachedTransportPlan(transportPlan)
+  return transportPlan
 }
 
 function replaceDriveInTransportPlan(transportPlan: TransportPlan, nextDrive: Drive) {
@@ -61,6 +69,8 @@ async function loadTransportPlan(forceRefresh = false) {
     }
   }
 
+  const staleCachedTransportPlan = getCachedTransportPlan({ includeExpired: true })
+
   transportPlanPromise = fetch("/api/transport-plan")
     .then(async (response) => {
       const payload = (await response.json().catch(() => null)) as
@@ -84,15 +94,34 @@ async function loadTransportPlan(forceRefresh = false) {
     })
 
   return transportPlanPromise
+    .catch((error) => {
+      if (staleCachedTransportPlan) {
+        return staleCachedTransportPlan
+      }
+
+      throw error
+    })
 }
 
-export function useTransportPlanState() {
+export function useTransportPlanState(initialTransportPlan?: TransportPlan | null) {
   const [transportPlan, setTransportPlan] = React.useState<TransportPlan | null>(() =>
-    getCachedTransportPlan()
+    getCachedTransportPlan() ?? initialTransportPlan ?? null
   )
-  const [isLoading, setIsLoading] = React.useState(() => !getCachedTransportPlan())
+  const [isLoading, setIsLoading] = React.useState(
+    () => !(getCachedTransportPlan() ?? initialTransportPlan)
+  )
   const [error, setError] = React.useState<string | null>(null)
   const [retryToken, setRetryToken] = React.useState(0)
+
+  React.useEffect(() => {
+    if (!initialTransportPlan) {
+      return
+    }
+
+    primeTransportPlanCache(initialTransportPlan)
+    setTransportPlan((currentTransportPlan) => currentTransportPlan ?? initialTransportPlan)
+    setIsLoading(false)
+  }, [initialTransportPlan])
 
   const handleDriveUpdated = React.useCallback((nextDrive: Drive) => {
     patchCachedTransportPlan(nextDrive)
@@ -124,6 +153,7 @@ export function useTransportPlanState() {
 
   React.useEffect(() => {
     const cached = getCachedTransportPlan()
+    const staleCached = getCachedTransportPlan({ includeExpired: true })
 
     if (cached) {
       React.startTransition(() => {
@@ -134,9 +164,27 @@ export function useTransportPlanState() {
       return
     }
 
+    if (staleCached) {
+      React.startTransition(() => {
+        setTransportPlan(staleCached)
+        setError(null)
+        setIsLoading(false)
+      })
+    }
+
+    if (initialTransportPlan) {
+      React.startTransition(() => {
+        setTransportPlan(initialTransportPlan)
+        setError(null)
+        setIsLoading(false)
+      })
+    }
+
     let cancelled = false
 
-    setIsLoading(true)
+    if (!staleCached && !initialTransportPlan) {
+      setIsLoading(true)
+    }
     setError(null)
 
     void loadTransportPlan(retryToken > 0)
@@ -165,7 +213,7 @@ export function useTransportPlanState() {
     return () => {
       cancelled = true
     }
-  }, [retryToken])
+  }, [initialTransportPlan, retryToken])
 
   return {
     transportPlan,

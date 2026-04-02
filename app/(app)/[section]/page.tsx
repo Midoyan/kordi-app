@@ -23,17 +23,6 @@ export function generateStaticParams() {
   }));
 }
 
-const sectionActionLabels: Record<AppSectionSlug, string> = {
-  dashboard: "Create route",
-  "route-builder": "Add route",
-  people: "Add person",
-  vehicles: "Add vehicle",
-  map: "Start tracking",
-  locations: "Add location",
-  schedule: "Add drive",
-  settings: "Add setting",
-};
-
 type PanelProps = {
   title: string;
   description?: string;
@@ -276,9 +265,7 @@ function LocationsView() {
 }
 
 function ScheduleView() {
-  return (
-    <ScheduleViewContent />
-  );
+  return <ScheduleViewContent />;
 }
 
 function SettingsView() {
@@ -321,7 +308,7 @@ function SettingsView() {
   );
 }
 
-async function renderSectionBody(section: AppSectionSlug) {
+function renderSectionBody(section: AppSectionSlug) {
   switch (section) {
     case "dashboard":
       return <DashboardView />;
@@ -352,48 +339,14 @@ export default async function SectionPage({ params }: SectionPageProps) {
     notFound();
   }
 
-  const actionHref =
-    currentSection.slug === "people"
-      ? `/${currentSection.slug}?add-person=1`
-      : currentSection.slug === "vehicles"
-        ? `/${currentSection.slug}?sheet=add-vehicle`
-        : currentSection.slug === "locations"
-          ? `/${currentSection.slug}?sheet=add-location`
-          : currentSection.slug === "schedule"
-            ? `/${currentSection.slug}?sheet=add-drive`
-          : undefined;
-
-          // TODO: actionHref logic can be improved and centralized as more sections and actions are added, 
-          // but this works for now given the current scope of actions needed.
-
   if (currentSection.slug === "map") {
     return <section className="flex h-[calc(100svh-3.5rem)] min-h-0 w-full flex-1 flex-col">{renderSectionBody(currentSection.slug)}</section>;
   }
 
   return (
     <section className="flex flex-1 flex-col px-4 py-5 md:px-6 md:py-6">
-      <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4">
-        <div className="rounded-xl border border-[#e3e3df] bg-white px-5 py-5 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.45)] md:px-6">
-          <p className="text-[11px] font-semibold tracking-[0.14em] text-[#777772] uppercase">
-            {currentSection.eyebrow}
-          </p>
-          <div className="mt-3 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-            <div className="max-w-3xl">
-              <h1 className="text-[28px] font-semibold tracking-tight text-[#1d1d1b] md:text-[34px]">
-                {currentSection.title}
-              </h1>
-              <p className="mt-2 max-w-2xl text-[14px] leading-6 text-[#6b6b67]">
-                {currentSection.description}
-              </p>
-            </div>
-            <ActionButton
-              label={sectionActionLabels[currentSection.slug]}
-              href={actionHref}
-            />
-          </div>
-        </div>
-
-        {await renderSectionBody(currentSection.slug)}
+      <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col">
+        {renderSectionBody(currentSection.slug)}
       </div>
     </section>
   );

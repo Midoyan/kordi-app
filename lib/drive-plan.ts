@@ -1,6 +1,11 @@
 import "server-only"
 
 import { createClient } from "@/lib/server"
+import {
+  getTravelTypeLabel,
+  normalizeTravelType,
+  type TravelType,
+} from "@/lib/travels"
 
 type RawCrewMember = {
   id: string
@@ -37,17 +42,26 @@ type RawVan = {
   created_at: string
 }
 
+type RawLocation = {
+  id: string
+  label: string | null
+  location_type: string | null
+  address: string | null
+  access_notes: string | null
+  created_at: string | null
+}
+
 type RawTravel = {
   id: string
   van_id: string | null
-  driver_crew_id: string | null
-  start_location: string | null
-  start_time: string | null
-  destination_address: string | null
+  travel_type: TravelType | string | null
+  location_id: string | null
+  scheduled_time: string | null
+  sort_order: number | null
   notes: string | null
   created_at: string
   vans?: RawVan | null
-  driver?: RawCrewMember | null
+  location?: RawLocation | null
   trips?: RawTrip[] | null
 }
 
@@ -84,6 +98,11 @@ export type Drive = {
   id: string
   vanId: string | null
   driverCrewId: string | null
+  travelType: TravelType
+  locationId: string
+  scheduledTime: string | null
+  scheduledTimeLabel: string
+  sortOrder: number
   label: string
   startLocation: string
   startTime: string | null
@@ -93,6 +112,14 @@ export type Drive = {
   createdAt: string
   van: RawVan | null
   driver: StopPickupPassenger | null
+  location: {
+    id: string
+    name: string
+    type: string
+    address: string
+    notes: string
+    createdAt: string | null
+  } | null
   stops: DriveStop[]
 }
 
@@ -106,7 +133,7 @@ function formatDatabaseTime(value: string | null | undefined) {
     return ""
   }
 
-  const match = value.match(/^(\d{2}):(\d{2})/)
+  const match = value.match(/(?:^|T)(\d{2}):(\d{2})/)
   return match ? `${match[1]}:${match[2]}` : value
 }
 
@@ -140,7 +167,20 @@ function compareDriveStops(first: DriveStop, second: DriveStop) {
 }
 
 export function mapTravelToDrive(travel: RawTravel, index = 0): Drive {
-  const driver = normalizePassenger(travel.driver)
+  const driver = null
+  const travelType = normalizeTravelType(travel.travel_type)
+  const location = travel.location
+    ? {
+        id: travel.location.id,
+        name: travel.location.label?.trim() || "Untitled location",
+        type: travel.location.location_type?.trim() || "Other",
+        address: travel.location.address?.trim() || "",
+        notes: travel.location.access_notes?.trim() || "",
+        createdAt: travel.location.created_at,
+      }
+    : null
+  const scheduledTimeLabel = formatDatabaseTime(travel.scheduled_time)
+  const commonLocationAddress = location?.address || ""
   const stops =
     travel.trips?.map((trip, stopIndex) => {
       const stopPickupPassengers =
@@ -164,22 +204,27 @@ export function mapTravelToDrive(travel: RawTravel, index = 0): Drive {
     }) ?? []
 
   const label =
-    travel.vans?.label?.trim() ||
-    (driver?.name ? `${driver.name}'s drive` : `Drive ${index + 1}`)
+    `${getTravelTypeLabel(travelType)} · ${location?.name || `Location ${index + 1}`}`
 
   return {
     id: travel.id,
     vanId: travel.van_id,
-    driverCrewId: travel.driver_crew_id,
+    driverCrewId: null,
+    travelType,
+    locationId: location?.id || travel.location_id?.trim() || "",
+    scheduledTime: travel.scheduled_time,
+    scheduledTimeLabel,
+    sortOrder: travel.sort_order ?? index,
     label,
-    startLocation: travel.start_location?.trim() || "",
-    startTime: travel.start_time,
-    startTimeLabel: formatDatabaseTime(travel.start_time),
-    destinationAddress: travel.destination_address?.trim() || "",
+    startLocation: travelType === "dropoff" ? commonLocationAddress : "",
+    startTime: travel.scheduled_time,
+    startTimeLabel: scheduledTimeLabel,
+    destinationAddress: travelType === "pickup" ? commonLocationAddress : "",
     notes: travel.notes,
     createdAt: travel.created_at,
     van: travel.vans ?? null,
     driver,
+    location,
     stops: stops.toSorted(compareDriveStops),
   }
 }
@@ -188,15 +233,26 @@ export async function getDrivePlan() {
   const supabase = await createClient()
 
   const { data, error } = await supabase
-    .from("travels")
+    .from("travels2")
     .select(`
-      *,
-      vans (*),
-      driver:crew_members!travels_driver_crew_id_fkey (
+      id,
+      van_id,
+      travel_type,
+      location_id,
+      scheduled_time,
+      sort_order,
+      notes,
+      created_at,
+      vans!travels_van_id_fkey (
+        *
+      ),
+      location:locations!travels_location_id_fkey (
         id,
-        full_name,
-        phone,
-        home_address
+        label,
+        location_type,
+        address,
+        access_notes,
+        created_at
       ),
       trips (
         *,
@@ -210,13 +266,14 @@ export async function getDrivePlan() {
         )
       )
     `)
-    .order("created_at", { ascending: false })
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true })
 
   if (error) {
     throw error
   }
 
-  return (data ?? []).map((travel, index) => mapTravelToDrive(travel as RawTravel, index))
+  return (data ?? []).map((travel, index) => mapTravelToDrive(travel as unknown as RawTravel, index))
 }
 
 export async function getStopPickupPassengerOptions() {

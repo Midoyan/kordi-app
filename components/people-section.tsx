@@ -40,13 +40,14 @@ import {
   fetchPeople,
   getCachedPeopleSnapshot,
   getPersonSearchText,
+  primePeopleCache,
   type PersonDraft,
   type PersonRecord,
   updatePerson,
 } from "@/lib/people";
+import { parseVCardPayload } from "@/lib/vcard";
 import { cn } from "@/lib/utils";
 
-const defaultDropPrompt = "Drop a contact card from macOS Contacts between rows or import a .vcf file.";
 const defaultColumnVisibility: VisibilityState = {
   select: false,
 };
@@ -57,95 +58,6 @@ function toDraft(person: PersonRecord): PersonDraft {
     address: person.address,
     phone: person.phone,
   };
-}
-
-function decodeVCardValue(value: string) {
-  return value
-    .replace(/\\n/gi, ", ")
-    .replace(/\\,/g, ",")
-    .replace(/\\;/g, ";")
-    .replace(/\\\\/g, "\\")
-    .trim();
-}
-
-function unfoldVCardLines(source: string) {
-  return source
-    .replace(/\r\n/g, "\n")
-    .replace(/\n[ \t]/g, "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
-
-function parseVCardLine(line: string) {
-  const separatorIndex = line.indexOf(":");
-
-  if (separatorIndex < 0) {
-    return null;
-  }
-
-  const metadata = line.slice(0, separatorIndex);
-  const property = metadata.split(";")[0]?.split(".").pop()?.toUpperCase();
-
-  if (!property) {
-    return null;
-  }
-
-  return {
-    property,
-    value: decodeVCardValue(line.slice(separatorIndex + 1)),
-  };
-}
-
-function getFieldValues(lines: string[], fieldName: string) {
-  const upperFieldName = fieldName.toUpperCase();
-
-  return lines
-    .map((line) => parseVCardLine(line))
-    .filter((entry) => entry?.property === upperFieldName)
-    .map((entry) => entry?.value ?? "")
-    .filter(Boolean);
-}
-
-function formatNameFromN(value: string) {
-  const [lastName, firstName, middleName, prefix, suffix] = value
-    .split(";")
-    .map((part) => decodeVCardValue(part));
-
-  return [prefix, firstName, middleName, lastName, suffix].filter(Boolean).join(" ");
-}
-
-function formatAddress(value: string) {
-  return value
-    .split(";")
-    .map((part) => decodeVCardValue(part))
-    .filter(Boolean)
-    .join(", ");
-}
-
-function parseVCardEntry(card: string, index: number): PersonDraft {
-  const lines = unfoldVCardLines(card);
-  const fn = getFieldValues(lines, "FN")[0];
-  const n = getFieldValues(lines, "N")[0];
-  const address = getFieldValues(lines, "ADR")[0] ?? getFieldValues(lines, "LABEL")[0] ?? "";
-  const phone = getFieldValues(lines, "TEL")[0] ?? "";
-  const name = fn || (n ? formatNameFromN(n) : `Imported contact ${index + 1}`);
-
-  return {
-    name,
-    address: address.includes(";") ? formatAddress(address) : address,
-    phone,
-  };
-}
-
-function parseVCardPayload(payload: string) {
-  const matches = payload.match(/BEGIN:VCARD[\s\S]*?END:VCARD/gi);
-
-  if (!matches) {
-    return [];
-  }
-
-  return matches.map((card, index) => parseVCardEntry(card, index));
 }
 
 function insertAtVisibleIndex(
@@ -260,11 +172,11 @@ function PeoplePanel({
   );
 }
 
-export function PeopleSection() {
+export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[] }) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [people, setPeople] = useState<PersonRecord[]>([]);
+  const [people, setPeople] = useState<PersonRecord[]>(initialPeople ?? []);
   const [query, setQuery] = useState("");
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(defaultColumnVisibility);
@@ -284,23 +196,36 @@ export function PeopleSection() {
   const insertAnimationTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
+    if (initialPeople) {
+      primePeopleCache(initialPeople);
+    }
+  }, [initialPeople]);
+
+  useEffect(() => {
     const controller = new AbortController();
     const cachedPeople = getCachedPeopleSnapshot();
 
     if (cachedPeople !== null) {
       setPeople(cachedPeople);
       setIsLoading(false);
+    } else if (initialPeople) {
+      setPeople(initialPeople);
+      setIsLoading(false);
+      setLoadError(null);
     }
 
     const load = async () => {
-      if (cachedPeople === null) {
+      if (cachedPeople === null && !initialPeople) {
         setIsLoading(true);
       }
 
       setLoadError(null);
 
       try {
-        const nextPeople = await fetchPeople(controller.signal);
+        const nextPeople =
+          cachedPeople !== null
+            ? await fetchPeople(controller.signal)
+            : initialPeople ?? await fetchPeople(controller.signal);
         setPeople(nextPeople);
       } catch (error) {
         if (controller.signal.aborted) {
@@ -324,7 +249,7 @@ export function PeopleSection() {
         window.clearTimeout(insertAnimationTimeoutRef.current);
       }
     };
-  }, []);
+  }, [initialPeople]);
 
   useEffect(() => {
     if (searchParams.get("add-person") !== "1") {
@@ -416,9 +341,6 @@ export function PeopleSection() {
           <p className="text-[15px] font-semibold tracking-tight text-[#1d1d1b]">
             {row.original.name}
           </p>
-          <p className="text-[12px] text-[#7a7a74]">
-            {row.original.phone || "Phone not added"}
-          </p>
         </div>
       ),
     },
@@ -507,8 +429,6 @@ export function PeopleSection() {
   });
 
   const visibleColumns = table.getAllColumns().filter((column) => column.getCanHide());
-  const missingAddressCount = people.filter((person) => !person.address.trim()).length;
-  const missingPhoneCount = people.filter((person) => !person.phone.trim()).length;
 
   const mergeImportedPeople = async (
     payloads: string[],
@@ -615,7 +535,7 @@ export function PeopleSection() {
 
   return (
     <>
-      <div className="grid gap-4 lg:grid-cols-[1.38fr_0.62fr]">
+      <div className="grid">
         <PeoplePanel
           title="People roster"
           description="Load, search, edit, and import crew members from the shared people source."
@@ -627,6 +547,12 @@ export function PeopleSection() {
               </div>
             ) : null}
 
+            {notice ? (
+              <div className="rounded-xl border border-[#d8e2ff] bg-[#f5f8ff] px-4 py-3 text-[13px] text-[#3556a8]">
+                {notice}
+              </div>
+            ) : null}
+
             {isLoading ? (
               <div className="flex min-h-32 items-center justify-center rounded-lg border border-[#e7e7e4] bg-[#fafaf7] text-[13px] text-[#6b6b67]">
                 Loading people from `crew_members`...
@@ -635,6 +561,7 @@ export function PeopleSection() {
               <WorkspaceVCardTable
                 table={table}
                 dataIds={people.map((person) => person.id)}
+                showImportPanel={false}
                 toolbar={() => (
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <div className="relative flex-1">
@@ -661,19 +588,7 @@ export function PeopleSection() {
                     </div>
                   </div>
                 )}
-                importPrompt={defaultDropPrompt}
-                importButtonLabel={isImporting ? "Importing..." : "Import .vcf"}
                 importInProgress={isImporting}
-                importNote={
-                  notice ? (
-                    <p>{notice}</p>
-                  ) : (
-                    <p>
-                      People load from and save to `/api/crew-members`. vCard imports create real
-                      crew member records instead of demo rows.
-                    </p>
-                  )
-                }
                 onImportPayloads={(payloads, context) =>
                   mergeImportedPeople(payloads, context.insertionIndex)
                 }
@@ -777,27 +692,6 @@ export function PeopleSection() {
           </div>
         </PeoplePanel>
 
-        <div className="grid gap-4">
-          <PeoplePanel
-            title="Connected source"
-            description="The People page is now backed by the same crew-member API used elsewhere in the app."
-          >
-            <div className="grid gap-3">
-              <InfoCard
-                title="Loaded records"
-                detail={`${people.length} crew member${people.length === 1 ? "" : "s"} currently in the shared roster.`}
-              />
-              <InfoCard
-                title="Missing address"
-                detail={`${missingAddressCount} ${missingAddressCount === 1 ? "record is" : "records are"} missing a saved address.`}
-              />
-              <InfoCard
-                title="Missing phone"
-                detail={`${missingPhoneCount} ${missingPhoneCount === 1 ? "record is" : "records are"} missing a phone number.`}
-              />
-            </div>
-          </PeoplePanel>
-        </div>
       </div>
 
       <PersonEditorSheet
@@ -815,20 +709,5 @@ export function PeopleSection() {
         setDraft={setEditorDraft}
       />
     </>
-  );
-}
-
-function InfoCard({
-  title,
-  detail,
-}: {
-  title: string;
-  detail: string;
-}) {
-  return (
-    <div className="rounded-lg border border-[#e7e7e4] bg-[#fbfbf8] p-4">
-      <p className="text-[13px] font-semibold text-[#1d1d1b]">{title}</p>
-      <p className="mt-2 text-[13px] leading-6 text-[#6b6b67]">{detail}</p>
-    </div>
   );
 }

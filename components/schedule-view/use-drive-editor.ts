@@ -4,21 +4,36 @@ import * as React from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
 import type { Drive } from "@/lib/drive-plan"
+import {
+  fetchLocations,
+  getCachedLocationsSnapshot,
+  type LocationRecord,
+} from "@/lib/locations"
 import { parseTimeString } from "@/lib/schedule-recalculation"
+import {
+  getTravelTypeLabel,
+} from "@/lib/travels"
+import {
+  fetchVehicles,
+  getCachedVehiclesSnapshot,
+  type VehicleRecord,
+} from "@/lib/vehicles"
 import type { DriveEditorDraft } from "@/components/drive-editor-sheet"
 
 type DriveEditorMode = "create" | "edit" | null
 
 function buildDriveDraft(drive?: Drive): DriveEditorDraft {
   return {
-    startLocation: drive?.startLocation ?? "",
-    startTime: drive?.startTimeLabel ?? "",
-    destinationAddress: drive?.destinationAddress ?? "",
+    vanId: drive?.vanId ?? "",
+    travelType: drive?.travelType ?? "pickup",
+    locationId: drive?.locationId ?? "",
+    scheduledTime: drive?.scheduledTimeLabel ?? "",
+    scheduledTimeSource: drive?.scheduledTime ?? null,
     notes: drive?.notes ?? "",
   }
 }
 
-function formatDatabaseTimeValue(value: string) {
+function formatScheduledTimestampValue(value: string, source: string | null) {
   const parsed = parseTimeString(value.trim())
 
   if (!parsed) {
@@ -27,7 +42,22 @@ function formatDatabaseTimeValue(value: string) {
 
   const hours = parsed.hours.toString().padStart(2, "0")
   const minutes = parsed.minutes.toString().padStart(2, "0")
-  return `${hours}:${minutes}:00`
+  const existingMatch = source?.match(
+    /^(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}(:\d{2}(?:\.\d+)?)?(Z|[+-]\d{2}:\d{2})?$/
+  )
+
+  if (existingMatch) {
+    return `${existingMatch[1]}T${hours}:${minutes}${existingMatch[2] ?? ":00"}${existingMatch[3] ?? "Z"}`
+  }
+
+  const now = new Date()
+  const datePart = [
+    now.getFullYear().toString().padStart(4, "0"),
+    (now.getMonth() + 1).toString().padStart(2, "0"),
+    now.getDate().toString().padStart(2, "0"),
+  ].join("-")
+
+  return `${datePart}T${hours}:${minutes}:00Z`
 }
 
 function buildDriveSheetHref(pathname: string, searchParams: URLSearchParams, open: boolean) {
@@ -72,16 +102,23 @@ function getPrimaryAddressLine(value: string) {
 function getDriveLabelPreview(
   drive: Drive | null,
   draft: DriveEditorDraft | null,
-  driveCount: number
+  driveCount: number,
+  locationOptions: LocationRecord[]
 ) {
   if (drive) {
     return drive.label
   }
 
-  const primaryDestination = getPrimaryAddressLine(draft?.destinationAddress?.trim() || "")
+  const selectedLocation =
+    draft?.locationId
+      ? locationOptions.find((location) => location.id === draft.locationId) ?? null
+      : null
+  const locationLabel = getPrimaryAddressLine(
+    selectedLocation?.name || selectedLocation?.address || ""
+  )
 
-  if (primaryDestination && primaryDestination !== "Not set") {
-    return `Drive to ${primaryDestination}`
+  if (locationLabel && locationLabel !== "Not set") {
+    return `${getTravelTypeLabel(draft?.travelType ?? "pickup")} · ${locationLabel}`
   }
 
   return `Drive ${driveCount + 1}`
@@ -91,9 +128,10 @@ export function getDriveCardKey(drive: Drive) {
   return [
     drive.id,
     drive.label,
-    drive.startLocation,
-    drive.startTime ?? "",
-    drive.destinationAddress,
+    drive.travelType,
+    drive.locationId,
+    drive.scheduledTime ?? "",
+    drive.vanId ?? "",
   ].join("::")
 }
 
@@ -115,6 +153,14 @@ export function useDriveEditorState({
   const [driveError, setDriveError] = React.useState<string | null>(null)
   const [isSavingDrive, setIsSavingDrive] = React.useState(false)
   const [deletingDriveId, setDeletingDriveId] = React.useState<string | null>(null)
+  const [locationOptions, setLocationOptions] = React.useState<LocationRecord[]>(() =>
+    getCachedLocationsSnapshot() ?? []
+  )
+  const [vehicleOptions, setVehicleOptions] = React.useState<VehicleRecord[]>(() =>
+    getCachedVehiclesSnapshot() ?? []
+  )
+  const [isLoadingResources, setIsLoadingResources] = React.useState(false)
+  const [resourceErrorMessage, setResourceErrorMessage] = React.useState<string | null>(null)
 
   const activeDrive = React.useMemo(
     () => drives.find((drive) => drive.id === editingDriveId) ?? null,
@@ -164,17 +210,36 @@ export function useDriveEditorState({
       return
     }
 
-    const trimmedStartTime = driveDraft.startTime.trim()
+    const trimmedScheduledTime = driveDraft.scheduledTime.trim()
 
-    if (trimmedStartTime && !parseTimeString(trimmedStartTime)) {
-      setDriveError('Start time must use 24-hour "HH:mm" format.')
+    if (!driveDraft.vanId) {
+      setDriveError("Choose a van for this drive.")
+      return
+    }
+
+    if (!driveDraft.locationId) {
+      setDriveError("Choose a set location for this drive.")
+      return
+    }
+
+    if (driveDraft.travelType === "pickup" && !trimmedScheduledTime) {
+      setDriveError("Pickup drives need an arrival time.")
+      return
+    }
+
+    if (trimmedScheduledTime && !parseTimeString(trimmedScheduledTime)) {
+      setDriveError('Scheduled time must use 24-hour "HH:mm" format.')
       return
     }
 
     const payload = {
-      start_location: driveDraft.startLocation.trim() || null,
-      start_time: trimmedStartTime ? formatDatabaseTimeValue(trimmedStartTime) : null,
-      destination_address: driveDraft.destinationAddress.trim() || null,
+      van_id: driveDraft.vanId,
+      travel_type: driveDraft.travelType,
+      location_id: driveDraft.locationId,
+      scheduled_time: trimmedScheduledTime
+        ? formatScheduledTimestampValue(trimmedScheduledTime, driveDraft.scheduledTimeSource)
+        : null,
+      sort_order: driveEditorMode === "create" ? drives.length : activeDrive?.sortOrder ?? 0,
       notes: driveDraft.notes.trim() || null,
     }
 
@@ -211,7 +276,15 @@ export function useDriveEditorState({
     } finally {
       setIsSavingDrive(false)
     }
-  }, [closeDriveEditor, driveDraft, driveEditorMode, editingDriveId, refreshTransportPlan])
+  }, [
+    activeDrive?.sortOrder,
+    closeDriveEditor,
+    driveDraft,
+    driveEditorMode,
+    drives.length,
+    editingDriveId,
+    refreshTransportPlan,
+  ])
 
   const handleDriveDelete = React.useCallback(
     async (drive: Drive) => {
@@ -254,6 +327,48 @@ export function useDriveEditorState({
     }
   }, [driveSheetParam, openCreateDrive])
 
+  React.useEffect(() => {
+    if (driveEditorMode === null) {
+      return
+    }
+
+    let cancelled = false
+
+    setIsLoadingResources(true)
+    setResourceErrorMessage(null)
+
+    Promise.all([
+      fetchLocations(),
+      fetchVehicles(),
+    ])
+      .then(([nextLocations, nextVehicles]) => {
+        if (cancelled) {
+          return
+        }
+
+        setLocationOptions(nextLocations)
+        setVehicleOptions(nextVehicles)
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return
+        }
+
+        setResourceErrorMessage(
+          error instanceof Error ? error.message : "Unable to load drive options."
+        )
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingResources(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [driveEditorMode])
+
   return {
     activeDrive,
     driveDraft,
@@ -261,12 +376,16 @@ export function useDriveEditorState({
     driveError,
     deletingDriveId,
     isSavingDrive,
-    labelPreview: getDriveLabelPreview(activeDrive, driveDraft, drives.length),
+    isLoadingResources,
+    labelPreview: getDriveLabelPreview(activeDrive, driveDraft, drives.length, locationOptions),
+    locationOptions,
     openCreateDrive,
     openEditDrive,
     closeDriveEditor,
     handleDriveSave,
     handleDriveDelete,
+    resourceErrorMessage,
     setDriveDraft,
+    vehicleOptions,
   }
 }

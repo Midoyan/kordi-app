@@ -14,6 +14,7 @@ import {
   Trash2,
 } from "lucide-react"
 
+import { getTravelTypeLabel } from "@/lib/travels"
 import { cn } from "@/lib/utils"
 import {
   buildAdvancedTimingCaption,
@@ -53,6 +54,14 @@ export function ScheduleSection({
   showDriveSummary = true,
   renderHeaderLeading,
 }: ScheduleSectionProps) {
+  const travelTypeLabel = getTravelTypeLabel(drive.travelType)
+  const stopAddressColumnLabel = drive.travelType === "pickup" ? "Pickup Address" : "Stop Address"
+  const stopTimeColumnLabel = drive.travelType === "pickup" ? "PU Time" : "Stop time"
+  const scheduleTimeColumnLabel = drive.travelType === "pickup" ? "Arrive by" : "Depart at"
+  const commonLocationLabel =
+    drive.location?.address || drive.location?.name || drive.destinationAddress || drive.startLocation
+  const supportsRoutePlanning = drive.travelType === "pickup"
+
   const {
     columnVisibility,
     dataIds,
@@ -174,11 +183,11 @@ export function ScheduleSection({
       },
       {
         accessorKey: "pickupAddress",
-        meta: { label: "Pickup Address" },
+        meta: { label: stopAddressColumnLabel },
         enableSorting: false,
         header: ({ column }) => (
           <SortableHeader
-            label="Pickup Address"
+            label={stopAddressColumnLabel}
             isSorted={column.getIsSorted()}
             onToggle={() => column.toggleSorting(column.getIsSorted() === "asc")}
           />
@@ -187,11 +196,11 @@ export function ScheduleSection({
       },
       {
         accessorKey: "pickupTime",
-        meta: { label: "PU Time" },
+        meta: { label: stopTimeColumnLabel },
         enableSorting: false,
         header: ({ column }) => (
           <SortableHeader
-            label="PU Time"
+            label={stopTimeColumnLabel}
             isSorted={column.getIsSorted()}
             onToggle={() => column.toggleSorting(column.getIsSorted() === "asc")}
           />
@@ -248,11 +257,11 @@ export function ScheduleSection({
       },
       {
         accessorKey: "endDestination",
-        meta: { label: "Drop off" },
+        meta: { label: "Set location" },
         enableSorting: false,
         header: ({ column }) => (
           <SortableHeader
-            label="Drop off"
+            label="Set location"
             isSorted={column.getIsSorted()}
             onToggle={() => column.toggleSorting(column.getIsSorted() === "asc")}
           />
@@ -263,11 +272,11 @@ export function ScheduleSection({
       },
       {
         accessorKey: "arrival",
-        meta: { label: "Arrival" },
+        meta: { label: scheduleTimeColumnLabel },
         enableSorting: false,
         header: ({ column }) => (
           <SortableHeader
-            label="Arrival"
+            label={scheduleTimeColumnLabel}
             isSorted={column.getIsSorted()}
             onToggle={() => column.toggleSorting(column.getIsSorted() === "asc")}
           />
@@ -300,6 +309,9 @@ export function ScheduleSection({
       passengerLookup,
       pendingUpdates,
       positionChanges,
+      scheduleTimeColumnLabel,
+      stopAddressColumnLabel,
+      stopTimeColumnLabel,
     ]
   )
 
@@ -400,30 +412,36 @@ export function ScheduleSection({
                     <p className="text-[18px] font-semibold text-[#1d1d1b]">{drive.label}</p>
                     <p className="mt-1 text-[13px] leading-6 text-[#6b6b67]">
                       {stopCount} stop{stopCount === 1 ? "" : "s"} and {passengerCount} passenger
-                      {passengerCount === 1 ? "" : "s"} on this drive.
-                      {drive.startLocation ? ` Starting from ${drive.startLocation}.` : ""}
+                      {passengerCount === 1 ? "" : "s"} on this {travelTypeLabel.toLowerCase()} drive.
+                      {commonLocationLabel ? ` Set location: ${commonLocationLabel}.` : ""}
                     </p>
                   </div>
                 ) : null}
                 {renderHeaderLeading ? renderHeaderLeading({ finalArrivalTime }) : null}
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
-                <ScheduleRoutingControls
-                  stops={displayData.map((item) => ({
-                    id: item.id,
-                    pickupAddress: item.pickupAddress,
-                    endDestination: item.endDestination,
-                    stopDurationSec: item.stopDurationSec,
-                    trafficBufferSec: item.trafficBufferSec,
-                  }))}
-                  arrivalTime={finalArrivalTime}
-                  hasPendingChanges={hasPendingChanges}
-                  onConfirmChanges={() => {
-                    void onConfirmChanges()
-                  }}
-                  onErrorChange={setRouteError}
-                  onPlanReady={handlePlanReady}
-                />
+                {supportsRoutePlanning ? (
+                  <ScheduleRoutingControls
+                    stops={displayData.map((item) => ({
+                      id: item.id,
+                      pickupAddress: item.pickupAddress,
+                      endDestination: item.endDestination,
+                      stopDurationSec: item.stopDurationSec,
+                      trafficBufferSec: item.trafficBufferSec,
+                    }))}
+                    arrivalTime={finalArrivalTime}
+                    hasPendingChanges={hasPendingChanges}
+                    onConfirmChanges={() => {
+                      void onConfirmChanges()
+                    }}
+                    onErrorChange={setRouteError}
+                    onPlanReady={handlePlanReady}
+                  />
+                ) : (
+                  <span className="rounded-full border border-[#dde3d4] bg-[#f7faf2] px-3 py-1.5 text-[11px] font-medium text-[#51614f]">
+                    Dropoff routing stays manual for now
+                  </span>
+                )}
                 <WorkspaceColumnToggleMenu columns={visibleColumns} />
                 <Button
                   type="button"
@@ -573,6 +591,8 @@ export function ScheduleSection({
       <ScheduleStopEditorSheet
         open={sheetOpen}
         driveLabel={drive.label}
+        travelType={drive.travelType}
+        commonLocationLabel={commonLocationLabel}
         draft={draft}
         passengerLookup={passengerLookup}
         stopPickupPassengerOptions={stopPickupPassengerOptions}
