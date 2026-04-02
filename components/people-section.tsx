@@ -66,6 +66,7 @@ function insertAtVisibleIndex(
   visibleIds: string[],
   insertionIndex: number | null,
 ) {
+  // Drops happen against the filtered/sorted table, so convert that visible insertion point back into the source list.
   if (currentPeople.length === 0) {
     return incomingPeople;
   }
@@ -434,6 +435,7 @@ export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[
     payloads: string[],
     insertionIndex: number | null,
   ) => {
+    // Table drops may contain multiple contacts; keep them in payload order when creating crew members.
     const importedDrafts = payloads.flatMap((payload) => parseVCardPayload(payload));
 
     if (importedDrafts.length === 0) {

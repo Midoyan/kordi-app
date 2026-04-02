@@ -78,6 +78,10 @@ export type StopPickupPassengerOption = {
   detail: string
   phone: string | null
   address: string
+  pickupContext?: {
+    pickupCount: number
+    pickupTimes: string[]
+  }
 }
 
 export type DriveStop = {

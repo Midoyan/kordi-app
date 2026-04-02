@@ -8,6 +8,7 @@ export async function GET() {
   const supabase = await createClient();
 
   const { data, error } = await supabase
+    // The canonical shared people source is `crew_members`; trips/call sheets reference it rather than duplicating rows.
     .from("crew_members")
     .select("id, full_name, home_address, phone, created_at")
     .order("created_at", { ascending: false });

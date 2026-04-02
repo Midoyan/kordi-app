@@ -18,7 +18,7 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from "react";
+import { type ComponentProps, type ReactNode, useCallback, useEffect, useState } from "react";
 
 import { AddressAutofillInput } from "@/components/address-autofill-input";
 import { EditorSheetLayout } from "@/components/editor-sheet-layout";
@@ -538,7 +538,7 @@ export function LocationsPage({ initialLocations }: { initialLocations?: Locatio
 
   const visibleColumns = table.getAllColumns().filter((column) => column.getCanHide());
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  const handleSubmit: NonNullable<ComponentProps<"form">["onSubmit"]> = async (event) => {
     event.preventDefault();
     const validation = validateLocationForm(form);
 

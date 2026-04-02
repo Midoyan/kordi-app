@@ -15,7 +15,6 @@ import type { DriveStopRow } from "@/components/schedule-section/types"
 import type { ScheduleStopDraftMode } from "@/components/schedule-section/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Separator } from "@/components/ui/separator"
 import {
   Sheet,
   SheetContent,
@@ -29,7 +28,6 @@ type ScheduleStopEditorSheetProps = {
   open: boolean
   driveLabel: string
   travelType: TravelType
-  commonLocationLabel: string
   draft: DriveStopRow | null
   draftMode: ScheduleStopDraftMode
   passengerLookup: Map<string, StopPickupPassengerOption>
@@ -49,7 +47,6 @@ export function ScheduleStopEditorSheet({
   open,
   driveLabel,
   travelType,
-  commonLocationLabel,
   draft,
   draftMode,
   passengerLookup,
@@ -64,8 +61,6 @@ export function ScheduleStopEditorSheet({
   onDelete,
   onSubmit,
 }: ScheduleStopEditorSheetProps) {
-  const scheduledTimeLabel = travelType === "pickup" ? "Arrive by" : "Depart at"
-
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full border-l border-[#ecece8] bg-white sm:max-w-xl">

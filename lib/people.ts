@@ -28,6 +28,7 @@ type PeopleCachePayload = {
   version: 1;
 };
 
+// "People" is the product/UI name; the persisted table is still `crew_members`.
 const PEOPLE_CACHE_STORAGE_KEY = "kordi.people-cache.v1";
 const PEOPLE_CACHE_TTL_MS = 5 * 60 * 1000;
 const PEOPLE_CACHE_VERSION = 1;
@@ -263,6 +264,7 @@ export function validateCrewMemberPayload(payload: CrewMemberPayload) {
 }
 
 export function mapCrewMemberToPerson(record: CrewMemberRecord): PersonRecord {
+  // Keep this mapping centralized so UI field renames do not leak into API/table code.
   return {
     id: record.id,
     name: readString(record.full_name) || "Unnamed person",
@@ -304,6 +306,7 @@ export async function fetchPeople(signal?: AbortSignal) {
   const staleCachedPeople = getCachedPeopleSnapshot({ includeExpired: true });
 
   if (!peopleRequest) {
+    // Multiple screens can ask for people at once; share one request and let callers cancel their own wait only.
     const request = (async () => {
       const response = await fetch("/api/crew-members", {
         cache: "no-store",

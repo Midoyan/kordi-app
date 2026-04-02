@@ -151,6 +151,39 @@ export function StopPickupPassengerCombobox({
     .map((id) => passengerLookup.get(id))
     .filter((person): person is StopPickupPassengerOption => Boolean(person))
 
+  const getPickupContextLabel = React.useCallback((person: StopPickupPassengerOption) => {
+    const pickupCount = person.pickupContext?.pickupCount ?? 0
+    const pickupTimes = person.pickupContext?.pickupTimes ?? []
+
+    if (pickupCount <= 0) {
+      return "No pickup"
+    }
+
+    const firstPickupTime = pickupTimes[0] ?? ""
+
+    if (pickupCount === 1) {
+      return firstPickupTime ? `PU ${firstPickupTime}` : "PU set"
+    }
+
+    return firstPickupTime
+      ? `(${pickupCount}x) PU ${firstPickupTime}`
+      : `(${pickupCount}x) PU set`
+  }, [])
+
+  const getPickupContextClassName = React.useCallback((person: StopPickupPassengerOption) => {
+    const pickupCount = person.pickupContext?.pickupCount ?? 0
+
+    if (pickupCount <= 0) {
+      return "border-[#e2e3e7] bg-[#f3f4f6] text-[#6b7280]"
+    }
+
+    if (pickupCount === 1) {
+      return "border-[#c7dcff] bg-[#eef5ff] text-[#3e63b3]"
+    }
+
+    return "border-[#8bb6ff] bg-[#dcecff] text-[#174ea6]"
+  }, [])
+
   return (
     <Combobox
       multiple
@@ -207,15 +240,30 @@ export function StopPickupPassengerCombobox({
               key={person.id}
               value={person.id}
               className="items-start gap-3 px-2 py-2.5"
+              title={
+                (person.pickupContext?.pickupTimes?.length ?? 0) > 1
+                  ? person.pickupContext?.pickupTimes.join(", ")
+                  : undefined
+              }
             >
-              <div className="min-w-0">
-                <p className="truncate text-[13px] font-medium text-[#1d1d1b]">
-                  {person.name}
-                </p>
-                <p className="mt-0.5 text-[11px] text-[#6b6b67]">{person.detail}</p>
-                <p className="mt-1 truncate text-[11px] text-[#8a8a84]">
-                  {person.address}
-                </p>
+              <div className="flex min-w-0 flex-1 items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] font-medium text-[#1d1d1b]">
+                    {person.name}
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-[#6b6b67]">{person.detail}</p>
+                  <p className="mt-1 truncate text-[11px] text-[#8a8a84]">
+                    {person.address}
+                  </p>
+                </div>
+                <span
+                  className={cn(
+                    "shrink-0 rounded-full border px-2 py-1 text-[10px] font-semibold tracking-[0.08em] uppercase",
+                    getPickupContextClassName(person)
+                  )}
+                >
+                  {getPickupContextLabel(person)}
+                </span>
               </div>
             </ComboboxItem>
           ))}

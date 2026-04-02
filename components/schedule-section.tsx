@@ -600,7 +600,6 @@ export function ScheduleSection({
           open={sheetOpen}
           driveLabel={drive.label}
           travelType={drive.travelType}
-          commonLocationLabel={commonLocationLabel}
           draft={draft}
           draftMode={draftMode}
           passengerLookup={passengerLookup}

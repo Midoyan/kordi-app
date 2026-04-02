@@ -17,6 +17,54 @@ import { useTransportPlanState } from "@/components/schedule-view/use-transport-
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 
+function enrichStopPickupPassengerOptions(
+  drives: import("@/lib/drive-plan").Drive[],
+  options: import("@/lib/drive-plan").StopPickupPassengerOption[]
+) {
+  const pickupContextByPassengerId = new Map<
+    string,
+    { pickupCount: number; pickupTimes: string[] }
+  >()
+
+  for (const drive of drives) {
+    for (const stop of drive.stops) {
+      const pickupTimeLabel = stop.pickupTimeLabel.trim()
+
+      for (const passenger of stop.stopPickupPassengers) {
+        const currentContext = pickupContextByPassengerId.get(passenger.id) ?? {
+          pickupCount: 0,
+          pickupTimes: [],
+        }
+
+        pickupContextByPassengerId.set(
+          passenger.id,
+          pickupTimeLabel
+            ? {
+                pickupCount: currentContext.pickupCount + 1,
+                pickupTimes: [...currentContext.pickupTimes, pickupTimeLabel],
+              }
+            : {
+                pickupCount: currentContext.pickupCount + 1,
+                pickupTimes: currentContext.pickupTimes,
+              }
+        )
+      }
+    }
+  }
+
+  return options.map((option) => {
+    const pickupContext = pickupContextByPassengerId.get(option.id) ?? {
+      pickupCount: 0,
+      pickupTimes: [],
+    }
+
+    return {
+      ...option,
+      pickupContext,
+    }
+  })
+}
+
 function SchedulePanel({
   title,
   description,
@@ -92,8 +140,15 @@ export function ScheduleView({ initialTransportPlan }: { initialTransportPlan?: 
     refreshTransportPlan,
     handleDriveUpdated,
   } = useTransportPlanState(initialTransportPlan)
-  const drives = transportPlan?.drives ?? []
-  const stopPickupPassengerOptions = transportPlan?.stopPickupPassengerOptions ?? []
+  const drives = React.useMemo(() => transportPlan?.drives ?? [], [transportPlan?.drives])
+  const rawStopPickupPassengerOptions = React.useMemo(
+    () => transportPlan?.stopPickupPassengerOptions ?? [],
+    [transportPlan?.stopPickupPassengerOptions]
+  )
+  const stopPickupPassengerOptions = React.useMemo(
+    () => enrichStopPickupPassengerOptions(drives, rawStopPickupPassengerOptions),
+    [drives, rawStopPickupPassengerOptions]
+  )
   const {
     activeDrive,
     driveDraft,

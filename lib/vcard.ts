@@ -9,6 +9,7 @@ export type VCardContactDraft = {
   phone: string
 }
 
+// We intentionally normalize only the fields the People editor can store today.
 const defaultVCardTransferTypes = [
   "text/vcard",
   "text/x-vcard",
@@ -111,6 +112,7 @@ function parseVCardEntry(card: string, index: number): VCardContactDraft {
 }
 
 export function parseVCardPayload(payload: string) {
+  // A single payload can contain multiple VCARD blocks; callers decide whether to keep all or only the first.
   const matches = payload.match(/BEGIN:VCARD[\s\S]*?END:VCARD/gi)
 
   if (!matches) {
