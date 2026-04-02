@@ -74,13 +74,13 @@ export const appSectionMap = new Map(
 
 export const sectionActionLabels: Record<AppSectionSlug, string> = {
   dashboard: "Create route",
-  "route-builder": "Add route",
+  // "route-builder": "Add route",
   people: "Add person",
   vehicles: "Add vehicle",
   map: "Start tracking",
   locations: "Add location",
   schedule: "Add drive",
-  settings: "Add setting",
+  // settings: "Add setting",
 };
 
 export function getSectionActionHref(section: AppSectionSlug) {
