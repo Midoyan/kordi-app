@@ -35,7 +35,7 @@ function extractIsoDate(value: string | null | undefined) {
 
 function buildTransportationSchedule(drives: Drive[]): TransportationScheduleRow[] {
     return drives.flatMap((drive) => {
-        const driver = drive.van?.label?.trim() || drive.van?.plate_number?.trim() || '-';
+        const driver = drive.driver?.name?.trim() || drive.van?.label?.trim() || drive.van?.plate_number?.trim() || '-';
         const destination = drive.destinationAddress || drive.location?.address || '-';
 
         if (!drive.stops.length) {
