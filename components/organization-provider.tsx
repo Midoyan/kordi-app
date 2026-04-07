@@ -10,9 +10,12 @@ import {
 } from "@/lib/organizations";
 import { defaultProjects, type Project } from "@/lib/projects";
 
-const ORGANIZATIONS_STORAGE_KEY = "kordi.organizations";
-const ACTIVE_ORGANIZATION_STORAGE_KEY = "kordi.active-organization";
-const ACTIVE_PROJECTS_STORAGE_KEY = "kordi.active-projects";
+const SHELL_STATE_STORAGE_KEY = "kordi.shell-state";
+
+type StoredShellState = {
+  activeOrganizationId?: string;
+  activeProjectIdsByOrganization?: Record<string, string>;
+};
 
 type OrganizationContextValue = {
   organizations: Organization[];
@@ -48,59 +51,41 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
   >({});
 
   React.useEffect(() => {
-    const storedOrganizations = window.localStorage.getItem(ORGANIZATIONS_STORAGE_KEY);
-    const storedActiveOrganization = window.localStorage.getItem(
-      ACTIVE_ORGANIZATION_STORAGE_KEY,
-    );
-    const storedActiveProjects = window.localStorage.getItem(ACTIVE_PROJECTS_STORAGE_KEY);
+    const storedShellState = window.localStorage.getItem(SHELL_STATE_STORAGE_KEY);
 
-    if (storedOrganizations) {
+    // Older demo versions persisted org mutations locally. Drop that cache and
+    // always start from the seeded/frontend-loaded org list until the backend owns it.
+    window.localStorage.removeItem("kordi.organizations");
+
+    if (storedShellState) {
       try {
-        const parsedOrganizations = JSON.parse(storedOrganizations) as Organization[];
+        const parsedShellState = JSON.parse(storedShellState) as StoredShellState;
 
-        if (Array.isArray(parsedOrganizations) && parsedOrganizations.length > 0) {
-          setOrganizations(parsedOrganizations);
+        if (parsedShellState.activeOrganizationId) {
+          setActiveOrganizationId(parsedShellState.activeOrganizationId);
+        }
+
+        if (
+          parsedShellState.activeProjectIdsByOrganization &&
+          typeof parsedShellState.activeProjectIdsByOrganization === "object"
+        ) {
+          setActiveProjectIdsByOrganization(parsedShellState.activeProjectIdsByOrganization);
         }
       } catch {
-        window.localStorage.removeItem(ORGANIZATIONS_STORAGE_KEY);
-      }
-    }
-
-    if (storedActiveOrganization) {
-      setActiveOrganizationId(storedActiveOrganization);
-    }
-
-    if (storedActiveProjects) {
-      try {
-        const parsedActiveProjects = JSON.parse(storedActiveProjects) as Record<string, string>;
-
-        if (parsedActiveProjects && typeof parsedActiveProjects === "object") {
-          setActiveProjectIdsByOrganization(parsedActiveProjects);
-        }
-      } catch {
-        window.localStorage.removeItem(ACTIVE_PROJECTS_STORAGE_KEY);
+        window.localStorage.removeItem(SHELL_STATE_STORAGE_KEY);
       }
     }
   }, []);
 
   React.useEffect(() => {
-    window.localStorage.setItem(ORGANIZATIONS_STORAGE_KEY, JSON.stringify(organizations));
-  }, [organizations]);
-
-  React.useEffect(() => {
-    if (!activeOrganizationId) {
-      return;
-    }
-
-    window.localStorage.setItem(ACTIVE_ORGANIZATION_STORAGE_KEY, activeOrganizationId);
-  }, [activeOrganizationId]);
-
-  React.useEffect(() => {
     window.localStorage.setItem(
-      ACTIVE_PROJECTS_STORAGE_KEY,
-      JSON.stringify(activeProjectIdsByOrganization),
+      SHELL_STATE_STORAGE_KEY,
+      JSON.stringify({
+        activeOrganizationId,
+        activeProjectIdsByOrganization,
+      } satisfies StoredShellState),
     );
-  }, [activeProjectIdsByOrganization]);
+  }, [activeOrganizationId, activeProjectIdsByOrganization]);
 
   React.useEffect(() => {
     if (organizations.some((organization) => organization.id === activeOrganizationId)) {
