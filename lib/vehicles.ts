@@ -413,10 +413,6 @@ export function validateVehiclePayload(payload: VehiclePayload) {
     return "Seat capacity must be greater than 0.";
   }
 
-  if (!payload.crew_member_id) {
-    return "Driver is required.";
-  }
-
   return null;
 }
 

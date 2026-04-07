@@ -102,13 +102,14 @@ export function ScheduleView({ initialTransportPlan }: { initialTransportPlan?: 
     deletingDriveId,
     isSavingDrive,
     isLoadingResources,
-    labelPreview,
+    isCreatingLocation,
     locationOptions,
     openCreateDrive,
     openEditDrive,
     closeDriveEditor,
     handleDriveSave,
     handleDriveDelete,
+    handleCreateLocation,
     resourceErrorMessage,
     setDriveDraft,
     vehicleOptions,
@@ -304,16 +305,16 @@ export function ScheduleView({ initialTransportPlan }: { initialTransportPlan?: 
         draft={driveDraft}
         mode={driveEditorMode}
         open={driveEditorMode !== null}
-        labelPreview={labelPreview}
         locationOptions={locationOptions}
         vehicleOptions={vehicleOptions}
-        vanLabel={activeDrive?.van?.label ?? activeDrive?.van?.plate_number ?? null}
         errorMessage={driveError}
         resourceErrorMessage={resourceErrorMessage}
         isSaving={isSavingDrive}
         isDeleting={activeDrive !== null && deletingDriveId === activeDrive.id}
         isLoadingResources={isLoadingResources}
+        isCreatingLocation={isCreatingLocation}
         onClose={closeDriveEditor}
+        onCreateLocation={handleCreateLocation}
         onDelete={
           activeDrive
             ? () => {

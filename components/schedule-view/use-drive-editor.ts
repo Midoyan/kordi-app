@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
 import type { Drive } from "@/lib/drive-plan"
 import {
+  createLocation,
   fetchLocations,
   getCachedLocationsSnapshot,
   type LocationRecord,
@@ -160,6 +161,7 @@ export function useDriveEditorState({
     getCachedVehiclesSnapshot() ?? []
   )
   const [isLoadingResources, setIsLoadingResources] = React.useState(false)
+  const [isCreatingLocation, setIsCreatingLocation] = React.useState(false)
   const [resourceErrorMessage, setResourceErrorMessage] = React.useState<string | null>(null)
 
   const activeDrive = React.useMemo(
@@ -321,6 +323,45 @@ export function useDriveEditorState({
     [closeDriveEditor, editingDriveId, refreshTransportPlan]
   )
 
+  const handleCreateLocation = React.useCallback(async (query: string) => {
+    const trimmedQuery = query.trim()
+
+    if (!trimmedQuery) {
+      return
+    }
+
+    setResourceErrorMessage(null)
+    setIsCreatingLocation(true)
+
+    try {
+      const createdLocation = await createLocation({
+        name: trimmedQuery,
+        type: "Other",
+        address: trimmedQuery,
+        notes: "",
+      })
+
+      setLocationOptions((current) => {
+        const next = [createdLocation, ...current.filter((location) => location.id !== createdLocation.id)]
+        return next
+      })
+      setDriveDraft((current) =>
+        current
+          ? {
+              ...current,
+              locationId: createdLocation.id,
+            }
+          : current
+      )
+    } catch (error) {
+      setResourceErrorMessage(
+        error instanceof Error ? error.message : "Unable to create location."
+      )
+    } finally {
+      setIsCreatingLocation(false)
+    }
+  }, [])
+
   React.useEffect(() => {
     if (driveSheetParam === "add-drive") {
       openCreateDrive(false)
@@ -377,6 +418,7 @@ export function useDriveEditorState({
     deletingDriveId,
     isSavingDrive,
     isLoadingResources,
+    isCreatingLocation,
     labelPreview: getDriveLabelPreview(activeDrive, driveDraft, drives.length, locationOptions),
     locationOptions,
     openCreateDrive,
@@ -384,6 +426,7 @@ export function useDriveEditorState({
     closeDriveEditor,
     handleDriveSave,
     handleDriveDelete,
+    handleCreateLocation,
     resourceErrorMessage,
     setDriveDraft,
     vehicleOptions,

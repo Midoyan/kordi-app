@@ -1,10 +1,22 @@
 "use client"
 
+import * as React from "react"
 import type { Dispatch, SetStateAction } from "react"
+import { Check, Search } from "lucide-react"
 
 import { ButtonGroup } from "@/components/ui/button-group"
 import { EditorSheetLayout } from "@/components/editor-sheet-layout"
 import { Button } from "@/components/ui/button"
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxTrigger,
+  ComboboxValue,
+} from "@/components/ui/combobox"
 import { Input } from "@/components/ui/input"
 import { SheetFooter } from "@/components/ui/sheet"
 import type { LocationRecord } from "@/lib/locations"
@@ -12,6 +24,7 @@ import {
   getTravelTypeLabel,
   type TravelType,
 } from "@/lib/travels"
+import { cn } from "@/lib/utils"
 import type { VehicleRecord } from "@/lib/vehicles"
 
 export type DriveEditorDraft = {
@@ -27,16 +40,16 @@ type DriveEditorSheetProps = {
   draft: DriveEditorDraft | null
   mode: "create" | "edit" | null
   open: boolean
-  labelPreview: string
   locationOptions: LocationRecord[]
   vehicleOptions: VehicleRecord[]
-  vanLabel?: string | null
   errorMessage?: string | null
   resourceErrorMessage?: string | null
   isSaving?: boolean
   isDeleting?: boolean
   isLoadingResources?: boolean
+  isCreatingLocation?: boolean
   onClose: () => void
+  onCreateLocation: (query: string) => Promise<void>
   onDelete?: () => void
   onSave: () => void
   setDraft: Dispatch<SetStateAction<DriveEditorDraft | null>>
@@ -46,20 +59,23 @@ export function DriveEditorSheet({
   draft,
   mode,
   open,
-  labelPreview,
   locationOptions,
   vehicleOptions,
-  vanLabel,
   errorMessage,
   resourceErrorMessage,
   isSaving = false,
   isDeleting = false,
   isLoadingResources = false,
+  isCreatingLocation = false,
   onClose,
+  onCreateLocation,
   onDelete,
   onSave,
   setDraft,
 }: DriveEditorSheetProps) {
+  const [isLocationPickerOpen, setIsLocationPickerOpen] = React.useState(false)
+  const [locationSearch, setLocationSearch] = React.useState("")
+
   const updateDraftField = <TField extends keyof DriveEditorDraft>(
     field: TField,
     value: DriveEditorDraft[TField]
@@ -71,12 +87,36 @@ export function DriveEditorSheet({
     draft?.locationId
       ? locationOptions.find((location) => location.id === draft.locationId) ?? null
       : null
-  const selectedVan =
-    draft?.vanId
-      ? vehicleOptions.find((vehicle) => vehicle.id === draft.vanId) ?? null
-      : null
-  const travelTypeLabel = getTravelTypeLabel(draft?.travelType ?? "pickup")
   const scheduledTimeLabel = draft?.travelType === "dropoff" ? "Depart at" : "Arrive by"
+  const locationFieldLabel =
+    draft?.travelType === "dropoff" ? "Start from" : "Final destination"
+  const normalizedLocationSearch = locationSearch.trim().toLowerCase()
+  const filteredLocationOptions = React.useMemo(() => {
+    if (!normalizedLocationSearch) {
+      return locationOptions
+    }
+
+    return locationOptions.filter((location) => {
+      const haystack = [
+        location.name,
+        location.address,
+        location.type,
+      ]
+        .join(" ")
+        .toLowerCase()
+
+      return haystack.includes(normalizedLocationSearch)
+    })
+  }, [locationOptions, normalizedLocationSearch])
+  const shouldOfferCreateLocation =
+    locationSearch.trim().length > 0 &&
+    !locationOptions.some((location) => {
+      const exactQuery = locationSearch.trim().toLowerCase()
+      return (
+        location.name.trim().toLowerCase() === exactQuery ||
+        location.address.trim().toLowerCase() === exactQuery
+      )
+    })
 
   return (
     <EditorSheetLayout
@@ -190,20 +230,145 @@ export function DriveEditorSheet({
               </Field>
             </div>
 
-            <Field label="Set / filming location">
-              <select
+            <Field label={locationFieldLabel}>
+              <Combobox<string>
                 value={draft.locationId}
-                disabled={isLoadingResources}
-                onChange={(event) => updateDraftField("locationId", event.target.value)}
-                className="h-10 rounded-xl border border-[#d8dcd2] bg-white px-3 text-[14px] text-[#1d1d1b] outline-none transition-[border-color,box-shadow] duration-200 ease-[cubic-bezier(0.2,0,0,1)] focus:border-[#7d8f78] focus:ring-3 focus:ring-[#d8e2d2]"
+                onValueChange={(nextValue) => {
+                  void (async () => {
+                    if (!nextValue) {
+                      return
+                    }
+
+                    if (nextValue.startsWith("__create__:")) {
+                      await onCreateLocation(nextValue.slice("__create__:".length))
+                      setLocationSearch("")
+                      setIsLocationPickerOpen(false)
+                      return
+                    }
+
+                    updateDraftField("locationId", nextValue)
+                    setLocationSearch("")
+                    setIsLocationPickerOpen(false)
+                  })()
+                }}
+                open={isLocationPickerOpen}
+                onOpenChange={(open) => {
+                  setIsLocationPickerOpen(open)
+
+                  if (!open) {
+                    setLocationSearch("")
+                  }
+                }}
+                inputValue={locationSearch}
+                onInputValueChange={setLocationSearch}
+                autoHighlight
+                itemToStringLabel={(value) => {
+                  if (value.startsWith("__create__:")) {
+                    return value.slice("__create__:".length)
+                  }
+
+                  const location = locationOptions.find((entry) => entry.id === value)
+                  return location ? `${location.name} ${location.address}` : value
+                }}
               >
-                <option value="">Select a location</option>
-                {locationOptions.map((location) => (
-                  <option key={location.id} value={location.id}>
-                    {location.name}
-                  </option>
-                ))}
-              </select>
+                <ComboboxTrigger
+                  disabled={isLoadingResources || isCreatingLocation}
+                  className={cn(
+                    "flex h-11 w-full items-center justify-between rounded-2xl border border-[#d8dcd2] bg-[linear-gradient(180deg,#ffffff_0%,#fbfcf9_100%)] px-3.5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] outline-none transition-[border-color,box-shadow,background-color] duration-200 ease-[cubic-bezier(0.2,0,0,1)] hover:bg-[#fafcf7] focus-visible:border-[#7d8f78] focus-visible:ring-3 focus-visible:ring-[#d8e2d2] disabled:cursor-not-allowed disabled:opacity-70"
+                  )}
+                >
+                  <span className="min-w-0 flex-1 truncate">
+                    <ComboboxValue placeholder="Search or add a location">
+                      {(value) => {
+                        if (!value) {
+                          return "Search or add a location"
+                        }
+
+                        const location = locationOptions.find((entry) => entry.id === value)
+
+                        if (!location) {
+                          return "Search or add a location"
+                        }
+
+                        return (
+                          <span className="flex min-w-0 flex-col">
+                            <span className="truncate text-[14px] font-medium text-[#1d1d1b]">
+                              {location.name}
+                            </span>
+                            <span className="truncate text-[11px] text-[#7a7a74]">
+                              {location.address || location.type}
+                            </span>
+                          </span>
+                        )
+                      }}
+                    </ComboboxValue>
+                  </span>
+                  <span className="ml-3 flex shrink-0 items-center gap-1 rounded-full border border-[#d9e4f7] bg-[#f1f6ff] px-2.5 py-1 text-[11px] font-medium text-[#4468a8]">
+                    <Search className="size-3.5" />
+                    Search
+                  </span>
+                </ComboboxTrigger>
+                <ComboboxContent className="border border-[#e3e3df] bg-white shadow-[0_18px_38px_-24px_rgba(15,23,42,0.45)]">
+                  <div className="p-1 pb-0">
+                    <ComboboxInput
+                      autoFocus
+                      placeholder="Search location or paste address"
+                      showTrigger={false}
+                      className="w-full"
+                    />
+                  </div>
+                  <ComboboxList>
+                    <ComboboxEmpty>
+                      {isLoadingResources
+                        ? "Loading locations..."
+                        : isCreatingLocation
+                          ? "Creating location..."
+                          : "No matching locations."}
+                    </ComboboxEmpty>
+                    {shouldOfferCreateLocation ? (
+                      <ComboboxItem
+                        value={`__create__:${locationSearch.trim()}`}
+                        className="items-start gap-3 px-2 py-2.5"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-[13px] font-medium text-[#1d1d1b]">
+                            Add {locationSearch.trim()}
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-[#6b6b67]">
+                            Create this location and select it for the drive.
+                          </p>
+                        </div>
+                      </ComboboxItem>
+                    ) : null}
+                    {filteredLocationOptions.map((location) => (
+                      <ComboboxItem
+                        key={location.id}
+                        value={location.id}
+                        className="items-start gap-3 px-2 py-2.5"
+                      >
+                        <div className="flex min-w-0 flex-1 items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-[13px] font-medium text-[#1d1d1b]">
+                              {location.name}
+                            </p>
+                            <p className="mt-0.5 text-[11px] text-[#6b6b67]">
+                              {location.type}
+                            </p>
+                            <p className="mt-1 truncate text-[11px] text-[#8a8a84]">
+                              {location.address}
+                            </p>
+                          </div>
+                          {draft.locationId === location.id ? (
+                            <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-[#eef5ff] text-[#4468a8]">
+                              <Check className="size-3.5" />
+                            </span>
+                          ) : null}
+                        </div>
+                      </ComboboxItem>
+                    ))}
+                  </ComboboxList>
+                </ComboboxContent>
+              </Combobox>
               {selectedLocation ? (
                 <p className="mt-2 text-[12px] leading-5 text-[#6b6b67]">
                   {selectedLocation.address}

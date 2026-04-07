@@ -83,6 +83,7 @@ type VehicleFieldError = {
 };
 
 const CREATE_DRIVER_VALUE_PREFIX = "__create-driver__:";
+const CLEAR_DRIVER_VALUE = "__clear-driver__";
 
 const initialForm: VehicleForm = {
   label: "",
@@ -189,10 +190,6 @@ function validateVehicleForm(form: VehicleForm) {
     errors.seatCapacity = "Enter a seat count.";
   } else if (!Number.isFinite(seatCapacity) || seatCapacity < 1) {
     errors.seatCapacity = "Capacity must be greater than 0.";
-  }
-
-  if (!driverName) {
-    errors.driver = "Select or add a driver.";
   }
 
   return {
@@ -723,6 +720,18 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
     setIsDriverPickerOpen(false);
   }
 
+  function clearSelectedDriver() {
+    setForm((current) => ({
+      ...current,
+      driverCrewMemberId: "",
+      driverName: "",
+    }));
+    clearDriverFieldError();
+    setSubmitMessage(null);
+    setDriverSearch("");
+    setIsDriverPickerOpen(false);
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const validation = validateVehicleForm(form);
@@ -746,7 +755,7 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
       let resolvedDriverId = draft.crewMemberId ?? existingDriverMatch?.id ?? null;
       let resolvedDriverName = validation.driverName;
 
-      if (!resolvedDriverId && persistenceMode === "connected") {
+      if (!resolvedDriverId && validation.driverName && persistenceMode === "connected") {
         const createdDriver = await createPerson({
           name: validation.driverName,
           address: "",
@@ -760,18 +769,10 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
 
       const vehicleDraft: VehicleDraft = {
         ...draft,
-        crewMemberId:
-          resolvedDriverId ??
-          (persistenceMode === "connected"
-            ? null
-            : `local-driver-${validation.driverName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`),
+        crewMemberId: resolvedDriverId,
       };
 
       if (persistenceMode === "connected") {
-        if (!vehicleDraft.crewMemberId) {
-          throw new Error("Select or add a driver before saving the van.");
-        }
-
         const savedVehicle =
           sheetMode === "edit" && editingVehicleId
             ? await updateVehicle(editingVehicleId, vehicleDraft)
@@ -1159,6 +1160,11 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
                     return;
                   }
 
+                  if (nextValue === CLEAR_DRIVER_VALUE) {
+                    clearSelectedDriver();
+                    return;
+                  }
+
                   if (nextValue.startsWith(CREATE_DRIVER_VALUE_PREFIX)) {
                     selectNewDriver(nextValue.slice(CREATE_DRIVER_VALUE_PREFIX.length));
                     return;
@@ -1239,6 +1245,16 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
                           ? "Unable to load crew members."
                           : "No matching crew members."}
                     </ComboboxEmpty>
+                    <ComboboxItem value={CLEAR_DRIVER_VALUE} className="items-start gap-3 px-2 py-2.5">
+                      <div className="min-w-0">
+                        <p className="truncate text-[13px] font-medium text-[#1d1d1b]">
+                          No driver assigned
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-[#6b6b67]">
+                          Save the van with a null `crew_member_id`.
+                        </p>
+                      </div>
+                    </ComboboxItem>
                     {shouldOfferCreateDriver ? (
                       <ComboboxItem
                         value={`${CREATE_DRIVER_VALUE_PREFIX}${driverSearch.trim()}`}
