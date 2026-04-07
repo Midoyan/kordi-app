@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import {
+  Download,
   PencilLine,
   Plus,
 } from "lucide-react"
@@ -116,6 +117,49 @@ export function ScheduleView({ initialTransportPlan }: { initialTransportPlan?: 
     drives,
     refreshTransportPlan,
   })
+  const [isExportingPdf, setIsExportingPdf] = React.useState(false)
+  const [exportError, setExportError] = React.useState<string | null>(null)
+
+  const handlePdfExport = React.useCallback(async () => {
+    setIsExportingPdf(true)
+    setExportError(null)
+
+    try {
+      const response = await fetch("/api/pdf-report")
+
+      if (!response.ok) {
+        let message = "Unable to export the PDF report."
+
+        try {
+          const payload = (await response.json()) as { error?: string }
+          if (payload?.error) {
+            message = payload.error
+          }
+        } catch {
+          // Fall back to the default message when the error body is not JSON.
+        }
+
+        throw new Error(message)
+      }
+
+      const blob = await response.blob()
+      const downloadUrl = window.URL.createObjectURL(blob)
+      const link = document.createElement("a")
+
+      link.href = downloadUrl
+      link.download = "transport-plan.pdf"
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(downloadUrl)
+    } catch (error) {
+      setExportError(
+        error instanceof Error ? error.message : "Unable to export the PDF report."
+      )
+    } finally {
+      setIsExportingPdf(false)
+    }
+  }, [])
 
   if (isLoading && !transportPlan) {
     return (
@@ -165,6 +209,18 @@ export function ScheduleView({ initialTransportPlan }: { initialTransportPlan?: 
               </div>
               <Button
                 type="button"
+                variant="outline"
+                className="h-9 border-[#d8ddd1] bg-white/92 px-4 text-[#1d1d1b] hover:bg-[#f4f7ef]"
+                disabled={isExportingPdf}
+                onClick={() => {
+                  void handlePdfExport()
+                }}
+              >
+                <Download className="size-4" />
+                {isExportingPdf ? "Exporting..." : "Export PDF"}
+              </Button>
+              <Button
+                type="button"
                 className="h-9 bg-[#1f3523] px-4 text-white hover:bg-[#29472d]"
                 disabled={isSavingDrive}
                 onClick={() => openCreateDrive()}
@@ -179,6 +235,12 @@ export function ScheduleView({ initialTransportPlan }: { initialTransportPlan?: 
         {error && transportPlan ? (
           <div className="mt-4 rounded-[18px] border border-[#f3d7d7] bg-[#fff7f7] px-4 py-3">
             <p className="text-[13px] leading-6 text-[#9a4f4f]">{error}</p>
+          </div>
+        ) : null}
+
+        {exportError ? (
+          <div className="mt-4 rounded-[18px] border border-[#f3d7d7] bg-[#fff7f7] px-4 py-3">
+            <p className="text-[13px] leading-6 text-[#9a4f4f]">{exportError}</p>
           </div>
         ) : null}
 
