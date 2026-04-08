@@ -878,7 +878,7 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
       <div className="grid">
         <Panel
           title="Vehicles"
-          description="Load and manage the vans."
+          description="Load and manage project vans, with rentals as the default case."
           action={
             <button
               type="button"
@@ -924,7 +924,7 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
 
             {isLoading ? (
               <div className="flex min-h-32 items-center justify-center rounded-lg border border-[#e7e7e4] bg-[#fafaf7] text-[13px] text-[#6b6b67]">
-                Loading saved vans...
+                Loading saved vehicles...
               </div>
             ) : (
               <WorkspaceDataTable
@@ -934,8 +934,8 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <p className="text-[13px] leading-6 text-[#6b6b67]">
                       {vehicles.length === 0
-                        ? "No vans saved yet."
-                        : `${vehicles.length} saved van${vehicles.length === 1 ? "" : "s"} ready for assignment.`}
+                        ? "No vehicles saved yet."
+                        : `${vehicles.length} saved vehicle${vehicles.length === 1 ? "" : "s"} ready for assignment.`}
                     </p>
                     <WorkspaceColumnToggleMenu columns={visibleColumns} />
                   </div>
@@ -966,10 +966,10 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
                       <div className="flex flex-col items-center gap-3">
                         <div>
                           <p className="text-[14px] font-medium text-[#1d1d1b]">
-                            No vans added yet.
+                            No vehicles added yet.
                           </p>
                           <p className="mt-1 text-[13px] text-[#6b6b67]">
-                            Keep fleet records in one shared table and show only the columns you need.
+                            Keep project vehicle records in one shared table and show only the columns you need.
                           </p>
                         </div>
                         <Button type="button" variant="outline" onClick={openCreateSheet}>
@@ -1005,15 +1005,15 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
         </Panel>
 
         {/* <Panel
-          title="Fleet snapshot"
-          description="Seat count and availability from the current vans list."
+          title="Vehicle snapshot"
+          description="Seat count and availability from the current project vehicle list."
         >
           <div className="space-y-3">
             <MetricCard
               icon={Car}
-              label="Fleet"
+              label="Vehicles"
               value={String(vehicles.length)}
-              detail={vehicles.length === 0 ? "No vans in the list yet." : "Vans currently tracked."}
+              detail={vehicles.length === 0 ? "No vehicles in the list yet." : "Vehicles currently tracked."}
             />
             <MetricCard
               icon={Wrench}
@@ -1021,10 +1021,10 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
               value={String(activeCount)}
               detail={
                 vehicles.length === 0
-                  ? "Availability will appear after vans are added."
+                  ? "Availability will appear after vehicles are added."
                   : inactiveCount === 0
-                    ? "Every van is marked active."
-                    : `${inactiveCount} van${inactiveCount === 1 ? "" : "s"} currently inactive.`
+                    ? "Every vehicle is marked active."
+                    : `${inactiveCount} vehicle${inactiveCount === 1 ? "" : "s"} currently inactive.`
               }
             />
             <MetricCard
@@ -1033,8 +1033,8 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
               value={String(totalSeats)}
               detail={
                 vehicles.length === 0
-                  ? "Total seat count will update as you add vans."
-                  : `${totalSeats} total seat${totalSeats === 1 ? "" : "s"} across the fleet.`
+                  ? "Total seat count will update as you add vehicles."
+                  : `${totalSeats} total seat${totalSeats === 1 ? "" : "s"} across the current vehicle list.`
               }
             />
           </div>
@@ -1045,7 +1045,7 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
         open={isSheetOpen}
         onOpenChange={(open) => setSheetOpen(open)}
         title={sheetMode === "edit" ? "Edit van" : "Add van"}
-        description="Create or update a van record with the fields stored in the backend."
+        description="Create or update a project vehicle record with the fields stored in the backend."
       >
         <form className="flex flex-1 flex-col" onSubmit={handleSubmit}>
           <div className="space-y-4 overflow-y-auto px-5 py-5">
