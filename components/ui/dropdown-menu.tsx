@@ -38,18 +38,19 @@ function DropdownMenuContent({
     "align" | "alignOffset" | "collisionPadding" | "side" | "sideOffset"
   >) {
   return (
-    <Menu.Portal>
+    <Menu.Portal className="z-[2147483647]">
       <Menu.Positioner
         align={align}
         alignOffset={alignOffset}
         collisionPadding={collisionPadding}
         side={side}
         sideOffset={sideOffset}
+        className="z-[2147483647]"
       >
         <Menu.Popup
           data-slot="dropdown-menu-content"
           className={cn(
-            "z-50 max-h-(--available-height) min-w-32 origin-[var(--transform-origin)] overflow-y-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-md outline-hidden transition-[opacity,transform] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0",
+            "z-[2147483647] max-h-(--available-height) min-w-32 origin-[var(--transform-origin)] overflow-y-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-md outline-hidden transition-[opacity,transform] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0",
             className
           )}
           finalFocus={finalFocus}

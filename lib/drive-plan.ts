@@ -35,11 +35,13 @@ type RawVan = {
   id: string
   label: string | null
   plate_number: string | null
+  crew_member_id?: string | null
   seat_capacity: number | null
   vehicle_type: string | null
   notes: string | null
   is_active: boolean | null
   created_at: string
+  crew_members?: RawCrewMember | null
 }
 
 type RawLocation = {
@@ -167,7 +169,7 @@ function compareDriveStops(first: DriveStop, second: DriveStop) {
 }
 
 export function mapTravelToDrive(travel: RawTravel, index = 0): Drive {
-  const driver = null
+  const driver = normalizePassenger(travel.vans?.crew_members)
   const travelType = normalizeTravelType(travel.travel_type)
   const location = travel.location
     ? {
@@ -209,7 +211,7 @@ export function mapTravelToDrive(travel: RawTravel, index = 0): Drive {
   return {
     id: travel.id,
     vanId: travel.van_id,
-    driverCrewId: null,
+    driverCrewId: travel.vans?.crew_member_id ?? null,
     travelType,
     locationId: location?.id || travel.location_id?.trim() || "",
     scheduledTime: travel.scheduled_time,
@@ -244,7 +246,13 @@ export async function getDrivePlan() {
       notes,
       created_at,
       vans!travels_van_id_fkey (
-        *
+        *,
+        crew_members (
+          id,
+          full_name,
+          phone,
+          home_address
+        )
       ),
       location:locations!travels_location_id_fkey (
         id,

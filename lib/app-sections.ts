@@ -55,14 +55,14 @@ export const appSections = [
     description:
       "Align transport windows, call times, and route changes without juggling multiple tools.",
   },
-  // {
-  //   slug: "settings",
-  //   label: "Settings",
-  //   eyebrow: "Workspace",
-  //   title: "Tune the control room",
-  //   description:
-  //     "Adjust defaults, team preferences, and operational rules for the whole workspace.",
-  // },
+  {
+    slug: "settings",
+    label: "Settings",
+    eyebrow: "Workspace",
+    title: "Tune the control room",
+    description:
+      "Adjust defaults, team preferences, and operational rules for the whole workspace.",
+  },
 ] as const;
 
 export type AppSection = (typeof appSections)[number];
@@ -72,7 +72,7 @@ export const appSectionMap = new Map(
   appSections.map((section) => [section.slug, section]),
 );
 
-export const sectionActionLabels: Record<AppSectionSlug, string> = {
+export const sectionActionLabels: Partial<Record<AppSectionSlug, string>> = {
   dashboard: "Create route",
   // "route-builder": "Add route",
   people: "Add person",
@@ -80,7 +80,6 @@ export const sectionActionLabels: Record<AppSectionSlug, string> = {
   map: "Start tracking",
   locations: "Add location",
   schedule: "Add drive",
-  // settings: "Add setting",
 };
 
 export function getSectionActionHref(section: AppSectionSlug) {
