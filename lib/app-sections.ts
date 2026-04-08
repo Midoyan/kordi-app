@@ -34,10 +34,10 @@ export const appSections = [
   {
     slug: "vehicles",
     label: "Vehicles",
-    eyebrow: "Fleet",
-    title: "Keep fleet readiness visible",
+    eyebrow: "Vehicles",
+    title: "Keep project vehicles visible",
     description:
-      "Track capacity, driver ownership, and service readiness without cluttering the route workflow.",
+      "Track rental capacity, assigned drivers, and readiness without cluttering the route workflow.",
   },
   {
     slug: "locations",

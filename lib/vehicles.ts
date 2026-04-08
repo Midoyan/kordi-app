@@ -16,10 +16,20 @@ export type VehicleRecord = {
   vehicleType: VehicleType;
   notes: string;
   isActive: boolean;
+  crewMemberId: string | null;
+  driverName: string;
   createdAt: string | null;
 };
 
-export type VehicleDraft = Omit<VehicleRecord, "id" | "createdAt">;
+export type VehicleDraft = {
+  label: string;
+  plateNumber: string;
+  seatCapacity: number;
+  vehicleType: VehicleType;
+  notes: string;
+  isActive: boolean;
+  crewMemberId: string | null;
+};
 
 export type VehiclePayload = {
   label: string;
@@ -28,6 +38,7 @@ export type VehiclePayload = {
   vehicle_type: VehicleTypeValue;
   notes: string;
   is_active: boolean;
+  crew_member_id: string | null;
 };
 
 type VehicleCachePayload = {
@@ -182,6 +193,13 @@ export function sortVehicles(records: VehicleRecord[]) {
 export function normalizeVehicleRecord(payload: unknown): VehicleRecord {
   const source = payload && typeof payload === "object" ? payload : {};
   const record = source as Record<string, unknown>;
+  const rawCrewMember = Array.isArray(record.crew_members)
+    ? record.crew_members[0]
+    : record.crew_members;
+  const crewMemberRecord =
+    rawCrewMember && typeof rawCrewMember === "object"
+      ? (rawCrewMember as Record<string, unknown>)
+      : null;
 
   return {
     id: readString(record.id),
@@ -191,6 +209,8 @@ export function normalizeVehicleRecord(payload: unknown): VehicleRecord {
     vehicleType: normalizeVehicleType(record.vehicleType ?? record.vehicle_type),
     notes: readString(record.notes),
     isActive: typeof record.isActive === "boolean" ? record.isActive : record.is_active !== false,
+    crewMemberId: readString(record.crewMemberId ?? record.crew_member_id) || null,
+    driverName: readString(crewMemberRecord?.full_name),
     createdAt:
       typeof record.createdAt === "string"
         ? record.createdAt
@@ -200,7 +220,11 @@ export function normalizeVehicleRecord(payload: unknown): VehicleRecord {
   };
 }
 
-export function createLocalVehicleRecord(id: string, draft: VehicleDraft) {
+export function createLocalVehicleRecord(
+  id: string,
+  draft: VehicleDraft,
+  options?: { driverName?: string },
+) {
   return {
     id,
     label: readString(draft.label) || "Untitled van",
@@ -209,6 +233,8 @@ export function createLocalVehicleRecord(id: string, draft: VehicleDraft) {
     vehicleType: normalizeVehicleType(draft.vehicleType),
     notes: readString(draft.notes),
     isActive: draft.isActive,
+    crewMemberId: draft.crewMemberId,
+    driverName: readString(options?.driverName),
     createdAt: new Date().toISOString(),
   } satisfies VehicleRecord;
 }
@@ -222,6 +248,7 @@ function hydrateVehicleFromDraft(vehicle: VehicleRecord, draft: VehicleDraft) {
     vehicleType: normalizeVehicleType(draft.vehicleType),
     notes: readString(draft.notes),
     isActive: draft.isActive,
+    crewMemberId: draft.crewMemberId,
   };
 }
 
@@ -370,6 +397,7 @@ export function normalizeVehiclePayload(payload: unknown): VehiclePayload {
     vehicle_type: mapVehicleTypeToValue(vehicleType),
     notes,
     is_active: isActive,
+    crew_member_id: crewMemberId,
   };
 }
 

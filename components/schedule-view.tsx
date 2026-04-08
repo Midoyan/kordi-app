@@ -103,13 +103,14 @@ export function ScheduleView({ initialTransportPlan }: { initialTransportPlan?: 
     deletingDriveId,
     isSavingDrive,
     isLoadingResources,
-    labelPreview,
+    isCreatingLocation,
     locationOptions,
     openCreateDrive,
     openEditDrive,
     closeDriveEditor,
     handleDriveSave,
     handleDriveDelete,
+    handleCreateLocation,
     resourceErrorMessage,
     setDriveDraft,
     vehicleOptions,
@@ -250,7 +251,7 @@ export function ScheduleView({ initialTransportPlan }: { initialTransportPlan?: 
               No drives yet
             </p>
             <h3 className="mt-3 text-[22px] font-semibold tracking-tight text-[#1d1d1b] text-balance">
-              Start with the drive, then add stops inside it.
+              Create a drive, then add stops inside it.
             </h3>
             <div className="mt-5">
               <Button
@@ -366,16 +367,16 @@ export function ScheduleView({ initialTransportPlan }: { initialTransportPlan?: 
         draft={driveDraft}
         mode={driveEditorMode}
         open={driveEditorMode !== null}
-        labelPreview={labelPreview}
         locationOptions={locationOptions}
         vehicleOptions={vehicleOptions}
-        vanLabel={activeDrive?.van?.label ?? activeDrive?.van?.plate_number ?? null}
         errorMessage={driveError}
         resourceErrorMessage={resourceErrorMessage}
         isSaving={isSavingDrive}
         isDeleting={activeDrive !== null && deletingDriveId === activeDrive.id}
         isLoadingResources={isLoadingResources}
+        isCreatingLocation={isCreatingLocation}
         onClose={closeDriveEditor}
+        onCreateLocation={handleCreateLocation}
         onDelete={
           activeDrive
             ? () => {

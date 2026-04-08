@@ -13,10 +13,20 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Car, PencilLine, Plus, Trash2, Wrench } from "lucide-react";
+import { Car, PencilLine, Plus, Search, Trash2, Wrench } from "lucide-react";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from "react";
 
 import { EditorSheetLayout } from "@/components/editor-sheet-layout";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxTrigger,
+  ComboboxValue,
+} from "@/components/ui/combobox";
 import {
   WorkspaceColumnToggleMenu,
   WorkspaceDataTable,
@@ -26,6 +36,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { SheetFooter } from "@/components/ui/sheet";
 import { TableCell, TableRow } from "@/components/ui/table";
+import {
+  createPerson,
+  fetchPeople,
+  getCachedPeopleSnapshot,
+  getPersonSearchText,
+  type PersonRecord,
+} from "@/lib/people";
 import {
   createLocalVehicleRecord,
   createVehicle,
@@ -53,6 +70,8 @@ type VehicleForm = {
   seatCapacity: string;
   vehicleType: VehicleType;
   availability: VehicleAvailability;
+  driverCrewMemberId: string;
+  driverName: string;
   notes: string;
 };
 
@@ -60,7 +79,11 @@ type VehicleFieldError = {
   label?: string;
   plateNumber?: string;
   seatCapacity?: string;
+  driver?: string;
 };
+
+const CREATE_DRIVER_VALUE_PREFIX = "__create-driver__:";
+const CLEAR_DRIVER_VALUE = "__clear-driver__";
 
 const initialForm: VehicleForm = {
   label: "",
@@ -68,6 +91,8 @@ const initialForm: VehicleForm = {
   seatCapacity: "6",
   vehicleType: "Van",
   availability: "Active",
+  driverCrewMemberId: "",
+  driverName: "",
   notes: "",
 };
 
@@ -85,6 +110,8 @@ const sampleVehicleForms: VehicleForm[] = [
     seatCapacity: "8",
     vehicleType: "Van",
     availability: "Active",
+    driverCrewMemberId: "",
+    driverName: "",
     notes: "Stage door pickup. Keep rear cargo lane clear.",
   },
   {
@@ -93,6 +120,8 @@ const sampleVehicleForms: VehicleForm[] = [
     seatCapacity: "12",
     vehicleType: "Shuttle",
     availability: "Active",
+    driverCrewMemberId: "",
+    driverName: "",
     notes: "Hotel loop until 11:00 AM.",
   },
   {
@@ -101,6 +130,8 @@ const sampleVehicleForms: VehicleForm[] = [
     seatCapacity: "5",
     vehicleType: "SUV",
     availability: "Inactive",
+    driverCrewMemberId: "",
+    driverName: "",
     notes: "Inspection due before next dispatch.",
   },
 ];
@@ -112,6 +143,8 @@ function toVehicleForm(vehicle: VehicleRecord): VehicleForm {
     seatCapacity: String(vehicle.seatCapacity || ""),
     vehicleType: vehicle.vehicleType,
     availability: vehicle.isActive ? "Active" : "Inactive",
+    driverCrewMemberId: vehicle.crewMemberId ?? "",
+    driverName: vehicle.driverName,
     notes: vehicle.notes,
   };
 }
@@ -143,6 +176,7 @@ function buildSheetHref(pathname: string, searchParams: URLSearchParams, open: b
 function validateVehicleForm(form: VehicleForm) {
   const errors: VehicleFieldError = {};
   const seatCapacity = Number(form.seatCapacity);
+  const driverName = form.driverName.trim();
 
   if (!form.label.trim()) {
     errors.label = "Enter a vehicle title.";
@@ -161,6 +195,7 @@ function validateVehicleForm(form: VehicleForm) {
   return {
     errors,
     isValid: Object.keys(errors).length === 0,
+    driverName,
     draft: {
       label: form.label.trim(),
       plateNumber: form.plateNumber.trim(),
@@ -168,6 +203,7 @@ function validateVehicleForm(form: VehicleForm) {
       vehicleType: form.vehicleType,
       notes: form.notes.trim(),
       isActive: form.availability === "Active",
+      crewMemberId: form.driverCrewMemberId.trim() || null,
     } satisfies VehicleDraft,
   };
 }
@@ -296,12 +332,30 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(defaultColumnVisibility);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const [people, setPeople] = useState<PersonRecord[]>(() => getCachedPeopleSnapshot({ includeExpired: true }) ?? []);
+  const [isLoadingPeople, setIsLoadingPeople] = useState(false);
+  const [peopleLoadError, setPeopleLoadError] = useState<string | null>(null);
+  const [isDriverPickerOpen, setIsDriverPickerOpen] = useState(false);
+  const [driverSearch, setDriverSearch] = useState("");
 
   const isSheetOpen = searchParams.get("sheet") === "add-vehicle";
   const activeCount = vehicles.filter((vehicle) => vehicle.isActive).length;
   const inactiveCount = vehicles.length - activeCount;
   const totalSeats = vehicles.reduce((sum, vehicle) => sum + vehicle.seatCapacity, 0);
   const latestVehicle = vehicles[0];
+  const normalizedDriverSearch = driverSearch.trim().toLowerCase();
+  const filteredDriverOptions =
+    normalizedDriverSearch.length === 0
+      ? people.slice(0, 8)
+      : people.filter((person) => getPersonSearchText(person).includes(normalizedDriverSearch)).slice(0, 8);
+  const exactDriverMatch =
+    normalizedDriverSearch.length === 0
+      ? null
+      : people.find((person) => person.name.trim().toLowerCase() === normalizedDriverSearch) ?? null;
+  const shouldOfferCreateDriver = normalizedDriverSearch.length > 0 && exactDriverMatch === null;
+  const selectedDriverValue =
+    form.driverCrewMemberId ||
+    (form.driverName.trim() ? `${CREATE_DRIVER_VALUE_PREFIX}${form.driverName.trim()}` : null);
 
   const loadVehicles = useCallback(async (options?: {
     background?: boolean;
@@ -342,12 +396,28 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
     }
   }, []);
 
+  const loadPeople = useCallback(async () => {
+    setPeopleLoadError(null);
+    setIsLoadingPeople(true);
+
+    try {
+      const nextPeople = await fetchPeople();
+      setPeople(nextPeople);
+    } catch (error) {
+      setPeopleLoadError(error instanceof Error ? error.message : "Unable to load crew members.");
+    } finally {
+      setIsLoadingPeople(false);
+    }
+  }, []);
+
   const resetSheetState = useCallback(() => {
     setForm(initialForm);
     setFieldErrors({});
     setSubmitMessage(null);
     setSheetMode("create");
     setEditingVehicleId(null);
+    setDriverSearch("");
+    setIsDriverPickerOpen(false);
     setIsSaving(false);
   }, []);
 
@@ -405,6 +475,9 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
     setForm(initialForm);
     setFieldErrors({});
     setSubmitMessage(null);
+    setDriverSearch("");
+    setPeopleLoadError(null);
+    void loadPeople();
     setSheetOpen(true);
   }
 
@@ -414,6 +487,9 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
     setForm(toVehicleForm(vehicle));
     setFieldErrors({});
     setSubmitMessage(null);
+    setDriverSearch("");
+    setPeopleLoadError(null);
+    void loadPeople();
     setSheetOpen(true);
   }
 
@@ -614,6 +690,48 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
 
   const visibleColumns = table.getAllColumns().filter((column) => column.getCanHide());
 
+  function clearDriverFieldError() {
+    setFieldErrors((current) => ({ ...current, driver: undefined }));
+  }
+
+  function selectExistingDriver(person: PersonRecord) {
+    setForm((current) => ({
+      ...current,
+      driverCrewMemberId: person.id,
+      driverName: person.name,
+    }));
+    clearDriverFieldError();
+    setSubmitMessage(null);
+    setDriverSearch("");
+    setIsDriverPickerOpen(false);
+  }
+
+  function selectNewDriver(name: string) {
+    const nextName = name.trim();
+
+    setForm((current) => ({
+      ...current,
+      driverCrewMemberId: "",
+      driverName: nextName,
+    }));
+    clearDriverFieldError();
+    setSubmitMessage(null);
+    setDriverSearch("");
+    setIsDriverPickerOpen(false);
+  }
+
+  function clearSelectedDriver() {
+    setForm((current) => ({
+      ...current,
+      driverCrewMemberId: "",
+      driverName: "",
+    }));
+    clearDriverFieldError();
+    setSubmitMessage(null);
+    setDriverSearch("");
+    setIsDriverPickerOpen(false);
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const validation = validateVehicleForm(form);
@@ -630,11 +748,35 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
     const draft = validation.draft;
 
     try {
+      const existingDriverMatch =
+        validation.driverName.length === 0
+          ? null
+          : people.find((person) => person.name.trim().toLowerCase() === validation.driverName.toLowerCase()) ?? null;
+      let resolvedDriverId = draft.crewMemberId ?? existingDriverMatch?.id ?? null;
+      let resolvedDriverName = validation.driverName;
+
+      if (!resolvedDriverId && validation.driverName && persistenceMode === "connected") {
+        const createdDriver = await createPerson({
+          name: validation.driverName,
+          address: "",
+          phone: "",
+        });
+
+        resolvedDriverId = createdDriver.id;
+        resolvedDriverName = createdDriver.name;
+        setPeople((current) => [createdDriver, ...current.filter((person) => person.id !== createdDriver.id)]);
+      }
+
+      const vehicleDraft: VehicleDraft = {
+        ...draft,
+        crewMemberId: resolvedDriverId,
+      };
+
       if (persistenceMode === "connected") {
         const savedVehicle =
           sheetMode === "edit" && editingVehicleId
-            ? await updateVehicle(editingVehicleId, draft)
-            : await createVehicle(draft);
+            ? await updateVehicle(editingVehicleId, vehicleDraft)
+            : await createVehicle(vehicleDraft);
 
         setVehicles((current) => {
           if (sheetMode === "edit" && editingVehicleId) {
@@ -649,8 +791,10 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
         const localId =
           sheetMode === "edit" && editingVehicleId
             ? editingVehicleId
-            : `${draft.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`;
-        const localVehicle = createLocalVehicleRecord(localId, draft);
+            : `${vehicleDraft.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`;
+        const localVehicle = createLocalVehicleRecord(localId, vehicleDraft, {
+          driverName: resolvedDriverName,
+        });
 
         setVehicles((current) => {
           if (sheetMode === "edit" && editingVehicleId) {
@@ -710,7 +854,11 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
 
   function fillSampleForm() {
     const template = sampleVehicleForms[Math.floor(Math.random() * sampleVehicleForms.length)];
-    setForm(template);
+    setForm((current) => ({
+      ...template,
+      driverCrewMemberId: current.driverCrewMemberId,
+      driverName: current.driverName,
+    }));
     setFieldErrors({});
     setSubmitMessage(null);
   }
@@ -730,7 +878,7 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
       <div className="grid">
         <Panel
           title="Vehicles"
-          description="Load and manage the vans."
+          description="Load and manage project vans, with rentals as the default case."
           action={
             <button
               type="button"
@@ -776,7 +924,7 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
 
             {isLoading ? (
               <div className="flex min-h-32 items-center justify-center rounded-lg border border-[#e7e7e4] bg-[#fafaf7] text-[13px] text-[#6b6b67]">
-                Loading saved vans...
+                Loading saved vehicles...
               </div>
             ) : (
               <WorkspaceDataTable
@@ -786,8 +934,8 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <p className="text-[13px] leading-6 text-[#6b6b67]">
                       {vehicles.length === 0
-                        ? "No vans saved yet."
-                        : `${vehicles.length} saved van${vehicles.length === 1 ? "" : "s"} ready for assignment.`}
+                        ? "No vehicles saved yet."
+                        : `${vehicles.length} saved vehicle${vehicles.length === 1 ? "" : "s"} ready for assignment.`}
                     </p>
                     <WorkspaceColumnToggleMenu columns={visibleColumns} />
                   </div>
@@ -818,10 +966,10 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
                       <div className="flex flex-col items-center gap-3">
                         <div>
                           <p className="text-[14px] font-medium text-[#1d1d1b]">
-                            No vans added yet.
+                            No vehicles added yet.
                           </p>
                           <p className="mt-1 text-[13px] text-[#6b6b67]">
-                            Keep fleet records in one shared table and show only the columns you need.
+                            Keep project vehicle records in one shared table and show only the columns you need.
                           </p>
                         </div>
                         <Button type="button" variant="outline" onClick={openCreateSheet}>
@@ -857,15 +1005,15 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
         </Panel>
 
         {/* <Panel
-          title="Fleet snapshot"
-          description="Seat count and availability from the current vans list."
+          title="Vehicle snapshot"
+          description="Seat count and availability from the current project vehicle list."
         >
           <div className="space-y-3">
             <MetricCard
               icon={Car}
-              label="Fleet"
+              label="Vehicles"
               value={String(vehicles.length)}
-              detail={vehicles.length === 0 ? "No vans in the list yet." : "Vans currently tracked."}
+              detail={vehicles.length === 0 ? "No vehicles in the list yet." : "Vehicles currently tracked."}
             />
             <MetricCard
               icon={Wrench}
@@ -873,10 +1021,10 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
               value={String(activeCount)}
               detail={
                 vehicles.length === 0
-                  ? "Availability will appear after vans are added."
+                  ? "Availability will appear after vehicles are added."
                   : inactiveCount === 0
-                    ? "Every van is marked active."
-                    : `${inactiveCount} van${inactiveCount === 1 ? "" : "s"} currently inactive.`
+                    ? "Every vehicle is marked active."
+                    : `${inactiveCount} vehicle${inactiveCount === 1 ? "" : "s"} currently inactive.`
               }
             />
             <MetricCard
@@ -885,8 +1033,8 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
               value={String(totalSeats)}
               detail={
                 vehicles.length === 0
-                  ? "Total seat count will update as you add vans."
-                  : `${totalSeats} total seat${totalSeats === 1 ? "" : "s"} across the fleet.`
+                  ? "Total seat count will update as you add vehicles."
+                  : `${totalSeats} total seat${totalSeats === 1 ? "" : "s"} across the current vehicle list.`
               }
             />
           </div>
@@ -897,7 +1045,7 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
         open={isSheetOpen}
         onOpenChange={(open) => setSheetOpen(open)}
         title={sheetMode === "edit" ? "Edit van" : "Add van"}
-        description="Create or update a van record with the fields stored in the backend."
+        description="Create or update a project vehicle record with the fields stored in the backend."
       >
         <form className="flex flex-1 flex-col" onSubmit={handleSubmit}>
           <div className="space-y-4 overflow-y-auto px-5 py-5">
@@ -1003,6 +1151,156 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
                 </select>
               </Field>
             </div>
+
+            <Field label="Driver">
+              <Combobox<string>
+                value={selectedDriverValue}
+                onValueChange={(nextValue) => {
+                  if (!nextValue) {
+                    return;
+                  }
+
+                  if (nextValue === CLEAR_DRIVER_VALUE) {
+                    clearSelectedDriver();
+                    return;
+                  }
+
+                  if (nextValue.startsWith(CREATE_DRIVER_VALUE_PREFIX)) {
+                    selectNewDriver(nextValue.slice(CREATE_DRIVER_VALUE_PREFIX.length));
+                    return;
+                  }
+
+                  const person = people.find((entry) => entry.id === nextValue);
+
+                  if (!person) {
+                    return;
+                  }
+
+                  selectExistingDriver(person);
+                }}
+                open={isDriverPickerOpen}
+                onOpenChange={(open) => {
+                  setIsDriverPickerOpen(open);
+
+                  if (open) {
+                    setPeopleLoadError(null);
+                    void loadPeople();
+                    return;
+                  }
+
+                  setDriverSearch("");
+                }}
+                inputValue={driverSearch}
+                onInputValueChange={(nextValue) => setDriverSearch(nextValue)}
+                autoHighlight
+                itemToStringLabel={(value) => {
+                  if (value.startsWith(CREATE_DRIVER_VALUE_PREFIX)) {
+                    return value.slice(CREATE_DRIVER_VALUE_PREFIX.length);
+                  }
+
+                  return people.find((person) => person.id === value)?.name ?? form.driverName;
+                }}
+              >
+                <ComboboxTrigger
+                  aria-invalid={fieldErrors.driver ? "true" : undefined}
+                  className={cn(
+                    "flex h-8 w-full items-center justify-between rounded-lg border border-input bg-transparent px-2.5 text-left text-sm text-[#1d1d1b] outline-none transition-colors hover:bg-[#fafaf7] focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
+                    fieldErrors.driver ? "border-amber-300 focus-visible:border-amber-400" : undefined,
+                  )}
+                >
+                  <span className="min-w-0 flex-1 truncate">
+                    <ComboboxValue placeholder="Select or add a driver">
+                      {(value) => {
+                        if (!value) {
+                          return "Select or add a driver";
+                        }
+
+                        if (typeof value === "string" && value.startsWith(CREATE_DRIVER_VALUE_PREFIX)) {
+                          return `New driver: ${value.slice(CREATE_DRIVER_VALUE_PREFIX.length)}`;
+                        }
+
+                        return people.find((person) => person.id === value)?.name ?? form.driverName;
+                      }}
+                    </ComboboxValue>
+                  </span>
+                  <span className="ml-3 flex shrink-0 items-center gap-1 text-[12px] font-medium text-[#6b6b67]">
+                    <Search className="size-3.5" />
+                    Search
+                  </span>
+                </ComboboxTrigger>
+                <ComboboxContent className="border border-[#e3e3df] bg-white shadow-[0_18px_38px_-24px_rgba(15,23,42,0.45)]">
+                  <div className="p-1 pb-0">
+                    <ComboboxInput
+                      autoFocus
+                      placeholder="Search crew members"
+                      showTrigger={false}
+                      className="w-full"
+                    />
+                  </div>
+                  <ComboboxList>
+                    <ComboboxEmpty>
+                      {isLoadingPeople
+                        ? "Loading crew members..."
+                        : peopleLoadError
+                          ? "Unable to load crew members."
+                          : "No matching crew members."}
+                    </ComboboxEmpty>
+                    <ComboboxItem value={CLEAR_DRIVER_VALUE} className="items-start gap-3 px-2 py-2.5">
+                      <div className="min-w-0">
+                        <p className="truncate text-[13px] font-medium text-[#1d1d1b]">
+                          No driver assigned
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-[#6b6b67]">
+                          Save the van with a null `crew_member_id`.
+                        </p>
+                      </div>
+                    </ComboboxItem>
+                    {shouldOfferCreateDriver ? (
+                      <ComboboxItem
+                        value={`${CREATE_DRIVER_VALUE_PREFIX}${driverSearch.trim()}`}
+                        className="items-start gap-3 px-2 py-2.5"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-[13px] font-medium text-[#1d1d1b]">
+                            Add {driverSearch.trim()}
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-[#6b6b67]">
+                            Create this driver in the crew roster when the van is saved.
+                          </p>
+                        </div>
+                      </ComboboxItem>
+                    ) : null}
+                    {filteredDriverOptions.map((person) => (
+                      <ComboboxItem
+                        key={person.id}
+                        value={person.id}
+                        className="items-start gap-3 px-2 py-2.5"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-[13px] font-medium text-[#1d1d1b]">
+                            {person.name}
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-[#6b6b67]">
+                            {person.phone || "No phone"}
+                          </p>
+                          {person.address ? (
+                            <p className="mt-1 truncate text-[11px] text-[#8a8a84]">
+                              {person.address}
+                            </p>
+                          ) : null}
+                        </div>
+                      </ComboboxItem>
+                    ))}
+                  </ComboboxList>
+                </ComboboxContent>
+              </Combobox>
+              {fieldErrors.driver ? (
+                <p className="mt-2 text-[12px] text-amber-800">{fieldErrors.driver}</p>
+              ) : null}
+              {!fieldErrors.driver && peopleLoadError ? (
+                <p className="mt-2 text-[12px] text-amber-800">{peopleLoadError}</p>
+              ) : null}
+            </Field>
 
             <Field label="Notes">
               <textarea

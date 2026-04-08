@@ -146,6 +146,187 @@
     animation: schedule-time-strike 220ms cubic-bezier(0.2, 0, 0, 1) both;
   }
 
+  .map-cast-marker {
+    --map-cast-marker-color: #4d9fff;
+    align-items: center;
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    pointer-events: auto;
+    transition: opacity 0.18s;
+  }
+
+  .map-cast-marker__bubble {
+    align-items: center;
+    background: #5b9eff;
+    border-radius: 999px;
+    box-shadow:
+      0 10px 18px rgba(15, 23, 42, 0.22),
+      0 0 0 3px rgba(255, 186, 76, 0.2),
+      0 1px 0 rgba(255, 255, 255, 0.3) inset;
+    color: #ffffff;
+    display: inline-flex;
+    font-size: 10px;
+    font-weight: 700;
+    height: 26px;
+    justify-content: center;
+    letter-spacing: 0.02em;
+    line-height: 1;
+    width: 26px;
+    position: relative;
+    text-transform: uppercase;
+  }
+
+  .map-cast-marker__bubble::after {
+    background: rgba(255, 255, 255, 0.28);
+    border-radius: 999px;
+    content: "";
+    height: 7px;
+    left: 50%;
+    opacity: 0.65;
+    position: absolute;
+    top: 3px;
+    transform: translateX(-50%);
+    width: 12px;
+  }
+
+  .map-cast-marker__label {
+    position: relative;
+    z-index: 1;
+  }
+
+  .map-cast-marker--blue {
+    --map-cast-marker-color: #4d9fff;
+  }
+
+  .map-cast-marker--location {
+    --map-cast-marker-color: #f59e0b;
+  }
+
+  .map-cast-location-marker {
+    align-items: center;
+    background: rgba(255, 255, 255, 0.96);
+    border: 2px solid rgba(245, 158, 11, 0.9);
+    border-radius: 999px;
+    box-shadow:
+      0 10px 18px rgba(15, 23, 42, 0.16),
+      0 0 0 3px rgba(245, 158, 11, 0.14);
+    color: #92400e;
+    display: inline-flex;
+    font-size: 10px;
+    font-weight: 700;
+    height: 22px;
+    justify-content: center;
+    line-height: 1;
+    width: 22px;
+  }
+
+  .map-cast-location-marker__label {
+    position: relative;
+    top: 0.5px;
+  }
+
+  .map-cast-stop-marker {
+    --map-stop-marker-color: #2563eb;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.98);
+    border: 2px solid var(--map-stop-marker-color);
+    border-radius: 999px;
+    box-shadow:
+      0 8px 18px rgba(15, 23, 42, 0.14),
+      0 0 0 3px color-mix(in srgb, var(--map-stop-marker-color) 18%, transparent);
+    color: #111827;
+    display: inline-flex;
+    font-size: 10px;
+    font-weight: 700;
+    height: 20px;
+    justify-content: center;
+    line-height: 1;
+    width: 20px;
+  }
+
+  .map-cast-stop-marker__label {
+    position: relative;
+    top: 0.5px;
+  }
+
+  .map-cast-popup-shell .mapboxgl-popup-content {
+    background: transparent;
+    box-shadow: none;
+    padding: 0;
+  }
+
+  .map-cast-popup-shell .mapboxgl-popup-tip {
+    border-top-color: #ffffff;
+    filter: drop-shadow(0 6px 10px rgba(15, 23, 42, 0.08));
+  }
+
+  .map-cast-popup {
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid rgba(209, 213, 219, 0.9);
+    border-radius: 16px;
+    box-shadow:
+      0 16px 34px rgba(15, 23, 42, 0.12),
+      0 3px 10px rgba(15, 23, 42, 0.08);
+    color: #111827;
+    min-width: 180px;
+    padding: 12px 12px 11px;
+    backdrop-filter: blur(12px);
+  }
+
+  .map-cast-popup__header {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .map-cast-popup__badge {
+    align-items: center;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 999px;
+    color: #2563eb;
+    display: inline-flex;
+    font-size: 10px;
+    font-weight: 700;
+    height: 22px;
+    justify-content: center;
+    min-width: 22px;
+    padding: 0 6px;
+    text-transform: uppercase;
+  }
+
+  .map-cast-popup__badge--location {
+    background: #fff7ed;
+    border-color: #fed7aa;
+    color: #c2410c;
+  }
+
+  .map-cast-popup__badge--stop {
+    background: color-mix(in srgb, var(--map-stop-badge-color, #2563eb) 10%, white);
+    border-color: color-mix(in srgb, var(--map-stop-badge-color, #2563eb) 30%, white);
+    color: var(--map-stop-badge-color, #2563eb);
+  }
+
+  .map-cast-popup__title {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.25;
+  }
+
+  .map-cast-popup__detail {
+    font-size: 12px;
+    line-height: 1.45;
+    color: #374151;
+  }
+
+  .map-cast-popup__detail--muted {
+    color: #6b7280;
+    margin-top: 4px;
+  }
+
   [data-collapsible="icon"] [data-kordi-shell="brand-button"],
   [data-collapsible="icon"] [data-kordi-shell="auth-button"] {
     width: 2rem !important;
