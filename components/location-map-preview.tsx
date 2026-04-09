@@ -87,6 +87,26 @@ function normalizeText(value: string | null | undefined) {
   return value?.trim().toLowerCase() ?? "";
 }
 
+function calculateDistanceMeters(
+  origin: { lng: number; lat: number },
+  target: [number, number],
+) {
+  const [targetLng, targetLat] = target;
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+  const earthRadiusMeters = 6371000;
+  const deltaLat = toRadians(targetLat - origin.lat);
+  const deltaLng = toRadians(targetLng - origin.lng);
+  const originLatRadians = toRadians(origin.lat);
+  const targetLatRadians = toRadians(targetLat);
+
+  const haversine =
+    Math.sin(deltaLat / 2) ** 2 +
+    Math.cos(originLatRadians) * Math.cos(targetLatRadians) * Math.sin(deltaLng / 2) ** 2;
+  const centralAngle = 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+
+  return earthRadiusMeters * centralAngle;
+}
+
 function getKiezLabel(feature: GeocodingFeature | null) {
   if (!feature) {
     return null;
@@ -124,10 +144,14 @@ function scorePoiCandidate(
   const originName = normalizeText(originFeature.properties.name);
   const featureType = normalizeText(candidate.properties.feature_type);
   const maki = normalizeText(candidate.properties.maki);
-  const distance =
-    typeof candidate.properties.distance === "number" && Number.isFinite(candidate.properties.distance)
-      ? candidate.properties.distance
-      : null;
+  const originCoordinates = {
+    lng: originFeature.properties.coordinates.longitude,
+    lat: originFeature.properties.coordinates.latitude,
+  };
+  const distance = calculateDistanceMeters(originCoordinates, [
+    candidate.geometry.coordinates[0],
+    candidate.geometry.coordinates[1],
+  ]);
 
   let score = 0;
 
@@ -158,9 +182,7 @@ function scorePoiCandidate(
     score -= 55;
   }
 
-  if (distance !== null) {
-    score -= Math.min(distance / 18, 70);
-  }
+  score -= Math.min(distance / 18, 70);
 
   return score;
 }
