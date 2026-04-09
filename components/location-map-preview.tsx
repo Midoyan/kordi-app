@@ -22,7 +22,90 @@ type PreviewState = {
   status: "idle" | "loading" | "ready" | "error";
 };
 
-const nearbyPoiCategories = ["landmark", "tourist attraction", "museum", "monument", "cafe", "hotel"] as const;
+const nearbyPoiCategories = [
+  "landmark",
+  "tourist attraction",
+  "monument",
+  "museum",
+  "park",
+  "subway station",
+  "train station",
+  "rail station",
+  "transit station",
+  "bus station",
+  "shopping mall",
+  "department store",
+  "stadium",
+  "event venue",
+  "plaza",
+] as const;
+const poiCategoryScores = new Map<string, number>([
+  ["landmark", 180],
+  ["tourist attraction", 170],
+  ["monument", 160],
+  ["museum", 110],
+  ["park", 65],
+  ["subway station", 150],
+  ["train station", 145],
+  ["rail station", 145],
+  ["transit station", 135],
+  ["bus station", 120],
+  ["shopping mall", 125],
+  ["department store", 95],
+  ["stadium", 120],
+  ["event venue", 105],
+  ["plaza", 95],
+  ["square", 95],
+  ["station", 110],
+]);
+const makiScores = new Map<string, number>([
+  ["monument", 80],
+  ["museum", 55],
+  ["attraction", 55],
+  ["castle", 50],
+  ["religious-christian", 45],
+  ["theatre", 35],
+  ["park", 25],
+  ["rail", 95],
+  ["bus", 75],
+  ["shop", 55],
+  ["stadium", 70],
+  ["town-hall", 35],
+]);
+const highRecognitionNamePatterns = [
+  /\b(gate|tor|tower|turm|cathedral|dom|palace|castle|bridge|memorial|museum|square|platz|wall|station|bahnhof|u-bahn|u-bahnhof|s-bahn|s-bahnhof|mall|arcaden|arkaden|center|centre)\b/i,
+  /\b(brandenburg|reichstag|fernsehturm|bode|alexanderplatz|potsdamer)\b/i,
+];
+const iconicLandmarkNamePatterns = [
+  /\b(brandenburger tor|brandenburg gate|reichstag|fernsehturm|bode museum|museum island|museumsinsel|checkpoint charlie|potsdamer platz|alexanderplatz|berliner dom|victory column|siegessaule|hauptbahnhof|zoologischer garten|mall of berlin|kadewe)\b/i,
+];
+const lowRecognitionNamePatterns = [
+  /\b(institut|institute|office|embassy|apartment|residence|parking|garage|historische|historical|flugzeuge|aircraft|sammlung|collection|archive|verein|werkstatt|atelier|consulting)\b/i,
+];
+
+function normalizeText(value: string | null | undefined) {
+  return value?.trim().toLowerCase() ?? "";
+}
+
+function calculateDistanceMeters(
+  origin: { lng: number; lat: number },
+  target: [number, number],
+) {
+  const [targetLng, targetLat] = target;
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+  const earthRadiusMeters = 6371000;
+  const deltaLat = toRadians(targetLat - origin.lat);
+  const deltaLng = toRadians(targetLng - origin.lng);
+  const originLatRadians = toRadians(origin.lat);
+  const targetLatRadians = toRadians(targetLat);
+
+  const haversine =
+    Math.sin(deltaLat / 2) ** 2 +
+    Math.cos(originLatRadians) * Math.cos(targetLatRadians) * Math.sin(deltaLng / 2) ** 2;
+  const centralAngle = 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+
+  return earthRadiusMeters * centralAngle;
+}
 
 function getKiezLabel(feature: GeocodingFeature | null) {
   if (!feature) {
@@ -52,6 +135,92 @@ function buildPoiDetail(poi: SearchBoxCategorySuggestion | null) {
     .join(" · ");
 }
 
+function scorePoiCandidate(
+  candidate: SearchBoxCategorySuggestion,
+  originFeature: GeocodingFeature,
+) {
+  const categories = candidate.properties.poi_category ?? [];
+  const normalizedName = normalizeText(candidate.properties.name);
+  const originName = normalizeText(originFeature.properties.name);
+  const featureType = normalizeText(candidate.properties.feature_type);
+  const maki = normalizeText(candidate.properties.maki);
+  const originCoordinates = {
+    lng: originFeature.properties.coordinates.longitude,
+    lat: originFeature.properties.coordinates.latitude,
+  };
+  const distance = calculateDistanceMeters(originCoordinates, [
+    candidate.geometry.coordinates[0],
+    candidate.geometry.coordinates[1],
+  ]);
+
+  let score = 0;
+
+  for (const category of categories) {
+    score += poiCategoryScores.get(normalizeText(category)) ?? 0;
+  }
+
+  score += poiCategoryScores.get(featureType) ?? 0;
+  score += makiScores.get(maki) ?? 0;
+
+  if (candidate.properties.brand) {
+    score -= 10;
+  }
+
+  if (originName && normalizedName === originName) {
+    score -= 300;
+  }
+
+  if (iconicLandmarkNamePatterns.some((pattern) => pattern.test(candidate.properties.name ?? ""))) {
+    score += 220;
+  }
+
+  if (highRecognitionNamePatterns.some((pattern) => pattern.test(candidate.properties.name ?? ""))) {
+    score += 65;
+  }
+
+  if (lowRecognitionNamePatterns.some((pattern) => pattern.test(candidate.properties.name ?? ""))) {
+    score -= 55;
+  }
+
+  score -= Math.min(distance / 18, 70);
+
+  return score;
+}
+
+function isUsefulReferencePoi(candidate: SearchBoxCategorySuggestion, score: number) {
+  const categories = (candidate.properties.poi_category ?? []).map(normalizeText);
+  const name = candidate.properties.name ?? "";
+  const hasTopTierCategory = categories.some((category) =>
+    category === "landmark" || category === "tourist attraction" || category === "monument",
+  );
+  const hasUrbanAnchorCategory = categories.some((category) =>
+    category === "subway station" ||
+    category === "train station" ||
+    category === "rail station" ||
+    category === "transit station" ||
+    category === "bus station" ||
+    category === "shopping mall" ||
+    category === "department store" ||
+    category === "stadium" ||
+    category === "event venue" ||
+    category === "plaza" ||
+    category === "square",
+  );
+  const hasRecognizableName =
+    iconicLandmarkNamePatterns.some((pattern) => pattern.test(name)) ||
+    highRecognitionNamePatterns.some((pattern) => pattern.test(name));
+
+  if (hasTopTierCategory || hasRecognizableName) {
+    return score >= 90;
+  }
+
+  if (hasUrbanAnchorCategory) {
+    return score >= 95;
+  }
+
+  return score >= 150;
+}
+
 async function findNearbyPoi(
   search: SearchBoxCore,
   feature: GeocodingFeature,
@@ -61,26 +230,45 @@ async function findNearbyPoi(
     lng: feature.properties.coordinates.longitude,
     lat: feature.properties.coordinates.latitude,
   };
+  const candidates = new Map<string, SearchBoxCategorySuggestion>();
 
   for (const category of nearbyPoiCategories) {
     const response = await search.category(category, {
       proximity,
-      limit: 5,
+      origin: proximity,
+      navigation_profile: "walking",
+      limit: 8,
       language: "en",
       signal,
     });
 
-    const candidate =
-      response.features.find((item) => item.properties.name && item.properties.name !== feature.properties.name) ??
-      response.features[0] ??
-      null;
+    for (const item of response.features) {
+      if (!item.properties.name) {
+        continue;
+      }
 
-    if (candidate?.properties.name) {
-      return candidate;
+      const key = [
+        normalizeText(item.properties.name),
+        item.geometry.coordinates[0],
+        item.geometry.coordinates[1],
+      ].join("|");
+      const current = candidates.get(key);
+
+      if (!current || scorePoiCandidate(item, feature) > scorePoiCandidate(current, feature)) {
+        candidates.set(key, item);
+      }
     }
   }
 
-  return null;
+  const rankedCandidates = [...candidates.values()]
+    .map((candidate) => ({
+      candidate,
+      score: scorePoiCandidate(candidate, feature),
+    }))
+    .sort((first, second) => second.score - first.score);
+
+  return rankedCandidates.find(({ candidate, score }) => isUsefulReferencePoi(candidate, score))
+    ?.candidate ?? null;
 }
 
 export function LocationMapPreview({

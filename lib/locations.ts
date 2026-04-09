@@ -1,3 +1,6 @@
+import { createClientCacheStore } from "@/lib/client-cache-store";
+import { syncPeoplePickupLocationCache } from "@/lib/people";
+
 export const locationTypes = [
   "Pickup point",
   "Venue",
@@ -44,6 +47,12 @@ const locationTypesSet = new Set<string>(locationTypes);
 
 let locationsCache: LocationCachePayload | null = null;
 let locationsRequest: Promise<LocationRecord[]> | null = null;
+const locationsCacheStore = createClientCacheStore({
+  storageKey: LOCATION_CACHE_STORAGE_KEY,
+  onStorageChange: () => {
+    locationsCache = null;
+  },
+});
 
 function readString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -249,6 +258,7 @@ function storeLocationsCache(locations: LocationRecord[]) {
   };
 
   writeLocationsCache(cache);
+  locationsCacheStore.notify();
 
   return cache.locations;
 }
@@ -297,6 +307,10 @@ export function getCachedLocationsSnapshot(options?: { includeExpired?: boolean 
 export function hasFreshLocationsCache() {
   const cache = readLocationsCache();
   return cache ? isLocationCacheFresh(cache) : false;
+}
+
+export function subscribeLocationsCache(listener: () => void) {
+  return locationsCacheStore.subscribe(listener);
 }
 
 export function normalizeLocationPayload(payload: unknown): LocationPayload {
@@ -402,6 +416,8 @@ export async function createLocation(draft: LocationDraft) {
 }
 
 export async function updateLocation(id: string, draft: LocationDraft) {
+  const previousLocation =
+    getCachedLocationsSnapshot({ includeExpired: true })?.find((location) => location.id === id) ?? null;
   const response = await fetch(`/api/locations/${id}`, {
     method: "PATCH",
     headers: {
@@ -424,6 +440,10 @@ export async function updateLocation(id: string, draft: LocationDraft) {
         : [updatedLocation, ...currentLocations],
     ),
   );
+
+  if (previousLocation) {
+    syncPeoplePickupLocationCache(previousLocation, updatedLocation);
+  }
 
   return updatedLocation;
 }

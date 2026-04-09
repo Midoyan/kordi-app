@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from "react";
 
+import { useCacheSnapshot } from "@/hooks/use-cache-snapshot";
 import { AddressAutofillInput } from "@/components/address-autofill-input";
 import { EditorSheetLayout } from "@/components/editor-sheet-layout";
 import { LocationMapPreview } from "@/components/location-map-preview";
@@ -41,6 +42,7 @@ import {
   locationTypes,
   primeLocationsCache,
   sortLocations,
+  subscribeLocationsCache,
   type LocationDraft,
   type LocationRecord,
   type LocationType,
@@ -243,7 +245,12 @@ export function LocationsPage({ initialLocations }: { initialLocations?: Locatio
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [locations, setLocations] = useState<LocationRecord[]>(initialLocations ?? []);
+  const cachedLocationsSnapshot = useCacheSnapshot(
+    subscribeLocationsCache,
+    () => getCachedLocationsSnapshot({ includeExpired: true }),
+    () => initialLocations ?? null,
+  );
+  const [locations, setLocations] = useState<LocationRecord[]>(() => cachedLocationsSnapshot ?? initialLocations ?? []);
   const [form, setForm] = useState<LocationForm>(initialForm);
   const [fieldErrors, setFieldErrors] = useState<LocationFieldError>({});
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
@@ -329,6 +336,34 @@ export function LocationsPage({ initialLocations }: { initialLocations?: Locatio
       primeLocationsCache(initialLocations);
     }
   }, [initialLocations]);
+
+  useEffect(() => {
+    if (persistenceMode === "local-only") {
+      return;
+    }
+
+    if (cachedLocationsSnapshot !== null) {
+      setLocations(cachedLocationsSnapshot);
+      setIsLoading(false);
+      setLoadError(null);
+
+      if (persistenceMode === "checking") {
+        setPersistenceMode("connected");
+      }
+
+      return;
+    }
+
+    if (initialLocations) {
+      setLocations(initialLocations);
+      setIsLoading(false);
+      setLoadError(null);
+
+      if (persistenceMode === "checking") {
+        setPersistenceMode("connected");
+      }
+    }
+  }, [cachedLocationsSnapshot, initialLocations, persistenceMode]);
 
   useEffect(() => {
     const controller = new AbortController();

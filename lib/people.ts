@@ -1,3 +1,4 @@
+import { createClientCacheStore } from "@/lib/client-cache-store";
 import { syncTransportPlanPassengerOptionsCache } from "@/lib/transport-plan-client-cache";
 
 export type CrewMemberRecord = {
@@ -44,12 +45,35 @@ type PeopleCachePayload = {
   version: 3;
 };
 
+type MemoryPeopleCachePayload = {
+  people: PersonRecord[];
+  savedAt: number;
+};
+
 const PEOPLE_CACHE_STORAGE_KEY = "kordi.people-cache.v3";
 const PEOPLE_CACHE_TTL_MS = 5 * 60 * 1000;
 const PEOPLE_CACHE_VERSION = 3;
 
 let peopleCache: PeopleCachePayload | null = null;
 let peopleRequest: Promise<PersonRecord[]> | null = null;
+let basicPeopleCache: MemoryPeopleCachePayload | null = null;
+let basicPeopleRequest: Promise<PersonRecord[]> | null = null;
+const peopleCacheStore = createClientCacheStore({
+  storageKey: PEOPLE_CACHE_STORAGE_KEY,
+  onStorageChange: () => {
+    peopleCache = null;
+
+    const syncedPeople = getCachedPeopleSnapshot({ includeExpired: true });
+
+    if (syncedPeople !== null) {
+      writeBasicPeopleCache(syncedPeople);
+      syncTransportPlanPassengerOptionsCache(syncedPeople);
+      return;
+    }
+
+    basicPeopleCache = null;
+  },
+});
 
 function readString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -189,8 +213,36 @@ function normalizePeopleCachePayload(payload: unknown): PeopleCachePayload | nul
   };
 }
 
-function isPeopleCacheFresh(cache: PeopleCachePayload) {
+function isPeopleCacheFresh(cache: { savedAt: number }) {
   return Date.now() - cache.savedAt <= PEOPLE_CACHE_TTL_MS;
+}
+
+function writeBasicPeopleCache(people: PersonRecord[]) {
+  const cache: MemoryPeopleCachePayload = {
+    people: people.map((person) => normalizePersonRecord(person)),
+    savedAt: Date.now(),
+  };
+
+  basicPeopleCache = cache;
+  return cache.people;
+}
+
+function getCachedBasicPeopleSnapshot(options?: { includeExpired?: boolean }) {
+  const sharedCache = readPeopleCache();
+
+  if (sharedCache && (options?.includeExpired || isPeopleCacheFresh(sharedCache))) {
+    return sharedCache.people;
+  }
+
+  if (!basicPeopleCache) {
+    return null;
+  }
+
+  if (!options?.includeExpired && !isPeopleCacheFresh(basicPeopleCache)) {
+    return null;
+  }
+
+  return basicPeopleCache.people;
 }
 
 function readPeopleCache() {
@@ -245,7 +297,9 @@ function storePeopleCache(people: PersonRecord[]) {
   };
 
   writePeopleCache(cache);
+  writeBasicPeopleCache(cache.people);
   syncTransportPlanPassengerOptionsCache(cache.people);
+  peopleCacheStore.notify();
 
   return cache.people;
 }
@@ -273,6 +327,51 @@ export function getCachedPeopleSnapshot(options?: { includeExpired?: boolean }) 
   }
 
   return cache.people;
+}
+
+export function hasFreshPeopleCache() {
+  const cache = readPeopleCache();
+  return cache ? isPeopleCacheFresh(cache) : false;
+}
+
+export function subscribePeopleCache(listener: () => void) {
+  return peopleCacheStore.subscribe(listener);
+}
+
+function buildPickupToLocationLabel(name: string, address: string) {
+  return [name.trim(), address.trim()].filter(Boolean).join(" · ") || name.trim() || address.trim();
+}
+
+export function syncPeoplePickupLocationCache(
+  previousLocation: { name: string; address: string },
+  nextLocation: { name: string; address: string },
+) {
+  const previousName = readString(previousLocation.name);
+  const previousAddress = readString(previousLocation.address);
+  const previousLabel = buildPickupToLocationLabel(previousName, previousAddress);
+  const nextName = readString(nextLocation.name);
+  const nextAddress = readString(nextLocation.address);
+  const nextLabel = buildPickupToLocationLabel(nextName, nextAddress);
+
+  updatePeopleCache((currentPeople) =>
+    currentPeople.map((person) => {
+      const matchesPreviousLocation =
+        person.pickupToLocationName === previousName ||
+        person.pickupToLocationAddress === previousAddress ||
+        person.pickupToLocation === previousLabel;
+
+      if (!matchesPreviousLocation) {
+        return person;
+      }
+
+      return {
+        ...person,
+        pickupToLocationName: nextName,
+        pickupToLocationAddress: nextAddress,
+        pickupToLocation: nextLabel,
+      };
+    }),
+  );
 }
 
 export function normalizeCrewMemberPayload(payload: unknown): CrewMemberPayload {
@@ -337,6 +436,30 @@ export function normalizeCrewMemberRecord(payload: unknown): CrewMemberRecord {
   };
 }
 
+async function fetchPeopleFromApi(options?: {
+  includeDriveContext?: boolean;
+}) {
+  const response = await fetch(
+    options?.includeDriveContext
+      ? "/api/crew-members?includeDriveContext=1"
+      : "/api/crew-members",
+    {
+      cache: "no-store",
+      method: "GET",
+    },
+  );
+  const payload = await parseResponseJson(response);
+
+  if (!response.ok) {
+    throw new Error(getResponseErrorMessage(payload, "Failed to load people."));
+  }
+
+  if (!Array.isArray(payload)) {
+    return [];
+  }
+
+  return payload.map((entry) => mapCrewMemberToPerson(normalizeCrewMemberRecord(entry)));
+}
 
 export async function fetchPeople(signal?: AbortSignal) {
   const cachedPeople = getCachedPeopleSnapshot();
@@ -348,25 +471,9 @@ export async function fetchPeople(signal?: AbortSignal) {
   const staleCachedPeople = getCachedPeopleSnapshot({ includeExpired: true });
 
   if (!peopleRequest) {
-    const request = (async () => {
-      const response = await fetch("/api/crew-members", {
-        cache: "no-store",
-        method: "GET",
-      });
-      const payload = await parseResponseJson(response);
-
-      if (!response.ok) {
-        throw new Error(getResponseErrorMessage(payload, "Failed to load people."));
-      }
-
-      if (!Array.isArray(payload)) {
-        return storePeopleCache([]);
-      }
-
-      return storePeopleCache(
-        payload.map((entry) => mapCrewMemberToPerson(normalizeCrewMemberRecord(entry))),
-      );
-    })();
+    const request = fetchPeopleFromApi({ includeDriveContext: true }).then((people) =>
+      storePeopleCache(people),
+    );
 
     peopleRequest = request;
     void request.finally(() => {
@@ -378,6 +485,41 @@ export async function fetchPeople(signal?: AbortSignal) {
 
   try {
     return await waitForPromiseWithSignal(peopleRequest, signal);
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
+
+    if (staleCachedPeople !== null) {
+      return staleCachedPeople;
+    }
+
+    throw error;
+  }
+}
+
+export async function fetchBasicPeople(signal?: AbortSignal) {
+  const cachedPeople = getCachedBasicPeopleSnapshot();
+
+  if (cachedPeople !== null) {
+    return cachedPeople;
+  }
+
+  const staleCachedPeople = getCachedBasicPeopleSnapshot({ includeExpired: true });
+
+  if (!basicPeopleRequest) {
+    const request = fetchPeopleFromApi().then((people) => writeBasicPeopleCache(people));
+
+    basicPeopleRequest = request;
+    void request.finally(() => {
+      if (basicPeopleRequest === request) {
+        basicPeopleRequest = null;
+      }
+    });
+  }
+
+  try {
+    return await waitForPromiseWithSignal(basicPeopleRequest, signal);
   } catch (error) {
     if (isAbortError(error)) {
       throw error;

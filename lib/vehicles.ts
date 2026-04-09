@@ -1,3 +1,5 @@
+import { createClientCacheStore } from "@/lib/client-cache-store";
+
 export const vehicleTypes = [
   "Van",
   "Car",
@@ -74,6 +76,12 @@ const vehicleTypeByAlias = new Map<string, VehicleType>([
 
 let vehiclesCache: VehicleCachePayload | null = null;
 let vehiclesRequest: Promise<VehicleRecord[]> | null = null;
+const vehiclesCacheStore = createClientCacheStore({
+  storageKey: VEHICLE_CACHE_STORAGE_KEY,
+  onStorageChange: () => {
+    vehiclesCache = null;
+  },
+});
 
 function readString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -335,6 +343,7 @@ function storeVehiclesCache(vehicles: VehicleRecord[]) {
   };
 
   writeVehiclesCache(cache);
+  vehiclesCacheStore.notify();
 
   return cache.vehicles;
 }
@@ -373,6 +382,10 @@ export function getCachedVehiclesSnapshot(options?: { includeExpired?: boolean }
 export function hasFreshVehiclesCache() {
   const cache = readVehiclesCache();
   return cache ? isVehicleCacheFresh(cache) : false;
+}
+
+export function subscribeVehiclesCache(listener: () => void) {
+  return vehiclesCacheStore.subscribe(listener);
 }
 
 export function normalizeVehiclePayload(payload: unknown): VehiclePayload {
