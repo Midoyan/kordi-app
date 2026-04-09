@@ -17,7 +17,7 @@ import {
   type MapCanvasMarker,
 } from "@/components/map-canvas";
 import { fetchLocations, type LocationRecord } from "@/lib/locations";
-import { fetchPeople, type PersonRecord } from "@/lib/people";
+import { fetchBasicPeople, type PersonRecord } from "@/lib/people";
 import { cn } from "@/lib/utils";
 
 const mapboxToken = (process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN ?? "").trim();
@@ -162,7 +162,7 @@ export function LiveMapPage() {
     async function loadLiveMapState() {
       // Load every dataset together so the live map can render one coherent pass.
       const [people, locations, transportPlan] = await Promise.all([
-        fetchPeople(controller.signal),
+        fetchBasicPeople(controller.signal),
         fetchLocations({ signal: controller.signal }),
         fetchTransportPlan(controller.signal),
       ]);

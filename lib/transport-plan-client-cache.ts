@@ -1,10 +1,9 @@
-"use client"
-
 import type {
   Drive,
   StopPickupPassengerOption,
   TransportPlan,
 } from "@/lib/drive-plan"
+import { createClientCacheStore } from "@/lib/client-cache-store"
 import type { PersonRecord } from "@/lib/people"
 
 const TRANSPORT_PLAN_CACHE_TTL_MS = 5 * 60 * 1000
@@ -12,6 +11,7 @@ const TRANSPORT_PLAN_CACHE_TTL_MS = 5 * 60 * 1000
 let cachedTransportPlan: TransportPlan | null = null
 let cachedTransportPlanAt = 0
 let transportPlanPromise: Promise<TransportPlan> | null = null
+const transportPlanCacheStore = createClientCacheStore()
 
 function mapPersonToStopPickupPassengerOption(person: PersonRecord): StopPickupPassengerOption {
   return {
@@ -43,12 +43,14 @@ export function getCachedTransportPlan(options?: { includeExpired?: boolean }) {
 export function setCachedTransportPlan(transportPlan: TransportPlan) {
   cachedTransportPlan = transportPlan
   cachedTransportPlanAt = Date.now()
+  transportPlanCacheStore.notify()
 }
 
 export function clearCachedTransportPlan() {
   cachedTransportPlan = null
   cachedTransportPlanAt = 0
   transportPlanPromise = null
+  transportPlanCacheStore.notify()
 }
 
 export function primeTransportPlanCache(transportPlan: TransportPlan) {
@@ -97,4 +99,8 @@ export function getTransportPlanPromise() {
 
 export function setTransportPlanPromise(nextPromise: Promise<TransportPlan> | null) {
   transportPlanPromise = nextPromise
+}
+
+export function subscribeTransportPlanCache(listener: () => void) {
+  return transportPlanCacheStore.subscribe(listener)
 }

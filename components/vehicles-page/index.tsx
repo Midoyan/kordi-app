@@ -11,6 +11,7 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 
+import { useCacheSnapshot } from "@/hooks/use-cache-snapshot";
 import { createVehicleColumns } from "@/components/vehicles-page/columns";
 import { VehicleEditorSheet } from "@/components/vehicles-page/editor-sheet";
 import { VehiclesTableSection } from "@/components/vehicles-page/table-section";
@@ -28,8 +29,9 @@ import {
 import { buildSheetHref } from "@/components/vehicles-page/ui";
 import {
   createPerson,
-  fetchPeople,
+  fetchBasicPeople,
   getCachedPeopleSnapshot,
+  subscribePeopleCache,
   type PersonRecord,
 } from "@/lib/people";
 import {
@@ -41,6 +43,7 @@ import {
   hasFreshVehiclesCache,
   primeVehiclesCache,
   sortVehicles,
+  subscribeVehiclesCache,
   updateVehicle,
   type VehicleDraft,
   type VehicleRecord,
@@ -51,7 +54,17 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [vehicles, setVehicles] = useState<VehicleRecord[]>(initialVehicles ?? []);
+  const cachedVehiclesSnapshot = useCacheSnapshot(
+    subscribeVehiclesCache,
+    () => getCachedVehiclesSnapshot({ includeExpired: true }),
+    () => initialVehicles ?? null,
+  );
+  const cachedPeopleSnapshot = useCacheSnapshot(
+    subscribePeopleCache,
+    () => getCachedPeopleSnapshot({ includeExpired: true }),
+    () => null,
+  );
+  const [vehicles, setVehicles] = useState<VehicleRecord[]>(() => cachedVehiclesSnapshot ?? initialVehicles ?? []);
   const [form, setForm] = useState<VehicleForm>(initialForm);
   const [fieldErrors, setFieldErrors] = useState<VehicleFieldError>({});
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
@@ -65,7 +78,7 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(defaultColumnVisibility);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
-  const [people, setPeople] = useState<PersonRecord[]>(() => getCachedPeopleSnapshot({ includeExpired: true }) ?? []);
+  const [people, setPeople] = useState<PersonRecord[]>(() => cachedPeopleSnapshot ?? []);
   const [isLoadingPeople, setIsLoadingPeople] = useState(false);
   const [peopleLoadError, setPeopleLoadError] = useState<string | null>(null);
   const [isDriverPickerOpen, setIsDriverPickerOpen] = useState(false);
@@ -117,7 +130,7 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
     setIsLoadingPeople(true);
 
     try {
-      const nextPeople = await fetchPeople();
+      const nextPeople = await fetchBasicPeople();
       setPeople(nextPeople);
     } catch (error) {
       setPeopleLoadError(error instanceof Error ? error.message : "Unable to load crew members.");
@@ -155,6 +168,43 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
       primeVehiclesCache(initialVehicles);
     }
   }, [initialVehicles]);
+
+  useEffect(() => {
+    if (persistenceMode === "local-only") {
+      return;
+    }
+
+    if (cachedVehiclesSnapshot !== null) {
+      setVehicles(cachedVehiclesSnapshot);
+      setIsLoading(false);
+      setLoadError(null);
+
+      if (persistenceMode === "checking") {
+        setPersistenceMode("connected");
+      }
+
+      return;
+    }
+
+    if (initialVehicles) {
+      setVehicles(initialVehicles);
+      setIsLoading(false);
+      setLoadError(null);
+
+      if (persistenceMode === "checking") {
+        setPersistenceMode("connected");
+      }
+    }
+  }, [cachedVehiclesSnapshot, initialVehicles, persistenceMode]);
+
+  useEffect(() => {
+    if (cachedPeopleSnapshot === null) {
+      return;
+    }
+
+    setPeople(cachedPeopleSnapshot);
+    setPeopleLoadError(null);
+  }, [cachedPeopleSnapshot]);
 
   useEffect(() => {
     const controller = new AbortController();

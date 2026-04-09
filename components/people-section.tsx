@@ -24,6 +24,7 @@ import {
 } from "@tanstack/react-table";
 import { PencilLine, Plus, Search } from "lucide-react";
 
+import { useCacheSnapshot } from "@/hooks/use-cache-snapshot";
 import { PersonEditorSheet } from "@/components/person-editor-sheet";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -39,8 +40,10 @@ import {
   deletePerson,
   fetchPeople,
   getCachedPeopleSnapshot,
+  hasFreshPeopleCache,
   getPersonSearchText,
   primePeopleCache,
+  subscribePeopleCache,
   type PersonDraft,
   type PersonRecord,
   updatePerson,
@@ -201,7 +204,12 @@ export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [people, setPeople] = useState<PersonRecord[]>(initialPeople ?? []);
+  const cachedPeopleSnapshot = useCacheSnapshot(
+    subscribePeopleCache,
+    () => getCachedPeopleSnapshot({ includeExpired: true }),
+    () => initialPeople ?? null,
+  );
+  const [people, setPeople] = useState<PersonRecord[]>(() => cachedPeopleSnapshot ?? initialPeople ?? []);
   const [query, setQuery] = useState("");
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(defaultColumnVisibility);
@@ -227,30 +235,43 @@ export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[
   }, [initialPeople]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    const cachedPeople = getCachedPeopleSnapshot();
-
-    if (cachedPeople !== null) {
-      setPeople(cachedPeople);
+    if (cachedPeopleSnapshot !== null) {
+      setPeople(cachedPeopleSnapshot);
       setIsLoading(false);
-    } else if (initialPeople) {
+      setLoadError(null);
+      return;
+    }
+
+    if (initialPeople) {
       setPeople(initialPeople);
       setIsLoading(false);
       setLoadError(null);
     }
+  }, [cachedPeopleSnapshot, initialPeople]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const hasFreshCache = hasFreshPeopleCache();
+
+    if (hasFreshCache) {
+      return () => {
+        controller.abort();
+
+        if (insertAnimationTimeoutRef.current) {
+          window.clearTimeout(insertAnimationTimeoutRef.current);
+        }
+      };
+    }
 
     const load = async () => {
-      if (cachedPeople === null && !initialPeople) {
+      if (cachedPeopleSnapshot === null && !initialPeople) {
         setIsLoading(true);
       }
 
       setLoadError(null);
 
       try {
-        const nextPeople =
-          cachedPeople !== null
-            ? await fetchPeople(controller.signal)
-            : initialPeople ?? await fetchPeople(controller.signal);
+        const nextPeople = await fetchPeople(controller.signal);
         setPeople(nextPeople);
       } catch (error) {
         if (controller.signal.aborted) {
@@ -274,7 +295,7 @@ export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[
         window.clearTimeout(insertAnimationTimeoutRef.current);
       }
     };
-  }, [initialPeople]);
+  }, [cachedPeopleSnapshot, initialPeople]);
 
   useEffect(() => {
     if (searchParams.get("add-person") !== "1") {

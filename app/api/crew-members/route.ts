@@ -82,15 +82,39 @@ function buildCrewMemberDriveLookup(drives: Awaited<ReturnType<typeof getDrivePl
   return lookup;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const supabase = await createClient();
+  const includeDriveContext =
+    new URL(request.url).searchParams.get("includeDriveContext") === "1";
+
+  if (!includeDriveContext) {
+    const { data, error } = await supabase
+      .from("crew_members")
+      .select("id, full_name, home_address, phone, default_role_title, created_at")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      return Response.json({ error: error.message }, { status: 500 });
+    }
+
+    return Response.json(data ?? [], { status: 200 });
+  }
 
   const [{ data, error }, drivePlanResult] = await Promise.all([
     supabase
       .from("crew_members")
       .select("id, full_name, home_address, phone, default_role_title, created_at")
       .order("created_at", { ascending: false }),
-    getDrivePlan().catch(() => null),
+    getDrivePlan().catch((drivePlanError) => {
+      console.error("[crew-members] Failed to load drive plan enrichment", {
+        error:
+          drivePlanError instanceof Error
+            ? drivePlanError.message
+            : drivePlanError,
+      });
+
+      return null;
+    }),
   ]);
 
   if (error) {

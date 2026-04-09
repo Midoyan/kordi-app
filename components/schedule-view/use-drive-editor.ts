@@ -4,11 +4,13 @@ import * as React from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
 import type { Drive } from "@/lib/drive-plan"
+import { useCacheSnapshot } from "@/hooks/use-cache-snapshot"
 import {
   createLocation,
   fetchLocations,
   getCachedLocationsSnapshot,
   sortLocations,
+  subscribeLocationsCache,
   updateLocation,
   type LocationDraft,
   type LocationRecord,
@@ -20,6 +22,7 @@ import {
 import {
   fetchVehicles,
   getCachedVehiclesSnapshot,
+  subscribeVehiclesCache,
   type VehicleRecord,
 } from "@/lib/vehicles"
 import type { DriveEditorDraft } from "@/components/drive-editor-sheet"
@@ -155,6 +158,16 @@ export function useDriveEditorState({
   const router = useRouter()
   const searchParams = useSearchParams()
   const driveSheetParam = searchParams.get("sheet")
+  const cachedLocationOptions = useCacheSnapshot(
+    subscribeLocationsCache,
+    () => getCachedLocationsSnapshot({ includeExpired: true }) ?? [],
+    () => []
+  )
+  const cachedVehicleOptions = useCacheSnapshot(
+    subscribeVehiclesCache,
+    () => getCachedVehiclesSnapshot({ includeExpired: true }) ?? [],
+    () => []
+  )
 
   const [driveEditorMode, setDriveEditorMode] = React.useState<DriveEditorMode>(null)
   const [editingDriveId, setEditingDriveId] = React.useState<string | null>(null)
@@ -162,12 +175,8 @@ export function useDriveEditorState({
   const [driveError, setDriveError] = React.useState<string | null>(null)
   const [isSavingDrive, setIsSavingDrive] = React.useState(false)
   const [deletingDriveId, setDeletingDriveId] = React.useState<string | null>(null)
-  const [locationOptions, setLocationOptions] = React.useState<LocationRecord[]>(() =>
-    getCachedLocationsSnapshot() ?? []
-  )
-  const [vehicleOptions, setVehicleOptions] = React.useState<VehicleRecord[]>(() =>
-    getCachedVehiclesSnapshot() ?? []
-  )
+  const [locationOptions, setLocationOptions] = React.useState<LocationRecord[]>(cachedLocationOptions)
+  const [vehicleOptions, setVehicleOptions] = React.useState<VehicleRecord[]>(cachedVehicleOptions)
   const [isLoadingResources, setIsLoadingResources] = React.useState(false)
   const [isSavingLocationDetails, setIsSavingLocationDetails] = React.useState(false)
   const [resourceErrorMessage, setResourceErrorMessage] = React.useState<string | null>(null)
@@ -176,6 +185,14 @@ export function useDriveEditorState({
     () => drives.find((drive) => drive.id === editingDriveId) ?? null,
     [drives, editingDriveId]
   )
+
+  React.useEffect(() => {
+    setLocationOptions(cachedLocationOptions)
+  }, [cachedLocationOptions])
+
+  React.useEffect(() => {
+    setVehicleOptions(cachedVehicleOptions)
+  }, [cachedVehicleOptions])
 
   const closeDriveEditor = React.useCallback(() => {
     setDriveEditorMode(null)
