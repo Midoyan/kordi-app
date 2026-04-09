@@ -1,4 +1,6 @@
 import { createClient } from "@/lib/server";
+// Shared select lists keep route responses stable and avoid wildcard column reads.
+import { TRAVEL_SELECT } from "@/lib/supabase-selects";
 import { deleteTravelCascade } from "@/lib/transport-cascade";
 import {
     normalizeTravelPayload,
@@ -15,7 +17,7 @@ export async function GET(_: Request, context: RouteContext) {
 
     const { data, error } = await supabase
         .from("travels2")
-        .select("*")
+        .select(TRAVEL_SELECT)
         .eq("id", id)
         .single();
 
@@ -40,7 +42,7 @@ export async function PATCH(req: Request, context: RouteContext) {
         .from("travels2")
         .update(payload)
         .eq("id", id)
-        .select()
+        .select(TRAVEL_SELECT)
         .single();
 
     if (error) {

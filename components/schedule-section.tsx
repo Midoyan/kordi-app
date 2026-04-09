@@ -75,8 +75,11 @@ export function ScheduleSection({
     handleDraftSubmit,
     handleDragEnd,
     handlePlanReady,
+    handleDraftPickupTimeChange,
+    handleDraftStopPickupPassengersChange,
     handleSheetOpenChange,
     hasPendingChanges,
+    isAutoCalculatingStopTime,
     isConfirmingChanges,
     isDeletingSelectedStops,
     isSavingStop,
@@ -600,12 +603,14 @@ export function ScheduleSection({
           open={sheetOpen}
           driveLabel={drive.label}
           travelType={drive.travelType}
-          commonLocationLabel={commonLocationLabel}
-          draft={draft}
-          draftMode={draftMode}
-          passengerLookup={passengerLookup}
+        draft={draft}
+        draftMode={draftMode}
+        handleDraftPickupTimeChange={handleDraftPickupTimeChange}
+        handleDraftStopPickupPassengersChange={handleDraftStopPickupPassengersChange}
+        passengerLookup={passengerLookup}
         stopPickupPassengerOptions={stopPickupPassengerOptions}
         timingAdjustmentsOpen={timingAdjustmentsOpen}
+        isAutoCalculatingStopTime={isAutoCalculatingStopTime}
         isSavingStop={isSavingStop}
         isDeletingSelectedStops={isDeletingSelectedStops}
         deletingStopId={deletingStopId}

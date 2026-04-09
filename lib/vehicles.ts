@@ -381,6 +381,7 @@ export function normalizeVehiclePayload(payload: unknown): VehiclePayload {
   const seatCapacity = parseSeatCapacity(record.seat_capacity ?? record.seatCapacity);
   const vehicleType = normalizeVehicleType(record.vehicle_type ?? record.vehicleType);
   const notes = readString(record.notes);
+  const crewMemberId = readString(record.crew_member_id) || readString(record.crewMemberId) || null;
 
   let isActive: boolean;
   if (typeof record.is_active === "boolean") {

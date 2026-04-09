@@ -1,11 +1,13 @@
 import { createClient } from "@/lib/server";
+// Keep API projections explicit so Supabase does not overfetch columns by default.
+import { TRIP_SELECT } from "@/lib/supabase-selects";
 
 export async function GET() {
     const supabase = await createClient()
 
     const { data, error } = await supabase
         .from("trips")
-        .select("*")
+        .select(TRIP_SELECT)
         .order("created_at", { ascending: false });
 
     if (error) {
@@ -22,7 +24,7 @@ export async function POST(req: Request) {
     const { data, error } = await supabase
         .from("trips")
         .insert([body])
-        .select()
+        .select(TRIP_SELECT)
         .single();
 
     if (error) {

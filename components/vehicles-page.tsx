@@ -20,7 +20,6 @@ import { EditorSheetLayout } from "@/components/editor-sheet-layout";
 import {
   Combobox,
   ComboboxContent,
-  ComboboxEmpty,
   ComboboxInput,
   ComboboxItem,
   ComboboxList,
@@ -98,6 +97,7 @@ const initialForm: VehicleForm = {
 
 const defaultColumnVisibility: VisibilityState = {
   select: false,
+  driver: false,
   status: false,
   plateNumber: false,
   seatCapacity: false,
@@ -353,6 +353,11 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
       ? null
       : people.find((person) => person.name.trim().toLowerCase() === normalizedDriverSearch) ?? null;
   const shouldOfferCreateDriver = normalizedDriverSearch.length > 0 && exactDriverMatch === null;
+  const showDriverEmptyState =
+    !isLoadingPeople &&
+    !peopleLoadError &&
+    filteredDriverOptions.length === 0 &&
+    !shouldOfferCreateDriver;
   const selectedDriverValue =
     form.driverCrewMemberId ||
     (form.driverName.trim() ? `${CREATE_DRIVER_VALUE_PREFIX}${form.driverName.trim()}` : null);
@@ -529,14 +534,37 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
           onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         />
       ),
-      cell: ({ row }: CellContext<VehicleRecord, unknown>) => (
+      cell: ({ row, table }: CellContext<VehicleRecord, unknown>) => {
+        const isDriverColumnVisible = table.getColumn("driver")?.getIsVisible() ?? false;
+
+        return (
         <div className="space-y-1 px-3">
           <p className="text-[15px] font-semibold tracking-tight text-[#1d1d1b]">
             {row.original.label}
           </p>
-          <p className="text-[12px] text-[#7a7a74]">
-            Added {row.original.createdAt ? new Date(row.original.createdAt).toLocaleDateString() : "recently"}
-          </p>
+          {!isDriverColumnVisible ? (
+            <p className="text-[12px] text-[#7a7a74]">
+              {row.original.driverName || "No driver assigned"}
+            </p>
+          ) : null}
+        </div>
+        );
+      },
+    },
+    {
+      id: "driver",
+      accessorFn: (row) => row.driverName,
+      meta: { label: "Driver" },
+      header: ({ column }: HeaderContext<VehicleRecord, unknown>) => (
+        <ColumnHeader
+          label="Driver"
+          canSort={column.getCanSort()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }: CellContext<VehicleRecord, unknown>) => (
+        <div className="px-3 text-[13px] text-[#43433f]">
+          {row.original.driverName || "No driver assigned"}
         </div>
       ),
     },
@@ -949,6 +977,7 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
                     "h-11 border-b border-[#ecece8] bg-[#f7f7f4] px-0 align-middle",
                     columnId === "select" && "w-[56px]",
                     columnId === "label" && "w-[24%]",
+                    columnId === "driver" && "w-[18%]",
                     columnId === "vehicleType" && "w-[14%]",
                     columnId === "notes" && "w-[28%]",
                     columnId === "plateNumber" && "w-[12%]",
@@ -1238,38 +1267,6 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
                     />
                   </div>
                   <ComboboxList>
-                    <ComboboxEmpty>
-                      {isLoadingPeople
-                        ? "Loading crew members..."
-                        : peopleLoadError
-                          ? "Unable to load crew members."
-                          : "No matching crew members."}
-                    </ComboboxEmpty>
-                    <ComboboxItem value={CLEAR_DRIVER_VALUE} className="items-start gap-3 px-2 py-2.5">
-                      <div className="min-w-0">
-                        <p className="truncate text-[13px] font-medium text-[#1d1d1b]">
-                          No driver assigned
-                        </p>
-                        <p className="mt-0.5 text-[11px] text-[#6b6b67]">
-                          Save the van with a null `crew_member_id`.
-                        </p>
-                      </div>
-                    </ComboboxItem>
-                    {shouldOfferCreateDriver ? (
-                      <ComboboxItem
-                        value={`${CREATE_DRIVER_VALUE_PREFIX}${driverSearch.trim()}`}
-                        className="items-start gap-3 px-2 py-2.5"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-[13px] font-medium text-[#1d1d1b]">
-                            Add {driverSearch.trim()}
-                          </p>
-                          <p className="mt-0.5 text-[11px] text-[#6b6b67]">
-                            Create this driver in the crew roster when the van is saved.
-                          </p>
-                        </div>
-                      </ComboboxItem>
-                    ) : null}
                     {filteredDriverOptions.map((person) => (
                       <ComboboxItem
                         key={person.id}
@@ -1291,6 +1288,46 @@ export function VehiclesPage({ initialVehicles }: { initialVehicles?: VehicleRec
                         </div>
                       </ComboboxItem>
                     ))}
+                    {shouldOfferCreateDriver ? (
+                      <ComboboxItem
+                        value={`${CREATE_DRIVER_VALUE_PREFIX}${driverSearch.trim()}`}
+                        className="items-start gap-3 px-2 py-2.5"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-[13px] font-medium text-[#1d1d1b]">
+                            Add {driverSearch.trim()}
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-[#6b6b67]">
+                            Create this driver in the crew roster when the van is saved.
+                          </p>
+                        </div>
+                      </ComboboxItem>
+                    ) : null}
+                    {isLoadingPeople ? (
+                      <div className="px-2 py-2.5 text-[13px] text-[#6b6b67]">
+                        Loading crew members...
+                      </div>
+                    ) : null}
+                    {peopleLoadError ? (
+                      <div className="px-2 py-2.5 text-[13px] text-amber-800">
+                        Unable to load crew members.
+                      </div>
+                    ) : null}
+                    {showDriverEmptyState ? (
+                      <div className="px-2 py-2.5 text-[13px] text-[#6b6b67]">
+                        No matching crew members.
+                      </div>
+                    ) : null}
+                    <ComboboxItem value={CLEAR_DRIVER_VALUE} className="items-start gap-3 px-2 py-2.5">
+                      <div className="min-w-0">
+                        <p className="truncate text-[13px] font-medium text-[#1d1d1b]">
+                          No driver assigned
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-[#6b6b67]">
+                          Save the van with a null `crew_member_id`.
+                        </p>
+                      </div>
+                    </ComboboxItem>
                   </ComboboxList>
                 </ComboboxContent>
               </Combobox>

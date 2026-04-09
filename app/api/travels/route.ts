@@ -1,4 +1,6 @@
 import { createClient } from "@/lib/server";
+// Keep API projections explicit so Supabase does not overfetch columns by default.
+import { TRAVEL_SELECT } from "@/lib/supabase-selects";
 import {
     normalizeTravelPayload,
     validateTravelPayload,
@@ -9,7 +11,7 @@ export async function GET() {
 
     const { data, error } = await supabase
         .from("travels2")
-        .select("*")
+        .select(TRAVEL_SELECT)
         .order("sort_order", { ascending: true })
         .order("created_at", { ascending: true });
 
@@ -32,7 +34,7 @@ export async function POST(req: Request) {
     const { data, error } = await supabase
         .from("travels2")
         .insert([payload])
-        .select()
+        .select(TRAVEL_SELECT)
         .single();
 
     if (error) {

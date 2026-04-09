@@ -820,6 +820,40 @@ export function LocationsPage({ initialLocations }: { initialLocations?: Locatio
               </div>
             ) : null}
 
+            <Field label="Address">
+              <AddressAutofillInput
+                mode="search"
+                value={form.address}
+                onValueChange={(value) => {
+                  setForm((current) => ({ ...current, address: value }));
+                  setFieldErrors((current) => ({ ...current, address: undefined }));
+                  setSubmitMessage(null);
+                }}
+                onSuggestionSelect={(selection) => {
+                  setForm((current) => ({
+                    ...current,
+                    name: selection.name || current.name,
+                    address: selection.address,
+                    notes: current.notes.trim() ? current.notes : (selection.notes ?? ""),
+                  }));
+                  setFieldErrors((current) => ({ ...current, address: undefined }));
+                  setSubmitMessage(null);
+                }}
+                proximity={demoSuggestionBias.proximity}
+                placeholder="123 Main St, Los Angeles, CA"
+                aria-invalid={!!fieldErrors.address}
+                className={fieldErrors.address ? "border-amber-300 focus-visible:border-amber-400" : undefined}
+                helperText={
+                  fieldErrors.address
+                    ? null
+                    : `Search by venue, hotel, landmark, or full address.`
+                }
+              />
+              {fieldErrors.address ? (
+                <p className="mt-2 text-[12px] text-amber-800">{fieldErrors.address}</p>
+              ) : null}
+            </Field>
+
             <Field label="Location name">
               <Input
                 value={form.name}
@@ -828,7 +862,7 @@ export function LocationsPage({ initialLocations }: { initialLocations?: Locatio
                   setFieldErrors((current) => ({ ...current, name: undefined }));
                   setSubmitMessage(null);
                 }}
-                placeholder="Main venue entrance"
+                placeholder="Klub Kitchen"
                 autoFocus
                 aria-invalid={!!fieldErrors.name}
                 className={fieldErrors.name ? "border-amber-300 focus-visible:border-amber-400" : undefined}
@@ -855,29 +889,6 @@ export function LocationsPage({ initialLocations }: { initialLocations?: Locatio
                   </option>
                 ))}
               </select>
-            </Field>
-
-            <Field label="Address">
-              <AddressAutofillInput
-                value={form.address}
-                onValueChange={(value) => {
-                  setForm((current) => ({ ...current, address: value }));
-                  setFieldErrors((current) => ({ ...current, address: undefined }));
-                  setSubmitMessage(null);
-                }}
-                proximity={demoSuggestionBias.proximity}
-                placeholder="123 Main St, Los Angeles, CA"
-                aria-invalid={!!fieldErrors.address}
-                className={fieldErrors.address ? "border-amber-300 focus-visible:border-amber-400" : undefined}
-                helperText={
-                  fieldErrors.address
-                    ? null
-                    : `Demo bias enabled. Suggestions are weighted near ${demoSuggestionBias.label}.`
-                }
-              />
-              {fieldErrors.address ? (
-                <p className="mt-2 text-[12px] text-amber-800">{fieldErrors.address}</p>
-              ) : null}
             </Field>
 
             <Field label="Map">

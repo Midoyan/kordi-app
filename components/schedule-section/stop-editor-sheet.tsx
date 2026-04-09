@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ChevronRight } from "lucide-react"
+import { ChevronRight, LoaderCircle } from "lucide-react"
 
 import type { StopPickupPassengerOption } from "@/lib/drive-plan"
 import { getTravelTypeLabel, type TravelType } from "@/lib/travels"
@@ -15,7 +15,6 @@ import type { DriveStopRow } from "@/components/schedule-section/types"
 import type { ScheduleStopDraftMode } from "@/components/schedule-section/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Separator } from "@/components/ui/separator"
 import {
   Sheet,
   SheetContent,
@@ -29,12 +28,14 @@ type ScheduleStopEditorSheetProps = {
   open: boolean
   driveLabel: string
   travelType: TravelType
-  commonLocationLabel: string
   draft: DriveStopRow | null
   draftMode: ScheduleStopDraftMode
+  handleDraftPickupTimeChange: (pickupTime: string) => void
+  handleDraftStopPickupPassengersChange: (stopPickupPassengerIds: string[]) => void
   passengerLookup: Map<string, StopPickupPassengerOption>
   stopPickupPassengerOptions: StopPickupPassengerOption[]
   timingAdjustmentsOpen: boolean
+  isAutoCalculatingStopTime: boolean
   isSavingStop: boolean
   isDeletingSelectedStops: boolean
   deletingStopId: string | null
@@ -49,12 +50,14 @@ export function ScheduleStopEditorSheet({
   open,
   driveLabel,
   travelType,
-  commonLocationLabel,
   draft,
   draftMode,
+  handleDraftPickupTimeChange,
+  handleDraftStopPickupPassengersChange,
   passengerLookup,
   stopPickupPassengerOptions,
   timingAdjustmentsOpen,
+  isAutoCalculatingStopTime,
   isSavingStop,
   isDeletingSelectedStops,
   deletingStopId,
@@ -64,7 +67,8 @@ export function ScheduleStopEditorSheet({
   onDelete,
   onSubmit,
 }: ScheduleStopEditorSheetProps) {
-  const scheduledTimeLabel = travelType === "pickup" ? "Arrive by" : "Depart at"
+  const hasSelectedPassengers = (draft?.stopPickupPassengerIds.length ?? 0) > 0
+  const showGuidedAddressAndAdvancedFields = draftMode !== "create" || hasSelectedPassengers
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -122,119 +126,123 @@ export function ScheduleStopEditorSheet({
               </label>
               <StopPickupPassengerCombobox
                 value={draft?.stopPickupPassengerIds ?? []}
-                onValueChange={(stopPickupPassengerIds) =>
-                  setDraft((current) =>
-                    current ? { ...current, stopPickupPassengerIds } : current
-                  )
-                }
+                onValueChange={handleDraftStopPickupPassengersChange}
                 stopPickupPassengerOptions={stopPickupPassengerOptions}
                 passengerLookup={passengerLookup}
               />
             </div>
 
-            <div className="flex flex-col gap-2">
-              <label htmlFor="schedule-pickup-address" className="text-[13px] font-medium text-[#1d1d1b]">
-                {travelType === "pickup" ? "Pickup Address" : "Stop Address"}
-              </label>
-              <Input
-                id="schedule-pickup-address"
-                value={draft?.pickupAddress ?? ""}
-                onChange={(event) =>
-                  setDraft((current) =>
-                    current ? { ...current, pickupAddress: event.target.value } : current
-                  )
-                }
-              />
-            </div>
+            {showGuidedAddressAndAdvancedFields ? (
+              <div className="flex flex-col gap-2">
+                <label htmlFor="schedule-pickup-address" className="text-[13px] font-medium text-[#1d1d1b]">
+                  {travelType === "pickup" ? "Pickup Address" : "Stop Address"}
+                </label>
+                <Input
+                  id="schedule-pickup-address"
+                  value={draft?.pickupAddress ?? ""}
+                  onChange={(event) =>
+                    setDraft((current) =>
+                      current ? { ...current, pickupAddress: event.target.value } : current
+                    )
+                  }
+                />
+              </div>
+            ) : null}
 
             <div className="flex flex-col gap-2">
-              <label htmlFor="schedule-pickup-time" className="text-[13px] font-medium text-[#1d1d1b]">
-                {travelType === "pickup" ? "PU Time" : "Stop time"}
+              <label
+                htmlFor="schedule-pickup-time"
+                className="flex items-center gap-2 text-[13px] font-medium text-[#1d1d1b]"
+              >
+                <span>PU Time</span>
+                {isAutoCalculatingStopTime ? (
+                  <LoaderCircle className="size-3.5 animate-spin text-[#5a7fc0]" />
+                ) : null}
               </label>
               <Input
                 id="schedule-pickup-time"
                 value={draft?.pickupTime ?? ""}
-                onChange={(event) =>
-                  setDraft((current) =>
-                    current ? { ...current, pickupTime: event.target.value } : current
-                  )
-                }
+                onChange={(event) => handleDraftPickupTimeChange(event.target.value)}
               />
             </div>
 
-            <div className="overflow-hidden rounded-xl border border-[#ecece8] bg-[#fbfbf8]">
-              <button
-                type="button"
-                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-                onClick={() => setTimingAdjustmentsOpen((current) => !current)}
-              >
-                <div>
-                  <p className="text-[13px] font-medium text-[#1d1d1b]">Timing adjustments</p>
-                  <p className="mt-1 text-[12px] text-[#6b6b67]">
-                    Optional per-stop timing inputs for longer pickups or extra traffic slack.
-                  </p>
-                </div>
-                <ChevronRight
-                  className={cn(
-                    "size-4 text-[#6b6b67] transition-transform",
-                    timingAdjustmentsOpen && "rotate-90"
-                  )}
-                />
-              </button>
-              {timingAdjustmentsOpen ? (
-                <div className="grid gap-4 border-t border-[#ecece8] px-4 py-4 sm:grid-cols-2">
-                  <div className="flex flex-col gap-2">
-                    <label htmlFor="schedule-stop-duration" className="text-[13px] font-medium text-[#1d1d1b]">
-                      Stop duration (sec)
-                    </label>
-                    <Input
-                      id="schedule-stop-duration"
-                      type="number"
-                      min={0}
-                      step={1}
-                      inputMode="numeric"
-                      value={draft?.stopDurationSec ?? ""}
-                      onChange={(event) =>
-                        setDraft((current) =>
-                          current
-                            ? {
-                                ...current,
-                                stopDurationSec: parseTimingInputValue(event.target.value),
-                              }
-                            : current
-                        )
-                      }
-                    />
+            {showGuidedAddressAndAdvancedFields ? (
+              <div className="overflow-hidden rounded-xl border border-[#ecece8] bg-[#fbfbf8]">
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                  onClick={() => setTimingAdjustmentsOpen((current) => !current)}
+                >
+                  <div>
+                    <p className="text-[13px] font-medium text-[#1d1d1b]">Timing adjustments</p>
+                    <p className="mt-1 text-[12px] text-[#6b6b67]">
+                      {travelType === "pickup"
+                        ? "Optional per-stop timing inputs for longer pickups or extra traffic slack."
+                        : "Optional stop timing inputs for dwell time at this stop and any traffic slack."}
+                    </p>
                   </div>
-                  <div className="flex flex-col gap-2">
-                    <label htmlFor="schedule-traffic-buffer" className="text-[13px] font-medium text-[#1d1d1b]">
-                      Traffic buffer (sec)
-                    </label>
-                    <Input
-                      id="schedule-traffic-buffer"
-                      type="number"
-                      min={0}
-                      step={1}
-                      inputMode="numeric"
-                      value={draft?.trafficBufferSec ?? ""}
-                      onChange={(event) =>
-                        setDraft((current) =>
-                          current
-                            ? {
-                                ...current,
-                                trafficBufferSec: parseTimingInputValue(event.target.value),
-                              }
-                            : current
-                        )
-                      }
-                    />
+                  <ChevronRight
+                    className={cn(
+                      "size-4 text-[#6b6b67] transition-transform",
+                      timingAdjustmentsOpen && "rotate-90"
+                    )}
+                  />
+                </button>
+                {timingAdjustmentsOpen ? (
+                  <div className="grid gap-4 border-t border-[#ecece8] px-4 py-4 sm:grid-cols-2">
+                    <div className="flex flex-col gap-2">
+                      <label htmlFor="schedule-stop-duration" className="text-[13px] font-medium text-[#1d1d1b]">
+                        Stop duration (sec)
+                      </label>
+                      <Input
+                        id="schedule-stop-duration"
+                        type="number"
+                        min={0}
+                        step={1}
+                        inputMode="numeric"
+                        value={draft?.stopDurationSec ?? ""}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  stopDurationSec: parseTimingInputValue(event.target.value),
+                                }
+                              : current
+                          )
+                        }
+                      />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <label htmlFor="schedule-traffic-buffer" className="text-[13px] font-medium text-[#1d1d1b]">
+                        Traffic buffer (sec)
+                      </label>
+                      <Input
+                        id="schedule-traffic-buffer"
+                        type="number"
+                        min={0}
+                        step={1}
+                        inputMode="numeric"
+                        value={draft?.trafficBufferSec ?? ""}
+                        onChange={(event) =>
+                          setDraft((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  trafficBufferSec: parseTimingInputValue(event.target.value),
+                                }
+                              : current
+                          )
+                        }
+                      />
+                    </div>
+                    <p className="text-[11px] leading-5 text-[#777772] sm:col-span-2">
+                      Leave blank or set 0 to ignore these adjustments.
+                    </p>
                   </div>
-                  <p className="text-[11px] leading-5 text-[#777772] sm:col-span-2">
-                    Leave blank or set 0 to ignore these adjustments.
-                  </p>
-                </div>
-              ) : null}
-            </div>
+                ) : null}
+              </div>
+            ) : null}
 
             <SheetFooter className="px-0 pt-2">
               <div className="flex w-full items-center justify-between gap-2">
@@ -265,6 +273,7 @@ export function ScheduleStopEditorSheet({
                     onClick={() => onOpenChange(false)}
                     disabled={
                       isSavingStop ||
+                      isAutoCalculatingStopTime ||
                       isDeletingSelectedStops ||
                       (draft ? deletingStopId === draft.id : false)
                     }
@@ -275,6 +284,7 @@ export function ScheduleStopEditorSheet({
                     type="submit"
                     disabled={
                       isSavingStop ||
+                      isAutoCalculatingStopTime ||
                       isDeletingSelectedStops ||
                       (draft ? deletingStopId === draft.id : false)
                     }
