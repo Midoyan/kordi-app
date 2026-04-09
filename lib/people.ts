@@ -1,8 +1,15 @@
+import { syncTransportPlanPassengerOptionsCache } from "@/lib/transport-plan-client-cache";
+
 export type CrewMemberRecord = {
   id: string;
   full_name: string;
   home_address: string;
   phone: string;
+  default_role_title?: string | null;
+  pickup_time?: string | null;
+  pickup_to_location?: string | null;
+  pickup_to_location_name?: string | null;
+  pickup_to_location_address?: string | null;
   created_at?: string | null;
 };
 
@@ -10,6 +17,7 @@ export type CrewMemberPayload = {
   full_name: string;
   home_address: string;
   phone: string;
+  default_role_title: string;
 };
 
 export type PersonRecord = {
@@ -17,20 +25,28 @@ export type PersonRecord = {
   name: string;
   address: string;
   phone: string;
+  role: string;
+  pickupTime: string;
+  pickupToLocation: string;
+  pickupToLocationName: string;
+  pickupToLocationAddress: string;
   createdAt: string | null;
 };
 
-export type PersonDraft = Omit<PersonRecord, "id" | "createdAt">;
+export type PersonDraft = Omit<
+  PersonRecord,
+  "id" | "createdAt" | "pickupTime" | "pickupToLocation" | "pickupToLocationName" | "pickupToLocationAddress"
+>;
 
 type PeopleCachePayload = {
   people: PersonRecord[];
   savedAt: number;
-  version: 1;
+  version: 3;
 };
 
-const PEOPLE_CACHE_STORAGE_KEY = "kordi.people-cache.v1";
+const PEOPLE_CACHE_STORAGE_KEY = "kordi.people-cache.v3";
 const PEOPLE_CACHE_TTL_MS = 5 * 60 * 1000;
-const PEOPLE_CACHE_VERSION = 1;
+const PEOPLE_CACHE_VERSION = 3;
 
 let peopleCache: PeopleCachePayload | null = null;
 let peopleRequest: Promise<PersonRecord[]> | null = null;
@@ -118,11 +134,21 @@ export function createEmptyPersonDraft(): PersonDraft {
     name: "",
     address: "",
     phone: "",
+    role: "",
   };
 }
 
 export function getPersonSearchText(person: PersonRecord) {
-  return [person.name, person.address, person.phone].join(" ").toLowerCase();
+  return [
+    person.name,
+    person.role,
+    person.address,
+    person.phone,
+    person.pickupTime,
+    person.pickupToLocation,
+    person.pickupToLocationName,
+    person.pickupToLocationAddress,
+  ].join(" ").toLowerCase();
 }
 
 function normalizePersonRecord(payload: unknown): PersonRecord {
@@ -134,6 +160,11 @@ function normalizePersonRecord(payload: unknown): PersonRecord {
     name: readString(record.name) || "Unnamed person",
     address: readString(record.address),
     phone: readString(record.phone),
+    role: readString(record.role),
+    pickupTime: readString(record.pickupTime ?? record.pickup_time),
+    pickupToLocation: readString(record.pickupToLocation ?? record.pickup_to_location),
+    pickupToLocationName: readString(record.pickupToLocationName ?? record.pickup_to_location_name),
+    pickupToLocationAddress: readString(record.pickupToLocationAddress ?? record.pickup_to_location_address),
     createdAt: typeof record.createdAt === "string" ? record.createdAt : null,
   };
 }
@@ -214,6 +245,7 @@ function storePeopleCache(people: PersonRecord[]) {
   };
 
   writePeopleCache(cache);
+  syncTransportPlanPassengerOptionsCache(cache.people);
 
   return cache.people;
 }
@@ -251,6 +283,7 @@ export function normalizeCrewMemberPayload(payload: unknown): CrewMemberPayload 
     full_name: readString(record.full_name),
     home_address: readString(record.home_address),
     phone: readString(record.phone),
+    default_role_title: readString(record.default_role_title),
   };
 }
 
@@ -268,6 +301,11 @@ export function mapCrewMemberToPerson(record: CrewMemberRecord): PersonRecord {
     name: readString(record.full_name) || "Unnamed person",
     address: readString(record.home_address),
     phone: readString(record.phone),
+    role: readString(record.default_role_title),
+    pickupTime: readString(record.pickup_time),
+    pickupToLocation: readString(record.pickup_to_location),
+    pickupToLocationName: readString(record.pickup_to_location_name),
+    pickupToLocationAddress: readString(record.pickup_to_location_address),
     createdAt: typeof record.created_at === "string" ? record.created_at : null,
   };
 }
@@ -277,6 +315,7 @@ export function mapPersonDraftToCrewMemberPayload(draft: PersonDraft): CrewMembe
     full_name: readString(draft.name),
     home_address: readString(draft.address),
     phone: readString(draft.phone),
+    default_role_title: readString(draft.role),
   };
 }
 
@@ -289,6 +328,11 @@ export function normalizeCrewMemberRecord(payload: unknown): CrewMemberRecord {
     full_name: readString(record.full_name),
     home_address: readString(record.home_address),
     phone: readString(record.phone),
+    default_role_title: readString(record.default_role_title),
+    pickup_time: readString(record.pickup_time),
+    pickup_to_location: readString(record.pickup_to_location),
+    pickup_to_location_name: readString(record.pickup_to_location_name),
+    pickup_to_location_address: readString(record.pickup_to_location_address),
     created_at: typeof record.created_at === "string" ? record.created_at : null,
   };
 }
@@ -386,14 +430,26 @@ export async function updatePerson(id: string, draft: PersonDraft) {
   }
 
   const updatedPerson = mapCrewMemberToPerson(normalizeCrewMemberRecord(payload));
+  let mergedUpdatedPerson = updatedPerson;
 
   updatePeopleCache((currentPeople) =>
     currentPeople.some((person) => person.id === id)
-      ? currentPeople.map((person) => (person.id === id ? updatedPerson : person))
+      ? currentPeople.map((person) => {
+          if (person.id !== id) {
+            return person;
+          }
+
+          mergedUpdatedPerson = {
+            ...person,
+            ...updatedPerson,
+          };
+
+          return mergedUpdatedPerson;
+        })
       : [updatedPerson, ...currentPeople],
   );
 
-  return updatedPerson;
+  return mergedUpdatedPerson;
 }
 
 export async function deletePerson(id: string) {

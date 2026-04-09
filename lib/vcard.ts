@@ -7,6 +7,7 @@ export type VCardContactDraft = {
   name: string
   address: string
   phone: string
+  role: string
 }
 
 const defaultVCardTransferTypes = [
@@ -107,6 +108,7 @@ function parseVCardEntry(card: string, index: number): VCardContactDraft {
     name,
     address: address.includes(";") ? formatAddress(address) : address,
     phone,
+    role: "",
   }
 }
 

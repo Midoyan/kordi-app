@@ -153,7 +153,9 @@
     display: flex;
     justify-content: center;
     pointer-events: auto;
-    transition: opacity 0.18s;
+    transition:
+      opacity 0.18s ease,
+      transform 0.18s ease;
   }
 
   .map-cast-marker__bubble {
@@ -175,6 +177,10 @@
     width: 26px;
     position: relative;
     text-transform: uppercase;
+    transition:
+      transform 180ms ease,
+      box-shadow 180ms ease,
+      background-color 180ms ease;
   }
 
   .map-cast-marker__bubble::after {
@@ -201,6 +207,23 @@
 
   .map-cast-marker--location {
     --map-cast-marker-color: #f59e0b;
+  }
+
+  .map-cast-marker--dimmed {
+    opacity: 0.4;
+  }
+
+  .map-cast-marker--emphasized {
+    transform: scale(1.06);
+  }
+
+  .map-cast-marker__bubble--selected {
+    background: #3b82f6;
+    box-shadow:
+      0 12px 20px rgba(15, 23, 42, 0.22),
+      0 0 0 4px rgba(147, 197, 253, 0.42),
+      0 1px 0 rgba(255, 255, 255, 0.34) inset;
+    transform: scale(1.14);
   }
 
   .map-cast-location-marker {

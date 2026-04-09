@@ -2,9 +2,17 @@
 
 import * as React from "react"
 import type { Dispatch, SetStateAction } from "react"
-import { PencilLine } from "lucide-react"
+import { CarFront, PencilLine, UserRound } from "lucide-react"
 
 import { ButtonGroup } from "@/components/ui/button-group"
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxTrigger,
+  ComboboxValue,
+} from "@/components/ui/combobox"
 import { EditorSheetLayout } from "@/components/editor-sheet-layout"
 import { LocationDetailsDialog } from "@/components/location-details-dialog"
 import { LocationPickerInput } from "@/components/location-picker-input"
@@ -86,6 +94,9 @@ export function DriveEditorSheet({
     draft?.travelType === "dropoff" ? "Start from" : "Arrive to"
   const selectedLocation = draft?.locationId
     ? locationOptions.find((location) => location.id === draft.locationId) ?? null
+    : null
+  const selectedVehicle = draft?.vanId
+    ? vehicleOptions.find((vehicle) => vehicle.id === draft.vanId) ?? null
     : null
   const canEditLocation = !!draft?.locationDraft || !!selectedLocation
   const locationDialogMode = draft?.locationDraft ? "create" : "edit"
@@ -221,34 +232,102 @@ export function DriveEditorSheet({
                 </ButtonGroup>
               </Field>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Van">
-                  <select
-                    value={draft.vanId}
+              <Field label="Van">
+                <Combobox<string>
+                  value={draft.vanId || null}
+                  disabled={isLoadingResources}
+                  onValueChange={(nextValue) =>
+                    updateDraftField("vanId", nextValue ?? "")
+                  }
+                  itemToStringLabel={(value) =>
+                    vehicleOptions.find((vehicle) => vehicle.id === value)?.label ?? value
+                  }
+                >
+                  <ComboboxTrigger
                     disabled={isLoadingResources}
-                    onChange={(event) => updateDraftField("vanId", event.target.value)}
-                    className="h-10 rounded-xl border border-[#d8dcd2] bg-white px-3 text-[14px] text-[#1d1d1b] outline-none transition-[border-color,box-shadow] duration-200 ease-[cubic-bezier(0.2,0,0,1)] focus:border-[#7d8f78] focus:ring-3 focus:ring-[#d8e2d2]"
+                    className="group flex min-h-16 w-full items-center justify-between rounded-[20px] border border-[#d8dcd2] bg-[linear-gradient(180deg,#ffffff_0%,#fafbf7_100%)] px-3.5 py-3 text-left shadow-[0_1px_0_rgba(255,255,255,0.9),0_14px_30px_-24px_rgba(15,23,42,0.32)] transition-[border-color,box-shadow,transform] duration-200 ease-[cubic-bezier(0.2,0,0,1)] hover:border-[#c5cec0] hover:shadow-[0_1px_0_rgba(255,255,255,0.92),0_20px_36px_-28px_rgba(15,23,42,0.38)] active:scale-[0.98] focus-visible:border-[#7d8f78] focus-visible:ring-3 focus-visible:ring-[#d8e2d2] disabled:cursor-not-allowed disabled:opacity-70"
                   >
-                    <option value="">Select a van</option>
-                    {vehicleOptions.map((vehicle) => (
-                      <option key={vehicle.id} value={vehicle.id}>
-                        {vehicle.label}
-                        {vehicle.plateNumber ? ` · ${vehicle.plateNumber}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
+                    <ComboboxValue placeholder="Select a van">
+                      {(value) => {
+                        const vehicle =
+                          typeof value === "string"
+                            ? vehicleOptions.find((entry) => entry.id === value) ?? null
+                            : selectedVehicle
 
-                <Field label={scheduledTimeLabel}>
-                  <Input
-                    autoComplete="off"
-                    inputMode="numeric"
-                    placeholder="HH:mm"
-                    value={draft.scheduledTime}
-                    onChange={(event) => updateDraftField("scheduledTime", event.target.value)}
-                  />
-                </Field>
-              </div>
+                        if (!vehicle) {
+                          return (
+                            <div className="flex min-w-0 items-center gap-3">
+                              <div className="flex size-10 items-center justify-center rounded-2xl bg-[#eef3e7] text-[#5f7158]">
+                                <CarFront className="size-4" />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-[14px] font-medium text-[#1d1d1b]">
+                                  Select a van
+                                </p>
+                              </div>
+                            </div>
+                          )
+                        }
+
+                        return (
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div className="flex size-10 items-center justify-center rounded-2xl bg-[#eef3e7] text-[#5f7158]">
+                              <CarFront className="size-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="truncate text-[14px] font-semibold text-[#1d1d1b]">
+                                {vehicle.label}
+                              </p>
+                              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-[#6b6f67]">
+                                <span>{vehicle.plateNumber || "No plate"}</span>
+                                <span>{vehicle.seatCapacity} seats</span>
+                                <span className="inline-flex items-center gap-1">
+                                  <UserRound className="size-3.5" />
+                                  {vehicle.driverName || "No driver assigned"}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      }}
+                    </ComboboxValue>
+                  </ComboboxTrigger>
+                  <ComboboxContent className="border border-[#d9ddd2] bg-[linear-gradient(180deg,#ffffff_0%,#fafbf8_100%)] p-1.5 shadow-[0_24px_60px_-28px_rgba(15,23,42,0.4)]">
+                    <ComboboxList className="max-h-72">
+                      {vehicleOptions.map((vehicle) => (
+                        <ComboboxItem
+                          key={vehicle.id}
+                          value={vehicle.id}
+                          className="rounded-2xl px-2.5 py-2.5 data-highlighted:bg-[#f3f7ed]"
+                        >
+                          <div className="flex min-w-0 items-start gap-3">
+                            <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-2xl bg-[#edf3e5] text-[#5a6d53] shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
+                              <CarFront className="size-4" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-start justify-between gap-3">
+                                <p className="truncate text-[13px] font-semibold text-[#1d1d1b]">
+                                  {vehicle.label}
+                                </p>
+                                <span className="shrink-0 rounded-full bg-[#f0f4eb] px-2 py-0.5 text-[11px] font-medium text-[#58704f]">
+                                  {vehicle.seatCapacity} seats
+                                </span>
+                              </div>
+                              <p className="mt-0.5 text-[11px] text-[#6f746d]">
+                                {vehicle.plateNumber || "No plate"}
+                              </p>
+                              <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-[#f7f8f4] px-2 py-1 text-[11px] text-[#5b6258]">
+                                <UserRound className="size-3.5" />
+                                {vehicle.driverName || "No driver assigned"}
+                              </div>
+                            </div>
+                          </div>
+                        </ComboboxItem>
+                      ))}
+                    </ComboboxList>
+                  </ComboboxContent>
+                </Combobox>
+              </Field>
 
               <Field label={locationFieldLabel}>
                 <div className="flex items-start gap-2">
@@ -287,6 +366,16 @@ export function DriveEditorSheet({
                     Edit
                   </Button>
                 </div>
+              </Field>
+
+              <Field label={scheduledTimeLabel}>
+                <Input
+                  autoComplete="off"
+                  inputMode="numeric"
+                  placeholder="HH:mm"
+                  value={draft.scheduledTime}
+                  onChange={(event) => updateDraftField("scheduledTime", event.target.value)}
+                />
               </Field>
 
               <Field label="Notes">

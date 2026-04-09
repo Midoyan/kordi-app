@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import type { ComponentProps } from "react"
 import { ChevronRight, LoaderCircle } from "lucide-react"
 
 import type { StopPickupPassengerOption } from "@/lib/drive-plan"
@@ -24,6 +25,9 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 
+type SheetOpenChange = NonNullable<ComponentProps<typeof Sheet>["onOpenChange"]>
+type StopEditorOpenChangeDetails = Parameters<SheetOpenChange>[1]
+
 type ScheduleStopEditorSheetProps = {
   open: boolean
   driveLabel: string
@@ -41,7 +45,7 @@ type ScheduleStopEditorSheetProps = {
   deletingStopId: string | null
   setDraft: React.Dispatch<React.SetStateAction<DriveStopRow | null>>
   setTimingAdjustmentsOpen: React.Dispatch<React.SetStateAction<boolean>>
-  onOpenChange: (open: boolean) => void
+  onOpenChange: (open: boolean, eventDetails?: StopEditorOpenChangeDetails) => void
   onDelete: (item: DriveStopRow) => void
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void
 }
@@ -71,7 +75,7 @@ export function ScheduleStopEditorSheet({
   const showGuidedAddressAndAdvancedFields = draftMode !== "create" || hasSelectedPassengers
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={onOpenChange} disablePointerDismissal>
       <SheetContent side="right" className="w-full border-l border-[#ecece8] bg-white sm:max-w-xl">
         <SheetHeader className="gap-1 border-b border-[#ecece8] px-6 py-5">
           <SheetTitle>

@@ -2,6 +2,7 @@
 
 import * as React from "react"
 
+import { AddressAutofillInput } from "@/components/address-autofill-input"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -78,6 +79,7 @@ export function LocationDetailsDialog({
     setDraft(value)
     setFieldErrors({})
   }, [open, value])
+  
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -152,18 +154,33 @@ export function LocationDetailsDialog({
             </Field>
 
             <Field label="Address">
-              <Input
+              <AddressAutofillInput
+                mode="search"
                 value={draft.address}
-                onChange={(event) => {
-                  setDraft((current) => ({ ...current, address: event.target.value }))
+                onValueChange={(nextValue) => {
+                  setDraft((current) => ({ ...current, address: nextValue }))
+                  setFieldErrors((current) => ({ ...current, address: undefined }))
+                }}
+                onSuggestionSelect={(selection) => {
+                  setDraft((current) => ({
+                    ...current,
+                    name: current.name.trim() ? current.name : (selection.name ?? current.name),
+                    address: selection.address,
+                    notes: current.notes.trim() ? current.notes : (selection.notes ?? ""),
+                  }))
                   setFieldErrors((current) => ({ ...current, address: undefined }))
                 }}
                 placeholder="123 Main St, Los Angeles, CA"
                 aria-invalid={!!fieldErrors.address}
                 className={fieldErrors.address ? "border-amber-300 focus-visible:border-amber-400" : undefined}
+                helperText={
+                  fieldErrors.address
+                    ? null
+                    : "Search by venue, hotel, landmark, or full address."
+                }
               />
               {fieldErrors.address ? (
-                <p className="text-[12px] text-amber-800">{fieldErrors.address}</p>
+                <p className="mt-2 text-[12px] text-amber-800">{fieldErrors.address}</p>
               ) : null}
             </Field>
 

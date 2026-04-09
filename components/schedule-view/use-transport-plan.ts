@@ -3,57 +3,60 @@
 import * as React from "react"
 
 import type { Drive, TransportPlan } from "@/lib/drive-plan"
+import {
+  getCachedTransportPlan,
+  getTransportPlanPromise,
+  patchCachedTransportPlan,
+  primeTransportPlanCache,
+  replaceDriveInTransportPlan,
+  setCachedTransportPlan,
+  setTransportPlanPromise,
+} from "@/lib/transport-plan-client-cache"
 
-const TRANSPORT_PLAN_CACHE_TTL_MS = 5 * 60 * 1000
+const TRANSPORT_PLAN_REQUEST_RETRY_DELAY_MS = 500
+const TRANSPORT_PLAN_REQUEST_MAX_ATTEMPTS = 2
 
-let cachedTransportPlan: TransportPlan | null = null
-let cachedTransportPlanAt = 0
-let transportPlanPromise: Promise<TransportPlan> | null = null
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
 
-function getCachedTransportPlan(options?: { includeExpired?: boolean }) {
-  if (!cachedTransportPlan) {
-    return null
-  }
+async function fetchTransportPlanWithRetry() {
+  let lastError: unknown = null
 
-  if (
-    !options?.includeExpired &&
-    Date.now() - cachedTransportPlanAt > TRANSPORT_PLAN_CACHE_TTL_MS
+  for (
+    let attempt = 1;
+    attempt <= TRANSPORT_PLAN_REQUEST_MAX_ATTEMPTS;
+    attempt += 1
   ) {
-    cachedTransportPlan = null
-    cachedTransportPlanAt = 0
-    return null
+    try {
+      const response = await fetch("/api/transport-plan", {
+        cache: "no-store",
+      })
+      const payload = (await response.json().catch(() => null)) as
+        | (Partial<TransportPlan> & { error?: string })
+        | null
+
+      if (!response.ok || !payload?.drives || !payload.stopPickupPassengerOptions) {
+        throw new Error(payload?.error ?? "Unable to load drives.")
+      }
+
+      return {
+        drives: payload.drives,
+        stopPickupPassengerOptions: payload.stopPickupPassengerOptions,
+      } satisfies TransportPlan
+    } catch (error) {
+      lastError = error
+
+      if (attempt < TRANSPORT_PLAN_REQUEST_MAX_ATTEMPTS) {
+        await wait(TRANSPORT_PLAN_REQUEST_RETRY_DELAY_MS)
+        continue
+      }
+    }
   }
 
-  return cachedTransportPlan
-}
-
-function setCachedTransportPlan(transportPlan: TransportPlan) {
-  cachedTransportPlan = transportPlan
-  cachedTransportPlanAt = Date.now()
-}
-
-export function primeTransportPlanCache(transportPlan: TransportPlan) {
-  setCachedTransportPlan(transportPlan)
-  return transportPlan
-}
-
-function replaceDriveInTransportPlan(transportPlan: TransportPlan, nextDrive: Drive) {
-  return {
-    ...transportPlan,
-    drives: transportPlan.drives.map((drive) =>
-      drive.id === nextDrive.id ? nextDrive : drive
-    ),
-  }
-}
-
-function patchCachedTransportPlan(nextDrive: Drive) {
-  const currentTransportPlan = getCachedTransportPlan()
-
-  if (!currentTransportPlan) {
-    return
-  }
-
-  setCachedTransportPlan(replaceDriveInTransportPlan(currentTransportPlan, nextDrive))
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Unable to load drives.")
 }
 
 async function loadTransportPlan(forceRefresh = false) {
@@ -64,36 +67,27 @@ async function loadTransportPlan(forceRefresh = false) {
       return cached
     }
 
-    if (transportPlanPromise) {
-      return transportPlanPromise
+    const activePromise = getTransportPlanPromise()
+
+    if (activePromise) {
+      return activePromise
     }
   }
 
   const staleCachedTransportPlan = getCachedTransportPlan({ includeExpired: true })
 
-  transportPlanPromise = fetch("/api/transport-plan")
-    .then(async (response) => {
-      const payload = (await response.json().catch(() => null)) as
-        | (Partial<TransportPlan> & { error?: string })
-        | null
-
-      if (!response.ok || !payload?.drives || !payload.stopPickupPassengerOptions) {
-        throw new Error(payload?.error ?? "Unable to load drives.")
-      }
-
-      const nextTransportPlan: TransportPlan = {
-        drives: payload.drives,
-        stopPickupPassengerOptions: payload.stopPickupPassengerOptions,
-      }
-
+  const nextPromise = fetchTransportPlanWithRetry()
+    .then((nextTransportPlan) => {
       setCachedTransportPlan(nextTransportPlan)
       return nextTransportPlan
     })
     .finally(() => {
-      transportPlanPromise = null
+      setTransportPlanPromise(null)
     })
 
-  return transportPlanPromise
+  setTransportPlanPromise(nextPromise)
+
+  return nextPromise
     .catch((error) => {
       if (staleCachedTransportPlan) {
         return staleCachedTransportPlan

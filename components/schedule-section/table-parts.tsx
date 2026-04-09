@@ -149,35 +149,75 @@ export function StopPickupPassengerCombobox({
   const ignoreInitialFocusRef = React.useRef(true)
   const [open, setOpen] = React.useState(false)
   const [query, setQuery] = React.useState("")
+  const [highlightedPassengerId, setHighlightedPassengerId] = React.useState<string | undefined>(
+    undefined
+  )
+  const normalizedQuery = query.trim().toLowerCase()
   const selectedPeople = value
     .map((id) => passengerLookup.get(id))
     .filter((person): person is StopPickupPassengerOption => Boolean(person))
+  const filteredPeople = React.useMemo(() => {
+    if (!normalizedQuery) {
+      return stopPickupPassengerOptions
+    }
+
+    return stopPickupPassengerOptions.filter((person) =>
+      [person.name, person.detail, person.address].join(" ").toLowerCase().includes(normalizedQuery)
+    )
+  }, [normalizedQuery, stopPickupPassengerOptions])
+  const commitSelection = React.useCallback(
+    (nextPassengerId: string) => {
+      const dedupedValue = Array.from(new Set([...value, nextPassengerId]))
+      const wasFirstSelection = value.length === 0 && dedupedValue.length === 1
+      const isAddingMorePassengers = value.length >= 1 && dedupedValue.length > value.length
+
+      onValueChange(dedupedValue)
+      setQuery("")
+
+      if (wasFirstSelection) {
+        setOpen(false)
+        return
+      }
+
+      if (isAddingMorePassengers) {
+        setOpen(true)
+        requestAnimationFrame(() => {
+          inputRef.current?.focus()
+        })
+      }
+    },
+    [onValueChange, value]
+  )
 
   return (
-    <Combobox
+    <Combobox<string, true>
       multiple
+      filter={null}
+      autoHighlight
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen)
+        setHighlightedPassengerId(undefined)
+
+        if (!nextOpen) {
+          setQuery("")
+        }
+      }}
       value={value}
+      inputValue={query}
+      onInputValueChange={setQuery}
       onValueChange={(nextValue) => {
-        const dedupedValue = Array.from(new Set(nextValue))
-        const wasFirstSelection = value.length === 0 && dedupedValue.length === 1
-        const isAddingMorePassengers = value.length >= 1 && dedupedValue.length > value.length
+        const nextPassengerId = nextValue.find((entry) => !value.includes(entry))
 
-        onValueChange(dedupedValue)
-        setQuery("")
-
-        if (wasFirstSelection) {
-          setOpen(false)
+        if (nextPassengerId) {
+          commitSelection(nextPassengerId)
           return
         }
 
-        if (isAddingMorePassengers) {
-          setOpen(true)
-          requestAnimationFrame(() => {
-            inputRef.current?.focus()
-          })
-        }
+        onValueChange(Array.from(new Set(nextValue)))
+      }}
+      onItemHighlighted={(nextValue) => {
+        setHighlightedPassengerId(nextValue)
       }}
       itemToStringLabel={(personId) => {
         const person = passengerLookup.get(personId)
@@ -201,12 +241,6 @@ export function StopPickupPassengerCombobox({
               : "Add another passenger"
           }
           className="min-h-5 text-sm text-[#1d1d1b] placeholder:text-[#8a8a84]"
-          value={query}
-          onChange={(event) => {
-            const nextQuery = event.target.value
-            setQuery(nextQuery)
-            setOpen(true)
-          }}
           onPointerDown={() => {
             ignoreInitialFocusRef.current = false
             setOpen(true)
@@ -220,7 +254,17 @@ export function StopPickupPassengerCombobox({
             setOpen(true)
           }}
           onKeyDown={(event) => {
-            if (event.key === "Tab" || event.key === "Escape") {
+            if (
+              (event.key === "Tab" || event.key === "Enter") &&
+              open &&
+              highlightedPassengerId
+            ) {
+              event.preventDefault()
+              commitSelection(highlightedPassengerId)
+              return
+            }
+
+            if (event.key === "Escape") {
               setOpen(false)
             }
           }}
@@ -231,8 +275,10 @@ export function StopPickupPassengerCombobox({
         className="border border-[#e3e3df] bg-white shadow-[0_18px_38px_-24px_rgba(15,23,42,0.45)]"
       >
         <ComboboxList>
-          <ComboboxEmpty>No matching passengers found.</ComboboxEmpty>
-          {stopPickupPassengerOptions.map((person) => (
+          {filteredPeople.length === 0 ? (
+            <ComboboxEmpty>No matching passengers found.</ComboboxEmpty>
+          ) : null}
+          {filteredPeople.map((person) => (
             <ComboboxItem
               key={person.id}
               value={person.id}

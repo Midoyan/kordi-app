@@ -50,13 +50,38 @@ import { cn } from "@/lib/utils";
 
 const defaultColumnVisibility: VisibilityState = {
   select: false,
+  role: false,
+  createdAt: false,
 };
+
+function formatDateAdded(value: string | null) {
+  if (!value) {
+    return "Date not available";
+  }
+
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "Date not available";
+  }
+
+  return parsedDate.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function formatPickupTime(value: string) {
+  return value.trim() || "Not assigned";
+}
 
 function toDraft(person: PersonRecord): PersonDraft {
   return {
     name: person.name,
     address: person.address,
     phone: person.phone,
+    role: person.role,
   };
 }
 
@@ -327,6 +352,22 @@ export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[
       ),
     },
     {
+      accessorKey: "role",
+      meta: { label: "Role" },
+      header: ({ column }: HeaderContext<PersonRecord, unknown>) => (
+        <ColumnHeader
+          label="Role"
+          canSort={column.getCanSort()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }: CellContext<PersonRecord, unknown>) => (
+        <p className="whitespace-normal px-3 text-[13px] leading-6 text-[#43433f]">
+          {row.original.role || "Role not set"}
+        </p>
+      ),
+    },
+    {
       accessorKey: "name",
       meta: { label: "Name" },
       header: ({ column }: HeaderContext<PersonRecord, unknown>) => (
@@ -336,12 +377,37 @@ export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[
           onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         />
       ),
+      cell: ({ row, table }: CellContext<PersonRecord, unknown>) => {
+        const isRoleColumnVisible = table.getColumn("role")?.getIsVisible() ?? false;
+
+        return (
+          <div className="space-y-1 px-3">
+            <p className="text-[15px] font-semibold tracking-tight text-[#1d1d1b]">
+              {row.original.name}
+            </p>
+            {!isRoleColumnVisible ? (
+              <p className="text-[12px] text-[#7a7a74]">
+                {row.original.role || "Role not set"}
+              </p>
+            ) : null}
+          </div>
+        );
+      },
+    },
+    {
+      accessorKey: "phone",
+      meta: { label: "Phone" },
+      header: ({ column }: HeaderContext<PersonRecord, unknown>) => (
+        <ColumnHeader
+          label="Phone"
+          canSort={column.getCanSort()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
       cell: ({ row }: CellContext<PersonRecord, unknown>) => (
-        <div className="space-y-1 px-3">
-          <p className="text-[15px] font-semibold tracking-tight text-[#1d1d1b]">
-            {row.original.name}
-          </p>
-        </div>
+        <p className="whitespace-normal px-3 text-[13px] leading-6 text-[#43433f]">
+          {row.original.phone || "Phone not added"}
+        </p>
       ),
     },
     {
@@ -361,18 +427,65 @@ export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[
       ),
     },
     {
-      accessorKey: "phone",
-      meta: { label: "Phone" },
+      accessorKey: "pickupTime",
+      meta: { label: "Pickup time" },
       header: ({ column }: HeaderContext<PersonRecord, unknown>) => (
         <ColumnHeader
-          label="Phone"
+          label="Pickup time"
           canSort={column.getCanSort()}
           onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
         />
       ),
       cell: ({ row }: CellContext<PersonRecord, unknown>) => (
         <p className="whitespace-normal px-3 text-[13px] leading-6 text-[#43433f]">
-          {row.original.phone || "Phone not added"}
+          {formatPickupTime(row.original.pickupTime)}
+        </p>
+      ),
+    },
+    {
+      accessorKey: "pickupToLocation",
+      meta: { label: "Pickup to location" },
+      header: ({ column }: HeaderContext<PersonRecord, unknown>) => (
+        <ColumnHeader
+          label="Pickup to"
+          canSort={column.getCanSort()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }: CellContext<PersonRecord, unknown>) => (
+        row.original.pickupToLocationName || row.original.pickupToLocationAddress ? (
+          <div className="space-y-0.5 px-3">
+            {row.original.pickupToLocationName ? (
+              <p className="text-[13px] font-semibold leading-5 text-[#1d1d1b]">
+                {row.original.pickupToLocationName}
+              </p>
+            ) : null}
+            {row.original.pickupToLocationAddress ? (
+              <p className="whitespace-normal text-[13px] leading-6 text-[#43433f]">
+                {row.original.pickupToLocationAddress}
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <p className="whitespace-normal px-3 text-[13px] leading-6 text-[#43433f]">
+            {row.original.pickupToLocation || "Not assigned"}
+          </p>
+        )
+      ),
+    },
+    {
+      accessorKey: "createdAt",
+      meta: { label: "Date added" },
+      header: ({ column }: HeaderContext<PersonRecord, unknown>) => (
+        <ColumnHeader
+          label="Date added"
+          canSort={column.getCanSort()}
+          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        />
+      ),
+      cell: ({ row }: CellContext<PersonRecord, unknown>) => (
+        <p className="whitespace-normal px-3 text-[13px] leading-6 text-[#43433f]">
+          {formatDateAdded(row.original.createdAt)}
         </p>
       ),
     },
@@ -491,7 +604,14 @@ export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[
       } else if (editingPersonId) {
         const updatedPerson = await updatePerson(editingPersonId, editorDraft);
         setPeople((currentPeople) =>
-          currentPeople.map((person) => (person.id === editingPersonId ? updatedPerson : person)),
+          currentPeople.map((person) =>
+            person.id === editingPersonId
+              ? {
+                  ...person,
+                  ...updatedPerson,
+                }
+              : person,
+          ),
         );
         setNotice("Saved changes to the selected person.");
       }
@@ -569,7 +689,7 @@ export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[
                       <Input
                         value={query}
                         onChange={(event) => setQuery(event.target.value)}
-                        placeholder="Search name, address, or phone"
+                        placeholder="Search name, role, phone, address, or destination"
                         className="h-10 border-[#dbdbd6] bg-white pl-9 text-[13px] shadow-none"
                       />
                     </div>
@@ -593,16 +713,20 @@ export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[
                   mergeImportedPeople(payloads, context.insertionIndex)
                 }
                 containerClassName="overflow-x-auto"
-                tableClassName="min-w-[820px] table-fixed"
+                tableClassName="min-w-[1160px] table-fixed"
                 headerClassName="bg-[#f7f7f4]"
                 headerRowClassName="border-[#ecece8] hover:bg-transparent"
                 getHeadClassName={(columnId) =>
                   cn(
                     "h-11 border-b border-[#ecece8] bg-[#f7f7f4] px-0 align-middle",
                     columnId === "select" && "w-[56px]",
-                    columnId === "name" && "w-[26%]",
-                    columnId === "address" && "w-[40%]",
-                    columnId === "phone" && "w-[20%]",
+                    columnId === "role" && "w-[14%]",
+                    columnId === "name" && "w-[18%]",
+                    columnId === "phone" && "w-[16%]",
+                    columnId === "address" && "w-[22%]",
+                    columnId === "pickupTime" && "w-[12%]",
+                    columnId === "pickupToLocation" && "w-[22%]",
+                    columnId === "createdAt" && "w-[14%]",
                     columnId === "actions" && "w-[14%]",
                   )
                 }

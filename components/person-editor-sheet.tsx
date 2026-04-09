@@ -81,6 +81,7 @@ export function PersonEditorSheet({
         name: current.name.trim() ? current.name : importedContact.name,
         address: current.address.trim() ? current.address : importedContact.address,
         phone: current.phone.trim() ? current.phone : importedContact.phone,
+        role: current.role,
       };
     });
   };
@@ -135,6 +136,14 @@ export function PersonEditorSheet({
 
     setIsDraggingImport(false);
   };
+
+  const demoSuggestionBias = {
+    label: "Alexanderplatz 10178 Berlin",
+    proximity: {
+      lng: 13.413215,
+      lat: 52.521918,
+    },
+  } as const;
 
   const handleDrop = async (event: DragEvent<HTMLElement>) => {
     if (!canImportFromVCard) {
@@ -250,10 +259,23 @@ export function PersonEditorSheet({
                 />
               </Field>
 
+              <Field label="Role">
+                <Input
+                  autoComplete="organization-title"
+                  name="role"
+                  value={draft.role}
+                  onChange={(event) => updateDraftField("role", event.target.value)}
+                />
+              </Field>
+
               <Field label="Address">
                 <AddressAutofillInput
+                  mode="search"
                   value={draft.address}
+                  proximity={demoSuggestionBias.proximity}
                   onValueChange={(value) => updateDraftField("address", value)}
+                  placeholder="123 Main St, Los Angeles, CA"
+                  helperText="Search by venue, hotel, landmark, or full address."
                 />
               </Field>
             </div>

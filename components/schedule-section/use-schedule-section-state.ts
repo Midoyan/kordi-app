@@ -32,6 +32,10 @@ import type {
 } from "@/components/schedule-section/types"
 import { defaultColumnVisibility } from "@/components/schedule-section/types"
 
+type ScheduleSheetOpenChangeDetails = {
+  reason?: string
+}
+
 type UseScheduleSectionStateOptions = Pick<
   ScheduleSectionProps,
   "drive" | "stopPickupPassengerOptions" | "onDriveUpdated"
@@ -202,7 +206,10 @@ export function useScheduleSectionState({
     [cancelAutoStopTimeCalculation, getVisibleItem]
   )
 
-  const handleSheetOpenChange = React.useCallback((open: boolean) => {
+  const handleSheetOpenChange = React.useCallback((
+    open: boolean,
+    eventDetails?: ScheduleSheetOpenChangeDetails
+  ) => {
     if (!open && draftMode === "create" && draft) {
       const hasStartedDraft =
         draft.stopPickupPassengerIds.length > 0 ||
@@ -212,8 +219,7 @@ export function useScheduleSectionState({
         (draft.stopDurationSec ?? 0) > 0 ||
         (draft.trafficBufferSec ?? 0) > 0
 
-      if (hasStartedDraft && !draft.pickupTime.trim()) {
-        setDatabaseError("Pickup time is required.")
+      if (hasStartedDraft && eventDetails?.reason !== "close-press") {
         return
       }
     }

@@ -44,7 +44,7 @@ export type VehiclePayload = {
 type VehicleCachePayload = {
   vehicles: VehicleRecord[];
   savedAt: number;
-  version: 1;
+  version: 2;
 };
 
 type FetchVehiclesOptions = {
@@ -52,9 +52,9 @@ type FetchVehiclesOptions = {
   signal?: AbortSignal;
 };
 
-const VEHICLE_CACHE_STORAGE_KEY = "kordi.vehicles-cache.v1";
+const VEHICLE_CACHE_STORAGE_KEY = "kordi.vehicles-cache.v2";
 const VEHICLE_CACHE_TTL_MS = 5 * 60 * 1000;
-const VEHICLE_CACHE_VERSION = 1;
+const VEHICLE_CACHE_VERSION = 2;
 const vehicleTypeValueByType: Record<VehicleType, VehicleTypeValue> = {
   Van: "van",
   Car: "car",
@@ -210,7 +210,10 @@ export function normalizeVehicleRecord(payload: unknown): VehicleRecord {
     notes: readString(record.notes),
     isActive: typeof record.isActive === "boolean" ? record.isActive : record.is_active !== false,
     crewMemberId: readString(record.crewMemberId ?? record.crew_member_id) || null,
-    driverName: readString(crewMemberRecord?.full_name),
+    driverName:
+      readString(crewMemberRecord?.full_name) ||
+      readString(record.driverName) ||
+      readString(record.driver_name),
     createdAt:
       typeof record.createdAt === "string"
         ? record.createdAt
