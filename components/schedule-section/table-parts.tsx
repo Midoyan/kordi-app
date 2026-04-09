@@ -145,6 +145,8 @@ export function StopPickupPassengerCombobox({
   passengerLookup: Map<string, StopPickupPassengerOption>
 }) {
   const anchorRef = useComboboxAnchor()
+  const inputRef = React.useRef<HTMLInputElement | null>(null)
+  const ignoreInitialFocusRef = React.useRef(true)
   const [open, setOpen] = React.useState(false)
   const [query, setQuery] = React.useState("")
   const selectedPeople = value
@@ -158,9 +160,24 @@ export function StopPickupPassengerCombobox({
       onOpenChange={setOpen}
       value={value}
       onValueChange={(nextValue) => {
-        onValueChange(Array.from(new Set(nextValue)))
+        const dedupedValue = Array.from(new Set(nextValue))
+        const wasFirstSelection = value.length === 0 && dedupedValue.length === 1
+        const isAddingMorePassengers = value.length >= 1 && dedupedValue.length > value.length
+
+        onValueChange(dedupedValue)
         setQuery("")
-        setOpen(false)
+
+        if (wasFirstSelection) {
+          setOpen(false)
+          return
+        }
+
+        if (isAddingMorePassengers) {
+          setOpen(true)
+          requestAnimationFrame(() => {
+            inputRef.current?.focus()
+          })
+        }
       }}
       itemToStringLabel={(personId) => {
         const person = passengerLookup.get(personId)
@@ -177,6 +194,7 @@ export function StopPickupPassengerCombobox({
           </ComboboxChip>
         ))}
         <ComboboxChipsInput
+          ref={inputRef}
           placeholder={
             selectedPeople.length === 0
               ? "Search passengers to add"
@@ -187,7 +205,19 @@ export function StopPickupPassengerCombobox({
           onChange={(event) => {
             const nextQuery = event.target.value
             setQuery(nextQuery)
-            setOpen(nextQuery.trim().length > 0)
+            setOpen(true)
+          }}
+          onPointerDown={() => {
+            ignoreInitialFocusRef.current = false
+            setOpen(true)
+          }}
+          onFocus={() => {
+            if (ignoreInitialFocusRef.current) {
+              ignoreInitialFocusRef.current = false
+              return
+            }
+
+            setOpen(true)
           }}
           onKeyDown={(event) => {
             if (event.key === "Tab" || event.key === "Escape") {

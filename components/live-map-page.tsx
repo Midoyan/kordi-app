@@ -1,15 +1,24 @@
 "use client";
 
 import { GeocodingCore } from "@mapbox/search-js-core";
-import { startTransition, useEffect, useMemo, useState } from "react";
+import { ChevronDown, Route } from "lucide-react";
+import {
+  startTransition,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 
 import {
   MapCanvas,
   type MapCanvasLine,
   type MapCanvasMarker,
 } from "@/components/map-canvas";
-import { fetchPeople, type PersonRecord } from "@/lib/people";
 import { fetchLocations, type LocationRecord } from "@/lib/locations";
+import { fetchPeople, type PersonRecord } from "@/lib/people";
+import { cn } from "@/lib/utils";
 
 const mapboxToken = (process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN ?? "").trim();
 const liveMapCenter: [number, number] = [13.325, 52.49];
@@ -24,11 +33,27 @@ type DriveRecord = {
   label: string;
   travelType: string;
   startLocation: string;
+  scheduledTimeLabel: string;
   destinationAddress: string;
+  van: {
+    label: string | null;
+    plate_number: string | null;
+    vehicle_type: string | null;
+  } | null;
+  location: {
+    name: string;
+    address: string;
+  } | null;
   stops: Array<{
     id: string;
     stopTitle: string;
     pickupAddress: string;
+    pickupTimeLabel: string;
+    stopPickupPassengers: Array<{
+      id: string;
+      name: string;
+      address: string;
+    }>;
   }>;
 };
 
@@ -61,6 +86,7 @@ type GeocodedDriveStopMarker = {
 };
 
 type LiveMapState = {
+  drives: DriveRecord[];
   peopleMarkers: GeocodedPersonMarker[];
   locationMarkers: GeocodedLocationMarker[];
   driveStopMarkers: GeocodedDriveStopMarker[];
@@ -69,11 +95,15 @@ type LiveMapState = {
 
 export function LiveMapPage() {
   const [liveMapState, setLiveMapState] = useState<LiveMapState>({
+    drives: [],
     peopleMarkers: [],
     locationMarkers: [],
     driveStopMarkers: [],
     routeLines: [],
   });
+  const [expandedDriveIdsState, setExpandedDriveIdsState] = useState<string[]>([]);
+  const [highlightedDriveId, setHighlightedDriveId] = useState<string | null>(null);
+  const [highlightedStopId, setHighlightedStopId] = useState<string | null>(null);
   const geocoder = useMemo(
     () =>
       mapboxToken
@@ -93,6 +123,7 @@ export function LiveMapPage() {
 
     const controller = new AbortController();
     const activeGeocoder = geocoder;
+    // Deduplicate geocoding across people, locations, and route stops during one map load.
     const geocodeCache = new Map<string, Promise<[number, number] | null>>();
 
     const getCoordinatesForAddress = (address: string) => {
@@ -125,17 +156,19 @@ export function LiveMapPage() {
     };
 
     async function loadLiveMapState() {
+      // Load every dataset together so the live map can render one coherent pass.
       const [people, locations, transportPlan] = await Promise.all([
         fetchPeople(controller.signal),
         fetchLocations({ signal: controller.signal }),
         fetchTransportPlan(controller.signal),
       ]);
+      const drives = transportPlan.drives ?? [];
 
       const [peopleMarkers, locationMarkers, driveStopMarkers, routeLines] = await Promise.all([
         buildPeopleMarkers(people, getCoordinatesForAddress),
         buildLocationMarkers(locations, getCoordinatesForAddress),
-        buildDriveStopMarkers(transportPlan.drives ?? [], getCoordinatesForAddress),
-        buildDriveRouteLines(transportPlan.drives ?? [], getCoordinatesForAddress, controller.signal),
+        buildDriveStopMarkers(drives, getCoordinatesForAddress),
+        buildDriveRouteLines(drives, getCoordinatesForAddress, controller.signal),
       ]);
 
       if (controller.signal.aborted) {
@@ -144,6 +177,7 @@ export function LiveMapPage() {
 
       startTransition(() => {
         setLiveMapState({
+          drives,
           peopleMarkers,
           locationMarkers,
           driveStopMarkers,
@@ -159,6 +193,7 @@ export function LiveMapPage() {
 
       startTransition(() => {
         setLiveMapState({
+          drives: [],
           peopleMarkers: [],
           locationMarkers: [],
           driveStopMarkers: [],
@@ -171,6 +206,20 @@ export function LiveMapPage() {
       controller.abort();
     };
   }, [geocoder]);
+
+  const expandedDriveIds = useMemo(() => {
+    if (liveMapState.drives.length === 0) {
+      return [];
+    }
+
+    const driveIds = new Set(liveMapState.drives.map((drive) => drive.id));
+    const validIds = expandedDriveIdsState.filter((id) => driveIds.has(id));
+
+    return validIds.length > 0 ? validIds : [liveMapState.drives[0].id];
+  }, [expandedDriveIdsState, liveMapState.drives]);
+
+  const activeDriveId = highlightedDriveId;
+  const hasMapHighlight = Boolean(activeDriveId);
 
   const mapMarkers = useMemo<MapCanvasMarker[]>(
     () => [
@@ -200,7 +249,12 @@ export function LiveMapPage() {
       ...liveMapState.driveStopMarkers.map((marker) => ({
         id: `drive-stop-${marker.id}`,
         coordinates: marker.coordinates,
-        createElement: () => createDriveStopMarkerElement(marker),
+        createElement: () =>
+          createDriveStopMarkerElement(marker, {
+            dimmed: hasMapHighlight && marker.driveId !== activeDriveId,
+            emphasized: marker.driveId === activeDriveId,
+            selected: marker.id === highlightedStopId,
+          }),
         createPopupElement: () => createDriveStopPopupElement(marker),
         anchor: "center" as const,
         minVisibleZoom: 10.9,
@@ -209,23 +263,73 @@ export function LiveMapPage() {
         minOpacity: 0.16,
       })),
     ],
-    [liveMapState.driveStopMarkers, liveMapState.locationMarkers, liveMapState.peopleMarkers],
+    [activeDriveId, hasMapHighlight, highlightedStopId, liveMapState.driveStopMarkers, liveMapState.locationMarkers, liveMapState.peopleMarkers],
   );
 
+  const mapLines = useMemo(
+    () =>
+      liveMapState.routeLines.map((line) => ({
+        ...line,
+        opacity: !hasMapHighlight
+          ? line.opacity
+          : line.id === activeDriveId
+            ? 0.96
+            : 0.14,
+        width: !hasMapHighlight
+          ? line.width
+          : line.id === activeDriveId
+            ? 6
+            : 3,
+      })),
+    [activeDriveId, hasMapHighlight, liveMapState.routeLines],
+  );
+
+  const toggleDriveExpansion = (driveId: string) => {
+    setExpandedDriveIdsState((current) => {
+      const driveIds = new Set(liveMapState.drives.map((drive) => drive.id));
+      const validIds = current.filter((id) => driveIds.has(id));
+      const nextExpandedIds =
+        validIds.length > 0 ? validIds : liveMapState.drives[0] ? [liveMapState.drives[0].id] : [];
+
+      return nextExpandedIds.includes(driveId)
+        ? nextExpandedIds.filter((id) => id !== driveId)
+        : [...nextExpandedIds, driveId];
+    });
+  };
+
   return (
-    <div className="flex h-full min-h-[calc(100svh-3.5rem)] w-full flex-1">
+    <div className="relative flex h-full min-h-[calc(100svh-3.5rem)] w-full flex-1">
       <MapCanvas
         accessToken={mapboxToken}
         className="h-full w-full flex-1"
         bearing={-14}
         center={liveMapCenter}
         pitch={42}
-        lines={liveMapState.routeLines}
+        lines={mapLines}
         markers={mapMarkers}
         styleUrl="mapbox://styles/mapbox/light-v11"
         zoom={10.55}
         missingTokenTitle="Live map unavailable without a Mapbox token"
         missingTokenDetail="Add NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN to render the interactive map."
+      />
+      <LiveMapSchedulePanel
+        drives={liveMapState.drives}
+        expandedDriveIds={expandedDriveIds}
+        highlightedDriveId={highlightedDriveId}
+        highlightedStopId={highlightedStopId}
+        onDriveHover={(driveId) => {
+          setHighlightedDriveId(driveId);
+          setHighlightedStopId(null);
+        }}
+        onPanelLeave={() => {
+          setHighlightedDriveId(null);
+          setHighlightedStopId(null);
+        }}
+        onStopHover={(stopId, driveId) => {
+          setHighlightedStopId(stopId);
+          setHighlightedDriveId(driveId);
+        }}
+        onToggleDrive={toggleDriveExpansion}
       />
     </div>
   );
@@ -401,6 +505,7 @@ function getDriveRouteAddresses(drive: DriveRecord) {
     .map((stop) => stop.pickupAddress.trim())
     .filter(Boolean);
 
+  // Dropoffs run from the shared origin through each stop; pickups end at the shared destination.
   if (drive.travelType === "dropoff") {
     return [drive.startLocation.trim(), ...stopAddresses].filter(Boolean);
   }
@@ -412,6 +517,7 @@ async function getStreetRouteCoordinates(
   coordinates: [number, number][],
   signal: AbortSignal,
 ) {
+  // Request each leg separately so long stop chains still render even if we can't batch the full drive.
   const segments: [number, number][][] = [];
 
   for (let index = 0; index < coordinates.length - 1; index += 1) {
@@ -424,6 +530,7 @@ async function getStreetRouteCoordinates(
     );
 
     if (!response.ok) {
+      // Fall back to straight joins if directions fail instead of dropping the drive entirely.
       return coordinates;
     }
 
@@ -484,7 +591,14 @@ function createLocationMarkerElement(name: string) {
   return marker;
 }
 
-function createDriveStopMarkerElement(stop: GeocodedDriveStopMarker) {
+function createDriveStopMarkerElement(
+  stop: GeocodedDriveStopMarker,
+  options?: {
+    dimmed?: boolean;
+    emphasized?: boolean;
+    selected?: boolean;
+  },
+) {
   const marker = document.createElement("div");
   marker.className = "map-cast-marker";
 
@@ -492,7 +606,12 @@ function createDriveStopMarkerElement(stop: GeocodedDriveStopMarker) {
   visual.setAttribute("data-map-marker-visual", "");
 
   const bubble = document.createElement("div");
-  bubble.className = "map-cast-stop-marker";
+  bubble.className = cn(
+    "map-cast-stop-marker",
+    options?.dimmed && "map-cast-stop-marker--dimmed",
+    options?.emphasized && "map-cast-stop-marker--emphasized",
+    options?.selected && "map-cast-stop-marker--selected",
+  );
   bubble.style.setProperty("--map-stop-marker-color", stop.color);
 
   const label = document.createElement("span");
@@ -596,6 +715,281 @@ function createDriveStopPopupElement(stop: GeocodedDriveStopMarker) {
 
   popup.append(header, driveLabel, address);
   return popup;
+}
+
+function LiveMapSchedulePanel({
+  drives,
+  expandedDriveIds,
+  highlightedDriveId,
+  highlightedStopId,
+  onDriveHover,
+  onPanelLeave,
+  onStopHover,
+  onToggleDrive,
+}: {
+  drives: DriveRecord[];
+  expandedDriveIds: string[];
+  highlightedDriveId: string | null;
+  highlightedStopId: string | null;
+  onDriveHover: (driveId: string | null) => void;
+  onPanelLeave: () => void;
+  onStopHover: (stopId: string, driveId: string) => void;
+  onToggleDrive: (driveId: string) => void;
+}) {
+  const driveCount = drives.length;
+  const stopCount = drives.reduce((count, drive) => count + drive.stops.length, 0);
+  const [position, setPosition] = useState({ x: 16, y: 16 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragOffsetRef = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    if (!isDragging) {
+      return;
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const nextX = Math.max(8, Math.min(event.clientX - dragOffsetRef.current.x, window.innerWidth - 280));
+      const nextY = Math.max(8, Math.min(event.clientY - dragOffsetRef.current.y, window.innerHeight - 120));
+
+      setPosition({
+        x: nextX,
+        y: nextY,
+      });
+    };
+
+    const handlePointerUp = () => {
+      setIsDragging(false);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [isDragging]);
+
+  const handleDragStart = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) {
+      return;
+    }
+
+    dragOffsetRef.current = {
+      x: event.clientX - position.x,
+      y: event.clientY - position.y,
+    };
+    setIsDragging(true);
+  };
+
+  return (
+    <div className="pointer-events-none absolute inset-0 p-3 sm:p-4">
+      <div
+        className="pointer-events-auto absolute w-[min(20rem,calc(100vw-1rem))] sm:w-[min(21.5rem,calc(100vw-2rem))]"
+        style={{
+          transform: `translate3d(${position.x}px, ${position.y}px, 0)`,
+        }}
+      >
+        <section
+          className="overflow-hidden rounded-[18px] border border-white/70 bg-[linear-gradient(180deg,rgba(255,253,248,0.82)_0%,rgba(248,243,232,0.84)_100%)] shadow-[0_24px_70px_-36px_rgba(15,23,42,0.52)] backdrop-blur-xl"
+          onMouseLeave={onPanelLeave}
+        >
+          <div
+            className={cn(
+              "cursor-grab border-b border-[#eadfca]/70 bg-[linear-gradient(180deg,rgba(254,249,239,0.92)_0%,rgba(248,242,231,0.92)_100%)] px-3 py-2.5 active:cursor-grabbing",
+              isDragging && "cursor-grabbing",
+            )}
+            onPointerDown={handleDragStart}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-[#5c4a2a]">
+                  {/* <div className="flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-[#f28b50]" />
+                    <span className="h-2 w-2 rounded-full bg-[#f0c35a]" />
+                    <span className="h-2 w-2 rounded-full bg-[#8abf70]" />
+                  </div> */}
+                  <p className="text-[11px] font-semibold tracking-[0.16em] uppercase">Map legend</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="max-h-[min(22rem,calc(100svh-8rem))] overflow-auto px-2.5 py-2.5">
+            {drives.length === 0 ? (
+              <div className="px-4 py-7 text-center">
+                <p className="text-[13px] font-medium text-[#1d1d1b]">No drives on the map yet.</p>
+                <p className="mt-1 text-[11px] text-[#6b6b67]">
+                  Add a drive in schedule and it will appear here with its route and stops.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {drives.map((drive, driveIndex) => {
+                  const isExpanded = expandedDriveIds.includes(drive.id);
+                  const isHighlighted = highlightedDriveId === drive.id;
+                  const routeColor = driveRoutePalette[driveIndex % driveRoutePalette.length];
+                  const driveSummary = getLiveMapDriveSummary(drive);
+
+                  return (
+                    <article
+                      key={drive.id}
+                      className={cn(
+                        "overflow-hidden rounded-[16px] bg-white/66 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.55),0_1px_0_rgba(255,255,255,0.7)_inset] ring-1 ring-[#eadfca]/70 transition-[background-color,box-shadow,transform] duration-200",
+                        isHighlighted
+                          ? "bg-[rgba(255,246,228,0.95)] shadow-[0_18px_34px_-28px_rgba(15,23,42,0.5),0_1px_0_rgba(255,255,255,0.8)_inset] ring-[#efcf93]"
+                          : "hover:bg-[rgba(255,251,243,0.94)]",
+                      )}
+                      onMouseEnter={() => {
+                        onDriveHover(drive.id);
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="flex w-full items-start gap-3 px-3 py-3 text-left"
+                        onClick={() => onToggleDrive(drive.id)}
+                      >
+                        <div className="flex min-w-0 flex-1 items-start gap-3">
+                          <div
+                            className="flex min-h-11 w-1.5 shrink-0 rounded-full"
+                            style={{
+                              background: `linear-gradient(180deg, ${routeColor} 0%, color-mix(in srgb, ${routeColor} 58%, white) 100%)`,
+                            }}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="truncate text-[12px] font-semibold tracking-[-0.01em] text-[#1d1d1b]">
+                                  {driveSummary.routeLabel}
+                                </p>
+                                <p className="mt-0.5 truncate text-[10px] text-[#736a5d]">
+                                  {driveSummary.routeDetail}
+                                </p>
+                              </div>
+                              <div className="shrink-0 text-right">
+                                <p className="text-[15px] font-semibold leading-none text-[#1d1d1b] [font-variant-numeric:tabular-nums]">
+                                  {driveSummary.departureLabel}
+                                </p>
+                                <p className="mt-1 text-[9px] font-semibold tracking-[0.14em] text-[#8a7d68] uppercase">
+                                  Start
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <ChevronDown
+                          className={cn(
+                            "mt-0.5 size-4 shrink-0 text-[#8a7d68] transition-transform",
+                            isExpanded && "rotate-180",
+                          )}
+                        />
+                      </button>
+
+                      {isExpanded ? (
+                        <div className="border-t border-[#eadfca]/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.5)_0%,rgba(250,246,238,0.78)_100%)] px-3 py-2.5">
+                          <div className="space-y-1.5">
+                            {drive.stops.map((stop, stopIndex) => {
+                              const isStopHighlighted = highlightedStopId === stop.id;
+
+                              return (
+                                <button
+                                  key={stop.id}
+                                  type="button"
+                                  className={cn(
+                                    "flex w-full items-start gap-2.5 rounded-[12px] px-2 py-2 text-left transition-colors",
+                                    isStopHighlighted ? "bg-[rgba(255,244,222,0.96)]" : "hover:bg-white/72",
+                                  )}
+                                  onMouseEnter={() => {
+                                    onStopHover(stop.id, drive.id);
+                                  }}
+                                >
+                                  <span
+                                    className="inline-flex size-[20px] shrink-0 items-center justify-center rounded-full border bg-white/92 text-[9px] font-semibold [font-variant-numeric:tabular-nums]"
+                                    style={{
+                                      borderColor: routeColor,
+                                      color: routeColor,
+                                    }}
+                                  >
+                                    {stopIndex + 1}
+                                  </span>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="truncate text-[11px] font-semibold text-[#232320]">
+                                      {stop.stopTitle}
+                                    </p>
+                                    <p className="mt-0.5 truncate text-[10px] text-[#736a5d]">
+                                      {getPrimaryAddressLine(stop.pickupAddress || "No address")}
+                                    </p>
+                                  </div>
+                                  <span className="shrink-0 pt-0.5 text-[10px] font-semibold text-[#5d5243] [font-variant-numeric:tabular-nums]">
+                                    {stop.pickupTimeLabel || "Not set"}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function getLiveMapDriveSummary(drive: DriveRecord) {
+  const setLocationLabel = getPrimaryAddressLine(
+    drive.location?.name || drive.location?.address || drive.destinationAddress || drive.startLocation,
+  );
+  const routeDetail =
+    drive.stops.length === 0
+      ? `No ${drive.travelType} stops yet`
+      : `${drive.stops.length} ${drive.travelType} stop${drive.stops.length === 1 ? "" : "s"}${getDriveViaLabel(drive)}`;
+  const routeLabel =
+    setLocationLabel
+      ? drive.travelType === "pickup"
+        ? `Pickup to ${setLocationLabel}`
+        : `Dropoff from ${setLocationLabel}`
+      : drive.label;
+  const departureLabel = drive.scheduledTimeLabel || drive.stops[0]?.pickupTimeLabel || "Not set";
+  const departureDetail = drive.scheduledTimeLabel
+    ? drive.travelType === "pickup"
+      ? "Arrive by set call time"
+      : setLocationLabel
+        ? `Depart from ${setLocationLabel}`
+        : "Wrap departure"
+    : drive.stops[0]?.pickupTimeLabel
+      ? `First ${drive.travelType} stop`
+      : drive.travelType === "pickup"
+        ? "Add arrival time"
+        : "Add departure time";
+
+  return {
+    departureDetail,
+    departureLabel,
+    routeDetail,
+    routeLabel,
+  };
+}
+
+function getPrimaryAddressLine(value: string) {
+  return value.split(",")[0]?.trim() || value.trim();
+}
+
+function getDriveViaLabel(drive: DriveRecord) {
+  const viaAddresses = Array.from(
+    new Set(
+      drive.stops
+        .map((stop) => getPrimaryAddressLine(stop.pickupAddress))
+        .filter(Boolean),
+    ),
+  ).slice(0, 2);
+
+  return viaAddresses.length > 0 ? ` via ${viaAddresses.join(", ")}` : "";
 }
 
 function getNameInitials(name: string) {

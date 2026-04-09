@@ -1,6 +1,8 @@
 import "server-only"
 
 import { createClient } from "@/lib/server"
+// The transport plan is nested enough that explicit projections help avoid accidental payload growth.
+import { DRIVE_PLAN_SELECT } from "@/lib/supabase-selects"
 import {
   getTravelTypeLabel,
   normalizeTravelType,
@@ -236,44 +238,7 @@ export async function getDrivePlan() {
 
   const { data, error } = await supabase
     .from("travels2")
-    .select(`
-      id,
-      van_id,
-      travel_type,
-      location_id,
-      scheduled_time,
-      sort_order,
-      notes,
-      created_at,
-      vans!travels_van_id_fkey (
-        *,
-        crew_members (
-          id,
-          full_name,
-          phone,
-          home_address
-        )
-      ),
-      location:locations!travels_location_id_fkey (
-        id,
-        label,
-        location_type,
-        address,
-        access_notes,
-        created_at
-      ),
-      trips (
-        *,
-        trip_passengers (
-          crew_members (
-            id,
-            full_name,
-            phone,
-            home_address
-          )
-        )
-      )
-    `)
+    .select(DRIVE_PLAN_SELECT)
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: true })
 

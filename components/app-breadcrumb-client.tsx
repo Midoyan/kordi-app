@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Check, FolderKanban, Plus } from "lucide-react";
+import { CalendarDays, Check, FolderKanban, Plus } from "lucide-react";
 import { usePathname } from "next/navigation";
 
 import { useOrganizations } from "@/components/organization-provider";
@@ -31,13 +31,21 @@ import { cn } from "@/lib/utils";
 
 export function AppBreadcrumbClient() {
   const pathname = usePathname();
-  const { activeOrganization, activeProject, orgProjects, switchProject } = useOrganizations();
+  const {
+    activeOrganization,
+    activeProject,
+    activeDay,
+    orgProjects,
+    projectDays,
+    switchProject,
+    switchDay,
+  } = useOrganizations();
   const sectionSlug = pathname.split("/").filter(Boolean)[0] as AppSectionSlug | undefined;
   const appSection = sectionSlug ? appSectionMap.get(sectionSlug) : undefined;
   const actionHref = appSection ? getSectionActionHref(appSection.slug) : undefined;
   const actionLabel = appSection ? sectionActionLabels[appSection.slug] : undefined;
 
-  if (!appSection || !activeOrganization || !activeProject) {
+  if (!appSection || !activeOrganization || !activeProject || !activeDay) {
     return null;
   }
 
@@ -106,6 +114,69 @@ export function AppBreadcrumbClient() {
                     Manage projects
                   </Link>
                 </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator className="text-[#8a8a85]" />
+          <BreadcrumbItem>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex h-9 max-w-[14rem] items-center gap-2 rounded-[8px] border border-[#e2e2dc] bg-white px-3 text-[12px] font-medium text-[#4e4e49] transition-colors outline-none hover:bg-[#f3f3ef] hover:text-[#181816] focus-visible:ring-2 focus-visible:ring-[#d8d8d3]/70 aria-expanded:bg-[#ecece8]"
+                >
+                  <CalendarDays className="size-4 text-[#666661]" />
+                  <span className="truncate">{activeDay.label}</span>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                sideOffset={8}
+                collisionPadding={16}
+                className="w-72 border-[#e4e4e1] bg-[#fbfbf8] p-1.5 shadow-[0_18px_48px_-28px_rgba(15,23,42,0.4)]"
+              >
+                <DropdownMenuLabel className="m-2 p-2 font-normal">
+                  <div className="grid gap-0.5">
+                    <span className="text-[11px] font-semibold tracking-[0.12em] text-[#7b7b76] uppercase">
+                      Switch day
+                    </span>
+                    <span className="text-xs text-[#6b6b67]">
+                      {activeProject.name} days in the current project.
+                    </span>
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuGroup>
+                  {projectDays.map((day) => (
+                    <DropdownMenuItem
+                      key={day.id}
+                      onClick={() => switchDay(day.id)}
+                      className="min-h-11 rounded-lg px-2.5 py-2 text-[#2a2a27] data-[highlighted]:bg-white data-[highlighted]:text-[#1d1d1b]"
+                    >
+                      <Check
+                        className={cn(
+                          "text-[#6b6b67] transition-opacity",
+                          day.id === activeDay.id ? "opacity-100" : "opacity-0",
+                        )}
+                      />
+                      <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                        <div className="grid min-w-0 gap-0.5">
+                          <span className="truncate font-medium">{day.label}</span>
+                          <span className="truncate text-xs text-[#7b7b76]">
+                            {day.description}
+                          </span>
+                        </div>
+                        <div className="grid justify-items-end gap-1">
+                          <span className="text-[10px] font-semibold tracking-[0.12em] text-[#7b7b76] uppercase">
+                            {day.dateLabel}
+                          </span>
+                          <span className="rounded-full bg-[#ecece8] px-2 py-0.5 text-[10px] font-semibold tracking-[0.12em] text-[#5a5a55] uppercase">
+                            {day.status}
+                          </span>
+                        </div>
+                      </div>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuGroup>
               </DropdownMenuContent>
             </DropdownMenu>
           </BreadcrumbItem>

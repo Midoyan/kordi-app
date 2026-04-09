@@ -17,7 +17,6 @@ import {
   buildInitialStopRows,
   buildRouteTone,
   getStopPickupPassengerNames,
-  hasAdvancedTimingValue,
   normalizePersistedTimingSeconds,
   orderDriveStops,
   parseMutationResponse,
@@ -74,6 +73,40 @@ export function useScheduleSectionState({
   const [isDeletingSelectedStops, setIsDeletingSelectedStops] = React.useState(false)
   const [isConfirmingChanges, setIsConfirmingChanges] = React.useState(false)
   const [timingAdjustmentsOpen, setTimingAdjustmentsOpen] = React.useState(false)
+  const [isAutoCalculatingStopTime, setIsAutoCalculatingStopTime] = React.useState(false)
+  const autoCalculationAttemptRef = React.useRef<string | null>(null)
+  const autoCalculationAbortControllerRef = React.useRef<AbortController | null>(null)
+  const autoCalculationTimeoutRef = React.useRef<number | null>(null)
+  const autoCalculationMaxTimeoutRef = React.useRef<number | null>(null)
+  const autoCalculationAbortReasonRef = React.useRef<"manual" | "reset" | "timeout" | null>(
+    null
+  )
+  const hasManualPickupTimeOverrideRef = React.useRef(false)
+
+  const cancelAutoStopTimeCalculation = React.useCallback(
+    (reason: "manual" | "reset" | "timeout" = "reset") => {
+      if (autoCalculationTimeoutRef.current !== null) {
+        window.clearTimeout(autoCalculationTimeoutRef.current)
+        autoCalculationTimeoutRef.current = null
+      }
+
+      if (autoCalculationMaxTimeoutRef.current !== null) {
+        window.clearTimeout(autoCalculationMaxTimeoutRef.current)
+        autoCalculationMaxTimeoutRef.current = null
+      }
+
+      const activeController = autoCalculationAbortControllerRef.current
+
+      if (activeController && !activeController.signal.aborted) {
+        autoCalculationAbortReasonRef.current = reason
+        activeController.abort()
+      }
+
+      autoCalculationAbortControllerRef.current = null
+      setIsAutoCalculatingStopTime(false)
+    },
+    []
+  )
 
   React.useEffect(() => {
     if (currentDriveIdRef.current === drive.id) {
@@ -99,8 +132,12 @@ export function useScheduleSectionState({
     setDeletingStopId(null)
     setIsDeletingSelectedStops(false)
     setTimingAdjustmentsOpen(false)
+    setIsAutoCalculatingStopTime(false)
+    cancelAutoStopTimeCalculation("reset")
+    autoCalculationAttemptRef.current = null
+    hasManualPickupTimeOverrideRef.current = false
     lastSelectedRowIdRef.current = null
-  }, [drive])
+  }, [cancelAutoStopTimeCalculation, drive])
 
   const displayData = React.useMemo(
     () => (pendingOrder ? orderDriveStops(data, pendingOrder) : data),
@@ -150,15 +187,6 @@ export function useScheduleSectionState({
     }
   }, [activeItem, draftMode, sheetOpen])
 
-  React.useEffect(() => {
-    if (!sheetOpen || !activeItem) {
-      setTimingAdjustmentsOpen(false)
-      return
-    }
-
-    setTimingAdjustmentsOpen(hasAdvancedTimingValue(activeItem))
-  }, [activeId, activeItem, draftMode, sheetOpen])
-
   const openEditor = React.useCallback(
     (item: DriveStopRow) => {
       setDraftMode("edit")
@@ -166,18 +194,41 @@ export function useScheduleSectionState({
       setDraft(getVisibleItem(item))
       setSheetOpen(true)
       setDatabaseError(null)
+      setTimingAdjustmentsOpen(false)
+      cancelAutoStopTimeCalculation("reset")
+      autoCalculationAttemptRef.current = null
+      hasManualPickupTimeOverrideRef.current = false
     },
-    [getVisibleItem]
+    [cancelAutoStopTimeCalculation, getVisibleItem]
   )
 
   const handleSheetOpenChange = React.useCallback((open: boolean) => {
+    if (!open && draftMode === "create" && draft) {
+      const hasStartedDraft =
+        draft.stopPickupPassengerIds.length > 0 ||
+        draft.pickupAddress.trim().length > 0 ||
+        draft.pickupTime.trim().length > 0 ||
+        draft.notes.trim().length > 0 ||
+        (draft.stopDurationSec ?? 0) > 0 ||
+        (draft.trafficBufferSec ?? 0) > 0
+
+      if (hasStartedDraft && !draft.pickupTime.trim()) {
+        setDatabaseError("Pickup time is required.")
+        return
+      }
+    }
+
     setSheetOpen(open)
 
     if (!open) {
       setActiveId(null)
       setDraftMode("edit")
+      setTimingAdjustmentsOpen(false)
+      cancelAutoStopTimeCalculation("reset")
+      autoCalculationAttemptRef.current = null
+      hasManualPickupTimeOverrideRef.current = false
     }
-  }, [])
+  }, [cancelAutoStopTimeCalculation, draft, draftMode])
 
   const openCreateStopEditor = React.useCallback(() => {
     setDraftMode("create")
@@ -185,7 +236,223 @@ export function useScheduleSectionState({
     setDraft(buildNewStopRow(drive, data.length))
     setSheetOpen(true)
     setDatabaseError(null)
-  }, [data.length, drive])
+    setTimingAdjustmentsOpen(false)
+    cancelAutoStopTimeCalculation("reset")
+    autoCalculationAttemptRef.current = null
+    hasManualPickupTimeOverrideRef.current = false
+  }, [cancelAutoStopTimeCalculation, data.length, drive])
+
+  const handleDraftStopPickupPassengersChange = React.useCallback(
+    (stopPickupPassengerIds: string[]) => {
+      hasManualPickupTimeOverrideRef.current = false
+      autoCalculationAttemptRef.current = null
+      cancelAutoStopTimeCalculation("reset")
+
+      setDraft((current) => {
+        if (!current) {
+          return current
+        }
+
+        if (draftMode === "create" && stopPickupPassengerIds.length === 0) {
+          return {
+            ...current,
+            stopPickupPassengerIds,
+            pickupAddress: "",
+            pickupTime: "",
+            pickupTimeSource: null,
+          }
+        }
+
+        return {
+          ...current,
+          stopPickupPassengerIds,
+        }
+      })
+    },
+    [cancelAutoStopTimeCalculation, draftMode]
+  )
+
+  const handleDraftPickupTimeChange = React.useCallback(
+    (pickupTime: string) => {
+      hasManualPickupTimeOverrideRef.current = true
+      cancelAutoStopTimeCalculation("manual")
+
+      setDraft((current) =>
+        current
+          ? {
+              ...current,
+              pickupTime,
+            }
+          : current
+      )
+    },
+    [cancelAutoStopTimeCalculation]
+  )
+
+  React.useEffect(() => {
+    if (!sheetOpen || draftMode !== "create" || !draft) {
+      cancelAutoStopTimeCalculation("reset")
+
+      if (!sheetOpen || draftMode !== "create") {
+        autoCalculationAttemptRef.current = null
+        hasManualPickupTimeOverrideRef.current = false
+      }
+
+      return
+    }
+
+    const firstPassengerId = draft.stopPickupPassengerIds[0]
+
+    if (!firstPassengerId) {
+      cancelAutoStopTimeCalculation("reset")
+      autoCalculationAttemptRef.current = null
+      hasManualPickupTimeOverrideRef.current = false
+      return
+    }
+
+    if (hasManualPickupTimeOverrideRef.current) {
+      cancelAutoStopTimeCalculation("manual")
+      return
+    }
+
+    const firstPassenger = passengerLookup.get(firstPassengerId)
+    const suggestedAddress = draft.pickupAddress.trim() || firstPassenger?.address.trim() || ""
+    const arrivalTime = draft.arrival.trim() || drive.scheduledTimeLabel.trim()
+    const destinationAddress = draft.endDestination.trim()
+
+    if (!draft.pickupAddress.trim() && firstPassenger?.address.trim()) {
+      setDraft((current) =>
+        current && current.id === draft.id
+          ? {
+              ...current,
+              pickupAddress: firstPassenger.address.trim(),
+            }
+          : current
+      )
+    }
+
+    if (!suggestedAddress) {
+      setIsAutoCalculatingStopTime(false)
+      return
+    }
+
+    if (!arrivalTime || !destinationAddress) {
+      setIsAutoCalculatingStopTime(false)
+      return
+    }
+
+    const attemptKey = [
+      draft.id,
+      firstPassengerId,
+      suggestedAddress,
+      destinationAddress,
+      arrivalTime,
+      draft.stopDurationSec ?? "",
+      draft.trafficBufferSec ?? "",
+    ].join("::")
+
+    if (autoCalculationAttemptRef.current === attemptKey) {
+      return
+    }
+
+    autoCalculationAttemptRef.current = attemptKey
+    setIsAutoCalculatingStopTime(true)
+    const requestDelayMs = draft.pickupAddress.trim() ? 350 : 0
+    autoCalculationTimeoutRef.current = window.setTimeout(() => {
+      const controller = new AbortController()
+      autoCalculationAbortControllerRef.current = controller
+      autoCalculationAbortReasonRef.current = null
+      autoCalculationMaxTimeoutRef.current = window.setTimeout(() => {
+        autoCalculationAbortReasonRef.current = "timeout"
+        controller.abort()
+      }, 7000)
+
+      void fetch("/api/schedule/recalculate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          arrivalTime,
+          stops: [
+            {
+              id: draft.id,
+              pickupAddress: suggestedAddress,
+              endDestination: destinationAddress,
+              stopDurationSec: draft.stopDurationSec,
+              trafficBufferSec: draft.trafficBufferSec,
+            },
+          ],
+        }),
+      })
+        .then(async (response) => {
+          const payload = await parseMutationResponse<{ stops?: RecalculatedScheduleStop[] }>(
+            response,
+            "Unable to calculate the stop time automatically."
+          )
+          const nextStop = payload.stops?.[0]
+
+          if (!nextStop?.pickupTime) {
+            throw new Error("Unable to calculate the stop time automatically.")
+          }
+
+          setDraft((current) =>
+            current && current.id === draft.id
+              ? {
+                  ...current,
+                  pickupAddress: current.pickupAddress.trim() || suggestedAddress,
+                  pickupTime: nextStop.pickupTime,
+                  pickupTimeSource: nextStop.pickupTime,
+                  arrival: nextStop.arrival,
+                }
+              : current
+          )
+        })
+        .catch((error) => {
+          const abortReason = autoCalculationAbortReasonRef.current
+          const isAbortError =
+            (error instanceof DOMException && error.name === "AbortError") ||
+            (error instanceof Error && error.name === "AbortError")
+
+          if (isAbortError && abortReason !== "timeout") {
+            return
+          }
+
+          setDraft((current) =>
+            current && current.id === draft.id
+              ? {
+                  ...current,
+                  pickupAddress: current.pickupAddress.trim() || suggestedAddress,
+                  pickupTime: "",
+                pickupTimeSource: null,
+              }
+            : current
+          )
+        })
+        .finally(() => {
+          if (autoCalculationMaxTimeoutRef.current !== null) {
+            window.clearTimeout(autoCalculationMaxTimeoutRef.current)
+            autoCalculationMaxTimeoutRef.current = null
+          }
+          autoCalculationAbortControllerRef.current = null
+          autoCalculationAbortReasonRef.current = null
+          setIsAutoCalculatingStopTime(false)
+        })
+    }, requestDelayMs)
+
+    return () => {
+      cancelAutoStopTimeCalculation("reset")
+    }
+  }, [
+    cancelAutoStopTimeCalculation,
+    draft,
+    draftMode,
+    drive.scheduledTimeLabel,
+    passengerLookup,
+    setDraft,
+    sheetOpen,
+  ])
 
   const dataIds = React.useMemo<UniqueIdentifier[]>(
     () => displayData.map(({ id }) => id),
@@ -601,10 +868,25 @@ export function useScheduleSectionState({
       const currentItem = data.find((item) => item.id === draft.id)
       const pickupTimeSource = toDatabaseTimeValue(
         draft.pickupTime,
-        currentItem?.pickupTimeSource ?? null
-      )
+        currentItem?.pickupTimeSource ?? draft.pickupTimeSource
+      ).trim()
       const persistedStopDurationSec = normalizePersistedTimingSeconds(draft.stopDurationSec)
       const persistedTrafficBufferSec = normalizePersistedTimingSeconds(draft.trafficBufferSec)
+
+      if (draftMode === "create" && normalizedPassengerIds.length === 0) {
+        setDatabaseError("Choose at least one passenger before creating a stop.")
+        return
+      }
+
+      if (!draft.pickupAddress.trim()) {
+        setDatabaseError("Pickup address is required.")
+        return
+      }
+
+      if (!pickupTimeSource) {
+        setDatabaseError("Pickup time is required.")
+        return
+      }
 
       setDatabaseError(null)
       setIsSavingStop(true)
@@ -684,16 +966,16 @@ export function useScheduleSectionState({
               return item
             }
 
-            return {
-              ...item,
-              stopPickupPassengerIds: normalizedPassengerIds,
-              pickupAddress: draft.pickupAddress.trim(),
-              pickupTime: draft.pickupTime.trim(),
-              pickupTimeSource,
-              stopTitle: draft.stopTitle.trim() || item.stopTitle,
-              stopDurationSec: persistedStopDurationSec,
-              trafficBufferSec: persistedTrafficBufferSec,
-              notes: draft.notes.trim(),
+              return {
+                ...item,
+                stopPickupPassengerIds: normalizedPassengerIds,
+                pickupAddress: draft.pickupAddress.trim(),
+                pickupTime: draft.pickupTime.trim(),
+                pickupTimeSource,
+                stopTitle: draft.stopTitle.trim() || item.stopTitle,
+                stopDurationSec: persistedStopDurationSec,
+                trafficBufferSec: persistedTrafficBufferSec,
+                notes: draft.notes.trim(),
             }
           })
         }
@@ -735,12 +1017,15 @@ export function useScheduleSectionState({
     handleSheetOpenChange,
     hasPendingChanges,
     isConfirmingChanges,
+    isAutoCalculatingStopTime,
     isDeletingSelectedStops,
     isSavingStop,
     isStopDurationColumnVisible,
     isTrafficBufferColumnVisible,
     openCreateStopEditor,
     onConfirmChanges: confirmPendingChanges,
+    handleDraftPickupTimeChange,
+    handleDraftStopPickupPassengersChange,
     lastSelectedRowIdRef,
     openEditor,
     passengerCount,

@@ -242,12 +242,35 @@
     height: 20px;
     justify-content: center;
     line-height: 1;
+    transition:
+      transform 180ms ease,
+      opacity 180ms ease,
+      box-shadow 180ms ease,
+      background-color 180ms ease,
+      color 180ms ease;
     width: 20px;
   }
 
   .map-cast-stop-marker__label {
     position: relative;
     top: 0.5px;
+  }
+
+  .map-cast-stop-marker--dimmed {
+    opacity: 0.42;
+  }
+
+  .map-cast-stop-marker--emphasized {
+    box-shadow:
+      0 10px 22px rgba(15, 23, 42, 0.18),
+      0 0 0 4px color-mix(in srgb, var(--map-stop-marker-color) 22%, transparent);
+    transform: scale(1.08);
+  }
+
+  .map-cast-stop-marker--selected {
+    background: var(--map-stop-marker-color);
+    color: white;
+    transform: scale(1.16);
   }
 
   .map-cast-popup-shell .mapboxgl-popup-content {

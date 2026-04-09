@@ -8,6 +8,9 @@ import {
   createLocation,
   fetchLocations,
   getCachedLocationsSnapshot,
+  sortLocations,
+  updateLocation,
+  type LocationDraft,
   type LocationRecord,
 } from "@/lib/locations"
 import { parseTimeString } from "@/lib/schedule-recalculation"
@@ -28,6 +31,7 @@ function buildDriveDraft(drive?: Drive): DriveEditorDraft {
     vanId: drive?.vanId ?? "",
     travelType: drive?.travelType ?? "pickup",
     locationId: drive?.locationId ?? "",
+    locationDraft: null,
     scheduledTime: drive?.scheduledTimeLabel ?? "",
     scheduledTimeSource: drive?.scheduledTime ?? null,
     notes: drive?.notes ?? "",
@@ -115,7 +119,11 @@ function getDriveLabelPreview(
       ? locationOptions.find((location) => location.id === draft.locationId) ?? null
       : null
   const locationLabel = getPrimaryAddressLine(
-    selectedLocation?.name || selectedLocation?.address || ""
+    selectedLocation?.name ||
+      selectedLocation?.address ||
+      draft?.locationDraft?.name ||
+      draft?.locationDraft?.address ||
+      ""
   )
 
   if (locationLabel && locationLabel !== "Not set") {
@@ -161,7 +169,7 @@ export function useDriveEditorState({
     getCachedVehiclesSnapshot() ?? []
   )
   const [isLoadingResources, setIsLoadingResources] = React.useState(false)
-  const [isCreatingLocation, setIsCreatingLocation] = React.useState(false)
+  const [isSavingLocationDetails, setIsSavingLocationDetails] = React.useState(false)
   const [resourceErrorMessage, setResourceErrorMessage] = React.useState<string | null>(null)
 
   const activeDrive = React.useMemo(
@@ -219,7 +227,7 @@ export function useDriveEditorState({
       return
     }
 
-    if (!driveDraft.locationId) {
+    if (!driveDraft.locationId && !driveDraft.locationDraft) {
       setDriveError("Choose a set location for this drive.")
       return
     }
@@ -234,21 +242,61 @@ export function useDriveEditorState({
       return
     }
 
-    const payload = {
-      van_id: driveDraft.vanId,
-      travel_type: driveDraft.travelType,
-      location_id: driveDraft.locationId,
-      scheduled_time: trimmedScheduledTime
-        ? formatScheduledTimestampValue(trimmedScheduledTime, driveDraft.scheduledTimeSource)
-        : null,
-      sort_order: driveEditorMode === "create" ? drives.length : activeDrive?.sortOrder ?? 0,
-      notes: driveDraft.notes.trim() || null,
-    }
-
     setDriveError(null)
     setIsSavingDrive(true)
 
     try {
+      let resolvedLocationId = driveDraft.locationId
+
+      if (driveDraft.locationDraft) {
+        const pendingLocation: LocationDraft = {
+          name: driveDraft.locationDraft.name.trim(),
+          type: driveDraft.locationDraft.type,
+          address: driveDraft.locationDraft.address.trim(),
+          notes: driveDraft.locationDraft.notes.trim(),
+        }
+
+        if (!pendingLocation.name) {
+          setDriveError("Enter a location name before saving this drive.")
+          return
+        }
+
+        if (!pendingLocation.address) {
+          setDriveError("Enter a location address before saving this drive.")
+          return
+        }
+
+        const createdLocation = await createLocation(pendingLocation)
+
+        resolvedLocationId = createdLocation.id
+        setLocationOptions((current) =>
+          sortLocations([
+            createdLocation,
+            ...current.filter((location) => location.id !== createdLocation.id),
+          ])
+        )
+        setDriveDraft((current) =>
+          current
+            ? {
+                ...current,
+                locationId: createdLocation.id,
+                locationDraft: null,
+              }
+            : current
+        )
+      }
+
+      const payload = {
+        van_id: driveDraft.vanId,
+        travel_type: driveDraft.travelType,
+        location_id: resolvedLocationId,
+        scheduled_time: trimmedScheduledTime
+          ? formatScheduledTimestampValue(trimmedScheduledTime, driveDraft.scheduledTimeSource)
+          : null,
+        sort_order: driveEditorMode === "create" ? drives.length : activeDrive?.sortOrder ?? 0,
+        notes: driveDraft.notes.trim() || null,
+      }
+
       if (driveEditorMode === "create") {
         const response = await fetch("/api/travels", {
           method: "POST",
@@ -331,36 +379,45 @@ export function useDriveEditorState({
     }
 
     setResourceErrorMessage(null)
-    setIsCreatingLocation(true)
-
-    try {
-      const createdLocation = await createLocation({
-        name: trimmedQuery,
-        type: "Other",
-        address: trimmedQuery,
-        notes: "",
-      })
-
-      setLocationOptions((current) => {
-        const next = [createdLocation, ...current.filter((location) => location.id !== createdLocation.id)]
-        return next
-      })
-      setDriveDraft((current) =>
-        current
-          ? {
-              ...current,
-              locationId: createdLocation.id,
-            }
-          : current
-      )
-    } catch (error) {
-      setResourceErrorMessage(
-        error instanceof Error ? error.message : "Unable to create location."
-      )
-    } finally {
-      setIsCreatingLocation(false)
-    }
+    setDriveDraft((current) =>
+      current
+        ? {
+            ...current,
+            locationId: "",
+            locationDraft: {
+              name: trimmedQuery,
+              type: "Other",
+              address: trimmedQuery,
+              notes: "",
+            },
+          }
+        : current
+    )
   }, [])
+
+  const handleUpdateLocation = React.useCallback(
+    async (locationId: string, draft: LocationDraft) => {
+      setResourceErrorMessage(null)
+      setIsSavingLocationDetails(true)
+
+      try {
+        const updatedLocation = await updateLocation(locationId, draft)
+
+        setLocationOptions((current) =>
+          sortLocations(
+            current.some((location) => location.id === updatedLocation.id)
+              ? current.map((location) =>
+                  location.id === updatedLocation.id ? updatedLocation : location
+                )
+              : [updatedLocation, ...current]
+          )
+        )
+      } finally {
+        setIsSavingLocationDetails(false)
+      }
+    },
+    []
+  )
 
   React.useEffect(() => {
     if (driveSheetParam === "add-drive") {
@@ -418,7 +475,7 @@ export function useDriveEditorState({
     deletingDriveId,
     isSavingDrive,
     isLoadingResources,
-    isCreatingLocation,
+    isSavingLocationDetails,
     labelPreview: getDriveLabelPreview(activeDrive, driveDraft, drives.length, locationOptions),
     locationOptions,
     openCreateDrive,
@@ -427,6 +484,7 @@ export function useDriveEditorState({
     handleDriveSave,
     handleDriveDelete,
     handleCreateLocation,
+    handleUpdateLocation,
     resourceErrorMessage,
     setDriveDraft,
     vehicleOptions,

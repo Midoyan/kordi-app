@@ -8,6 +8,7 @@ import {
   defaultOrganizations,
   type Organization,
 } from "@/lib/organizations";
+import { defaultProjectDays, type ProjectDay } from "@/lib/project-days";
 import { defaultProjects, type Project } from "@/lib/projects";
 
 const SHELL_STATE_STORAGE_KEY = "kordi.shell-state";
@@ -15,6 +16,7 @@ const SHELL_STATE_STORAGE_KEY = "kordi.shell-state";
 type StoredShellState = {
   activeOrganizationId?: string;
   activeProjectIdsByOrganization?: Record<string, string>;
+  activeDayIdsByProject?: Record<string, string>;
 };
 
 type OrganizationContextValue = {
@@ -23,8 +25,11 @@ type OrganizationContextValue = {
   projects: Project[];
   orgProjects: Project[];
   activeProject: Project | null;
+  projectDays: ProjectDay[];
+  activeDay: ProjectDay | null;
   switchOrganization: (organizationId: string) => void;
   switchProject: (projectId: string) => void;
+  switchDay: (dayId: string) => void;
   createOrganization: (name: string) => void;
   renameOrganization: (organizationId: string, name: string) => void;
   deleteOrganization: (organizationId: string) => void;
@@ -43,12 +48,16 @@ function createOrganizationId() {
 export function OrganizationProvider({ children }: { children: React.ReactNode }) {
   const [organizations, setOrganizations] = React.useState<Organization[]>(defaultOrganizations);
   const [projects] = React.useState<Project[]>(defaultProjects);
+  const [days] = React.useState<ProjectDay[]>(defaultProjectDays);
   const [activeOrganizationId, setActiveOrganizationId] = React.useState(
     defaultOrganizations[0]?.id ?? "",
   );
   const [activeProjectIdsByOrganization, setActiveProjectIdsByOrganization] = React.useState<
     Record<string, string>
   >({});
+  const [activeDayIdsByProject, setActiveDayIdsByProject] = React.useState<Record<string, string>>(
+    {},
+  );
 
   React.useEffect(() => {
     const storedShellState = window.localStorage.getItem(SHELL_STATE_STORAGE_KEY);
@@ -71,6 +80,13 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
         ) {
           setActiveProjectIdsByOrganization(parsedShellState.activeProjectIdsByOrganization);
         }
+
+        if (
+          parsedShellState.activeDayIdsByProject &&
+          typeof parsedShellState.activeDayIdsByProject === "object"
+        ) {
+          setActiveDayIdsByProject(parsedShellState.activeDayIdsByProject);
+        }
       } catch {
         window.localStorage.removeItem(SHELL_STATE_STORAGE_KEY);
       }
@@ -83,9 +99,10 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
       JSON.stringify({
         activeOrganizationId,
         activeProjectIdsByOrganization,
+        activeDayIdsByProject,
       } satisfies StoredShellState),
     );
-  }, [activeOrganizationId, activeProjectIdsByOrganization]);
+  }, [activeDayIdsByProject, activeOrganizationId, activeProjectIdsByOrganization]);
 
   React.useEffect(() => {
     if (organizations.some((organization) => organization.id === activeOrganizationId)) {
@@ -107,6 +124,13 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
     : undefined;
   const activeProject =
     orgProjects.find((project) => project.id === activeProjectId) ?? orgProjects[0] ?? null;
+  const projectDays = React.useMemo(
+    () => days.filter((day) => day.projectId === activeProject?.id),
+    [activeProject?.id, days],
+  );
+  const activeDayId = activeProject?.id ? activeDayIdsByProject[activeProject.id] : undefined;
+  const activeDay =
+    projectDays.find((day) => day.id === activeDayId) ?? projectDays[0] ?? null;
 
   React.useEffect(() => {
     if (!activeOrganizationId || orgProjects.length === 0) {
@@ -124,6 +148,23 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
       [activeOrganizationId]: orgProjects[0].id,
     }));
   }, [activeOrganizationId, activeProjectIdsByOrganization, orgProjects]);
+
+  React.useEffect(() => {
+    if (!activeProject?.id || projectDays.length === 0) {
+      return;
+    }
+
+    const storedDayId = activeDayIdsByProject[activeProject.id];
+
+    if (storedDayId && projectDays.some((day) => day.id === storedDayId)) {
+      return;
+    }
+
+    setActiveDayIdsByProject((current) => ({
+      ...current,
+      [activeProject.id]: projectDays[0].id,
+    }));
+  }, [activeDayIdsByProject, activeProject?.id, projectDays]);
 
   const switchOrganization = (organizationId: string) => {
     setActiveOrganizationId(organizationId);
@@ -147,6 +188,24 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
       type: "project.switch",
       organizationId: activeOrganizationId,
       projectId,
+    });
+  };
+
+  const switchDay = (dayId: string) => {
+    if (!activeProject?.id) {
+      return;
+    }
+
+    setActiveDayIdsByProject((current) => ({
+      ...current,
+      [activeProject.id]: dayId,
+    }));
+
+    command.log("replace with some action", {
+      type: "project-day.switch",
+      organizationId: activeOrganizationId,
+      projectId: activeProject.id,
+      dayId,
     });
   };
 
@@ -233,8 +292,11 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
         projects,
         orgProjects,
         activeProject,
+        projectDays,
+        activeDay,
         switchOrganization,
         switchProject,
+        switchDay,
         createOrganization,
         renameOrganization,
         deleteOrganization,
