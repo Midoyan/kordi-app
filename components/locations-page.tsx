@@ -842,6 +842,7 @@ export function LocationsPage({ initialLocations }: { initialLocations?: Locatio
                 proximity={demoSuggestionBias.proximity}
                 placeholder="123 Main St, Los Angeles, CA"
                 aria-invalid={!!fieldErrors.address}
+                autoFocus
                 className={fieldErrors.address ? "border-amber-300 focus-visible:border-amber-400" : undefined}
                 helperText={
                   fieldErrors.address
@@ -863,7 +864,6 @@ export function LocationsPage({ initialLocations }: { initialLocations?: Locatio
                   setSubmitMessage(null);
                 }}
                 placeholder="Klub Kitchen"
-                autoFocus
                 aria-invalid={!!fieldErrors.name}
                 className={fieldErrors.name ? "border-amber-300 focus-visible:border-amber-400" : undefined}
               />

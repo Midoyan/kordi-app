@@ -306,7 +306,7 @@ export function ScheduleView({ initialTransportPlan }: { initialTransportPlan?: 
                         disabled={deletingDriveId === drive.id}
                       >
                         <PencilLine className="size-4" />
-                        Drive settings
+                        Edit
                       </Button>
                     </div>
                   </div>

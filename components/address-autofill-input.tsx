@@ -106,6 +106,66 @@ function joinAddressParts(parts: Array<string | null | undefined>) {
     .join(", ");
 }
 
+function getSuggestionArea(suggestion: SearchBoxSuggestion) {
+  const areaCandidates = [
+    suggestion.context?.locality?.name,
+    suggestion.context?.neighborhood?.name,
+    suggestion.context?.district?.name,
+  ]
+    .map((value) => (typeof value === "string" ? value.trim() : ""))
+    .filter(Boolean);
+
+  const place = suggestion.context?.place?.name?.trim() || "";
+
+  return (
+    areaCandidates.find((value) => value.toLowerCase() !== place.toLowerCase()) ?? null
+  );
+}
+
+function getSuggestionDisplayAddress(suggestion: SearchBoxSuggestion) {
+  const addressLine = suggestion.address?.trim() || suggestion.name?.trim() || "";
+  const postcode = suggestion.context?.postcode?.name?.trim() || "";
+  const place = suggestion.context?.place?.name?.trim() || "";
+  const country = suggestion.context?.country?.name?.trim() || "";
+  const area = getSuggestionArea(suggestion);
+  const locality = [postcode, place].filter(Boolean).join(" ").trim();
+  const localityWithArea =
+    locality && area ? `${locality} (${area})` : locality || area || "";
+
+  return joinAddressParts([addressLine, localityWithArea, country]);
+}
+
+function getSuggestionPrimaryLabel(suggestion: SearchBoxSuggestion) {
+  const preferredName =
+    suggestion.name_preferred?.trim() || suggestion.name?.trim() || "";
+  const formattedAddress = getSuggestionDisplayAddress(suggestion);
+
+  if (
+    preferredName &&
+    suggestion.feature_type === "poi" &&
+    preferredName.toLowerCase() !== formattedAddress.toLowerCase()
+  ) {
+    return preferredName;
+  }
+
+  return formattedAddress || preferredName;
+}
+
+function getSuggestionSecondaryLabel(suggestion: SearchBoxSuggestion) {
+  const formattedAddress = getSuggestionDisplayAddress(suggestion);
+  const primaryLabel = getSuggestionPrimaryLabel(suggestion);
+
+  if (
+    !formattedAddress ||
+    !primaryLabel ||
+    formattedAddress.toLowerCase() === primaryLabel.toLowerCase()
+  ) {
+    return null;
+  }
+
+  return formattedAddress;
+}
+
 function getRetrievedSearchSelection(result: SearchBoxRetrieveResponse) {
   const feature = result.features?.[0];
 
@@ -114,26 +174,13 @@ function getRetrievedSearchSelection(result: SearchBoxRetrieveResponse) {
   }
 
   const properties = feature.properties;
-  const country = properties.context?.country?.name;
   const fullAddress =
     typeof properties.full_address === "string" ? properties.full_address.trim() : "";
-  const addressLine =
-    (typeof properties.address === "string" && properties.address.trim()) ||
-    properties.context?.address?.name ||
-    properties.context?.street?.name ||
-    "";
-  const locality = joinAddressParts([
+  const normalizedFullAddress = fullAddress || joinAddressParts([
+    typeof properties.address === "string" ? properties.address : null,
     properties.place_formatted,
-    properties.context?.place?.name,
-    properties.context?.locality?.name,
-    properties.context?.postcode?.name,
   ]);
-  const structuredAddress = stripTrailingCountry(
-    joinAddressParts([addressLine, locality || fullAddress]),
-    country,
-  ).trim();
-  const normalizedFullAddress = stripTrailingCountry(fullAddress, country).trim();
-  const address = structuredAddress || normalizedFullAddress;
+  const address = normalizedFullAddress.trim();
 
   if (!address) {
     return null;
@@ -474,8 +521,8 @@ export function AddressAutofillInput({
             <div className="absolute z-50 mt-2 max-h-72 w-full overflow-y-auto rounded-xl border border-[#dddcd4] bg-white p-1 shadow-[0_18px_40px_-24px_rgba(15,23,42,0.4)]">
               {suggestions.map((suggestion, index) => {
                 const isHighlighted = index === highlightedIndex;
-                const detail =
-                  suggestion.full_address?.trim() || suggestion.place_formatted?.trim() || "";
+                const primaryLabel = getSuggestionPrimaryLabel(suggestion);
+                const detail = getSuggestionSecondaryLabel(suggestion);
 
                 return (
                   <button
@@ -496,7 +543,7 @@ export function AddressAutofillInput({
                     }}
                   >
                     <span className="text-[13px] font-medium text-[#1d1d1b]">
-                      { suggestion.name || suggestion.address }
+                      {primaryLabel}
                     </span>
                     {detail ? (
                       <span className="mt-1 text-[12px] leading-3 text-[#6b6b67]">{detail}</span>

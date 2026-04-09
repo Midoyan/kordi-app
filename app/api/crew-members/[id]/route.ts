@@ -14,7 +14,7 @@ export async function GET(_: Request, context: RouteContext) {
 
   const { data, error } = await supabase
     .from("crew_members")
-    .select("id, full_name, home_address, phone, created_at")
+    .select("id, full_name, home_address, phone, default_role_title, created_at")
     .eq("id", id)
     .single();
 
@@ -39,7 +39,7 @@ export async function PATCH(req: Request, context: RouteContext) {
     .from("crew_members")
     .update(payload)
     .eq("id", id)
-    .select("id, full_name, home_address, phone, created_at")
+    .select("id, full_name, home_address, phone, default_role_title, created_at")
     .single();
 
   if (error) {
