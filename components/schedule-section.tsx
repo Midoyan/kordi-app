@@ -51,12 +51,15 @@ export function ScheduleSection({
   drive,
   stopPickupPassengerOptions,
   onDriveUpdated,
+  sharedColumnVisibility,
+  onSharedColumnVisibilityChange,
   renderHeaderLeading,
   renderHeaderActions,
   renderFooter,
 }: ScheduleSectionProps) {
   const travelTypeLabel = getTravelTypeLabel(drive.travelType)
   const stopAddressColumnLabel = drive.travelType === "pickup" ? "Pickup Address" : "Stop Address"
+  const passengerColumnLabel = drive.travelType === "pickup" ? "Pick up" : "Drop off"
   const stopTimeColumnLabel = drive.travelType === "pickup" ? "PU Time" : "Stop time"
   const scheduleTimeColumnLabel = drive.travelType === "pickup" ? "Arrive by" : "Depart at"
   const commonLocationLabel =
@@ -116,6 +119,8 @@ export function ScheduleSection({
     drive,
     stopPickupPassengerOptions,
     onDriveUpdated,
+    sharedColumnVisibility,
+    onSharedColumnVisibilityChange,
   })
 
   const columns = React.useMemo<ColumnDef<DriveStopRow>[]>(
@@ -129,6 +134,7 @@ export function ScheduleSection({
       },
       {
         id: "select",
+        meta: { label: "Selection" },
         header: ({ table }) => (
           <div className="flex items-center justify-center">
             <Checkbox
@@ -142,7 +148,7 @@ export function ScheduleSection({
           </div>
         ),
         enableSorting: false,
-        enableHiding: false,
+        enableHiding: true,
         cell: ({ row }) => (
           <div className="flex items-center justify-center">
             <Checkbox
@@ -154,13 +160,25 @@ export function ScheduleSection({
         ),
       },
       {
+        id: "orderIndicator",
+        meta: { label: "Order" },
+        header: () => (
+          <span className="text-[11px] font-semibold tracking-[0.12em] text-[#777772] uppercase">
+            Order
+          </span>
+        ),
+        enableSorting: false,
+        enableHiding: false,
+        cell: () => null,
+      },
+      {
         accessorKey: "stopPickupPassengerIds",
         meta: { label: "Passengers" },
         enableSorting: false,
         enableHiding: false,
         header: ({ column }) => (
           <SortableHeader
-            label="Passengers"
+            label={passengerColumnLabel}
             isSorted={column.getIsSorted()}
             onToggle={() => column.toggleSorting(column.getIsSorted() === "asc")}
           />
@@ -313,6 +331,7 @@ export function ScheduleSection({
       isStopDurationColumnVisible,
       isTrafficBufferColumnVisible,
       openEditor,
+      passengerColumnLabel,
       passengerLookup,
       pendingUpdates,
       positionChanges,
@@ -327,14 +346,33 @@ export function ScheduleSection({
     columns,
     state: {
       sorting,
-      columnVisibility,
+      columnVisibility: {
+        ...columnVisibility,
+        select: columnVisibility.select !== false,
+        orderIndicator: columnVisibility.select === false,
+      },
       rowSelection,
     },
     getRowId: (row) => row.id,
     enableRowSelection: true,
     onRowSelectionChange: setRowSelection,
     onSortingChange: setSorting,
-    onColumnVisibilityChange: setColumnVisibility,
+    onColumnVisibilityChange: (updater) => {
+      setColumnVisibility((current) => {
+        const nextVisibility =
+          typeof updater === "function"
+            ? updater({
+                ...current,
+                select: current.select !== false,
+                orderIndicator: current.select === false,
+              })
+            : updater
+
+        const rest = { ...nextVisibility }
+        delete rest.orderIndicator
+        return rest
+      })
+    },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
   })
@@ -507,6 +545,7 @@ export function ScheduleSection({
               "h-11 border-b border-[#ecece8] bg-[#f7f7f4] px-3 align-middle",
               columnId === "drag" && "w-10",
               columnId === "select" && "w-11",
+              columnId === "orderIndicator" && "w-11",
               columnId === "stopPickupPassengerIds" && "w-[18%]",
               columnId === "pickupAddress" && "w-[22%]",
               columnId === "pickupTime" && "w-[13%]",
@@ -531,6 +570,7 @@ export function ScheduleSection({
             <SortableRow
               key={row.id}
               row={row}
+              totalRowCount={displayData.length}
               pendingUpdate={pendingUpdates[row.original.id]}
               routeTone={routeTones[row.original.id]}
               showRouteTone={showOptimizedGradient}

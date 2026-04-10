@@ -1,4 +1,4 @@
-import type { ReactNode } from "react"
+import type { Dispatch, ReactNode, SetStateAction } from "react"
 import type { VisibilityState } from "@tanstack/react-table"
 
 import type { Drive, StopPickupPassengerOption } from "@/lib/drive-plan"
@@ -43,12 +43,15 @@ export type ScheduleSectionProps = {
   drive: Drive
   stopPickupPassengerOptions: StopPickupPassengerOption[]
   onDriveUpdated?: (drive: Drive) => void
+  sharedColumnVisibility?: VisibilityState
+  onSharedColumnVisibilityChange?: Dispatch<SetStateAction<VisibilityState>>
   renderHeaderLeading?: (context: { finalArrivalTime: string }) => ReactNode
   renderHeaderActions?: (context: { finalArrivalTime: string }) => ReactNode
   renderFooter?: (context: { finalArrivalTime: string }) => ReactNode
 }
 
 export const defaultColumnVisibility: VisibilityState = {
+  select: false,
   stopDurationSec: false,
   trafficBufferSec: false,
 }

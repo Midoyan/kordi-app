@@ -76,7 +76,11 @@ export function ScheduleStopEditorSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange} disablePointerDismissal>
-      <SheetContent side="right" className="w-full border-l border-[#ecece8] bg-white sm:max-w-xl">
+      <SheetContent
+        side="right"
+        showOverlay={false}
+        className="w-full border-l border-[#ecece8] bg-white sm:max-w-xl"
+      >
         <SheetHeader className="gap-1 border-b border-[#ecece8] px-6 py-5">
           <SheetTitle>
             {draftMode === "create"

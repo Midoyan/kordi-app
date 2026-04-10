@@ -23,6 +23,43 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import type { Drive } from "@/lib/drive-plan"
+import { defaultColumnVisibility } from "@/components/schedule-section/types"
+import type { VisibilityState } from "@tanstack/react-table"
+
+function getDriveSortMinutes(drive: Drive) {
+  const source = drive.scheduledTime?.trim() || drive.scheduledTimeLabel.trim()
+  const match = source.match(/(?:^|T)(\d{2}):(\d{2})/)
+
+  if (!match) {
+    return null
+  }
+
+  return Number(match[1]) * 60 + Number(match[2])
+}
+
+function compareScheduleDrives(first: Drive, second: Drive) {
+  const firstMinutes = getDriveSortMinutes(first)
+  const secondMinutes = getDriveSortMinutes(second)
+
+  if (firstMinutes !== null && secondMinutes !== null && firstMinutes !== secondMinutes) {
+    return firstMinutes - secondMinutes
+  }
+
+  if (firstMinutes !== null) {
+    return -1
+  }
+
+  if (secondMinutes !== null) {
+    return 1
+  }
+
+  if (first.sortOrder !== second.sortOrder) {
+    return first.sortOrder - second.sortOrder
+  }
+
+  return first.createdAt.localeCompare(second.createdAt)
+}
 
 function SchedulePanel({
   title,
@@ -99,7 +136,10 @@ export function ScheduleView({ initialTransportPlan }: { initialTransportPlan?: 
     refreshTransportPlan,
     handleDriveUpdated,
   } = useTransportPlanState(initialTransportPlan)
-  const drives = transportPlan?.drives ?? []
+  const drives = React.useMemo(
+    () => [...(transportPlan?.drives ?? [])].sort(compareScheduleDrives),
+    [transportPlan?.drives]
+  )
   const stopPickupPassengerOptions = transportPlan?.stopPickupPassengerOptions ?? []
   const {
     activeDrive,
@@ -127,6 +167,9 @@ export function ScheduleView({ initialTransportPlan }: { initialTransportPlan?: 
   })
   const [isExportingPdf, setIsExportingPdf] = React.useState(false)
   const [exportError, setExportError] = React.useState<string | null>(null)
+  const [sharedColumnVisibility, setSharedColumnVisibility] = React.useState<VisibilityState>(
+    defaultColumnVisibility
+  )
 
   const handlePdfExport = React.useCallback(async () => {
     setIsExportingPdf(true)
@@ -295,17 +338,28 @@ export function ScheduleView({ initialTransportPlan }: { initialTransportPlan?: 
               const driveNotes = drive.notes?.trim() || ""
               const shouldShowLocationTooltip =
                 commonLocation.trim().toLowerCase() !== locationTitle.trim().toLowerCase()
+              const vanDriver =
+                drive.driver?.name?.trim() ||
+                drive.van?.crew_members?.full_name?.trim() ||
+                "No driver assigned"
+              const vanPlate = drive.van?.plate_number?.trim() || "No plate"
+              const vanSeats =
+                typeof drive.van?.seat_capacity === "number" && Number.isFinite(drive.van.seat_capacity)
+                  ? `${drive.van.seat_capacity} seats`
+                  : "Seats unknown"
 
               return (
                 <article
                   key={getDriveCardKey(drive)}
-                  className="rounded-[26px] border border-[#dde2d7] bg-white p-4 shadow-[0_24px_70px_-44px_rgba(15,23,42,0.3)] sm:p-5"
+                  className="rounded-[15px] border border-[#dde2d7] bg-white p-4 shadow-[0_24px_35px_-44px_rgba(15,23,42,0.3)] sm:p-5"
                 >
-                  <ScheduleSection
-                    drive={drive}
-                    stopPickupPassengerOptions={stopPickupPassengerOptions}
-                    onDriveUpdated={handleDriveUpdated}
-                    renderHeaderLeading={({ finalArrivalTime }) => {
+                          <ScheduleSection
+                            drive={drive}
+                            stopPickupPassengerOptions={stopPickupPassengerOptions}
+                            onDriveUpdated={handleDriveUpdated}
+                            sharedColumnVisibility={sharedColumnVisibility}
+                            onSharedColumnVisibilityChange={setSharedColumnVisibility}
+                            renderHeaderLeading={({ finalArrivalTime }) => {
                       const resolvedTimeLabel = finalArrivalTime || scheduledTimeLabel
 
                       return (
@@ -358,13 +412,36 @@ export function ScheduleView({ initialTransportPlan }: { initialTransportPlan?: 
                                 {drive.travelType === "pickup" ? "Arrive by" : "Depart at"}{" "}
                                 {resolvedTimeLabel}
                               </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                          <span className="text-[#9aa493]">·</span>
-                          <span className="text-[#9aa493] px-1">{vanSummary}</span>
-                        </div>
-                      )
-                    }}
+                          </Tooltip>
+                        </TooltipProvider>
+                        <span className="text-[#9aa493]">·</span>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger
+                              delay={300}
+                              render={
+                                <span className="px-1 text-[#9aa493]">
+                                  {vanSummary}
+                                </span>
+                              }
+                            />
+                            <TooltipContent
+                              side="bottom"
+                              align="start"
+                              className="flex flex-col items-start gap-0.5 rounded-lg px-3 py-2"
+                            >
+                              <span className="text-[12px] font-medium text-background">
+                                {vanDriver}
+                              </span>
+                              <span className="text-[11px] text-background/80">
+                                {vanPlate} · {vanSeats}
+                              </span>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
+                    )
+                  }}
                     renderFooter={() =>
                       driveNotes ? (
                         <div className="max-w-2xl rounded-2xl border border-[#e7dfbf] bg-[linear-gradient(180deg,#fffdf4_0%,#faf5de_100%)] px-3.5 py-3 text-left shadow-[0_10px_24px_-22px_rgba(120,96,38,0.35)]">

@@ -38,13 +38,15 @@ type ScheduleSheetOpenChangeDetails = {
 
 type UseScheduleSectionStateOptions = Pick<
   ScheduleSectionProps,
-  "drive" | "stopPickupPassengerOptions" | "onDriveUpdated"
+  "drive" | "stopPickupPassengerOptions" | "onDriveUpdated" | "sharedColumnVisibility" | "onSharedColumnVisibilityChange"
 >
 
 export function useScheduleSectionState({
   drive,
   stopPickupPassengerOptions,
   onDriveUpdated,
+  sharedColumnVisibility,
+  onSharedColumnVisibilityChange,
 }: UseScheduleSectionStateOptions) {
   const initialData = React.useMemo(() => buildInitialStopRows(drive), [drive])
   const passengerLookup = React.useMemo(
@@ -62,8 +64,20 @@ export function useScheduleSectionState({
   >({})
   const [pendingOrder, setPendingOrder] = React.useState<string[] | null>(null)
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(
+  const [internalColumnVisibility, setInternalColumnVisibility] = React.useState<VisibilityState>(
     defaultColumnVisibility
+  )
+  const columnVisibility = sharedColumnVisibility ?? internalColumnVisibility
+  const setColumnVisibility = React.useCallback<React.Dispatch<React.SetStateAction<VisibilityState>>>(
+    (updater) => {
+      if (onSharedColumnVisibilityChange) {
+        onSharedColumnVisibilityChange(updater)
+        return
+      }
+
+      setInternalColumnVisibility(updater)
+    },
+    [onSharedColumnVisibilityChange]
   )
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [activeId, setActiveId] = React.useState<string | null>(null)
@@ -136,7 +150,9 @@ export function useScheduleSectionState({
     setPendingUpdates({})
     setPendingOrder(null)
     setRowSelection({})
-    setColumnVisibility(defaultColumnVisibility)
+    if (!onSharedColumnVisibilityChange) {
+      setInternalColumnVisibility(defaultColumnVisibility)
+    }
     setSorting([])
     setActiveId(null)
     setSheetOpen(false)
@@ -153,7 +169,7 @@ export function useScheduleSectionState({
     autoCalculationAttemptRef.current = null
     hasManualPickupTimeOverrideRef.current = false
     lastSelectedRowIdRef.current = null
-  }, [cancelAutoStopTimeCalculation, drive])
+  }, [cancelAutoStopTimeCalculation, drive, onSharedColumnVisibilityChange])
 
   const displayData = React.useMemo(
     () => (pendingOrder ? orderDriveStops(data, pendingOrder) : data),

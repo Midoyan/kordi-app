@@ -364,63 +364,75 @@ function ActionMenu({
   onFavorite: () => void
   onDelete: () => void
 }) {
-  const closeMenu = (target: EventTarget | null) => {
-    const details = target instanceof HTMLElement ? target.closest("details") : null
-    if (details instanceof HTMLDetailsElement) {
-      details.open = false
+  const [open, setOpen] = React.useState(false)
+  const ref = React.useRef<HTMLDivElement | null>(null)
+
+  React.useEffect(() => {
+    if (!open) {
+      return
     }
-  }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!ref.current?.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown)
+    return () => document.removeEventListener("mousedown", handlePointerDown)
+  }, [open])
 
   return (
-    <details className="relative">
-      <summary className="list-none">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="text-[#6b6b67] hover:bg-[#f3f3ef] hover:text-[#1d1d1b]"
-        >
-          <MoreHorizontal className="size-4" />
-          <span className="sr-only">Open stop actions</span>
-        </Button>
-      </summary>
-      <div className="absolute right-0 z-20 mt-2 min-w-40 rounded-xl border border-[#e3e3df] bg-white p-1.5 shadow-[0_18px_40px_-24px_rgba(15,23,42,0.45)]">
-        <button
-          type="button"
-          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-[#1d1d1b] hover:bg-[#f7f7f4]"
-          onClick={(event) => {
-            onEdit()
-            closeMenu(event.currentTarget)
-          }}
-        >
-          <Pencil className="size-3.5" />
-          Edit
-        </button>
-        <button
-          type="button"
-          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-[#1d1d1b] hover:bg-[#f7f7f4]"
-          onClick={(event) => {
-            onFavorite()
-            closeMenu(event.currentTarget)
-          }}
-        >
-          <Star className={cn("size-3.5", item.isFavorite && "fill-current")} />
-          Favorite
-        </button>
-        <div className="my-1 h-px bg-[#ecece8]" />
-        <button
-          type="button"
-          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-[#a54a4a] hover:bg-[#fff4f4]"
-          onClick={(event) => {
-            onDelete()
-            closeMenu(event.currentTarget)
-          }}
-        >
-          <Trash2 className="size-3.5" />
-          Delete
-        </button>
-      </div>
-    </details>
+    <div ref={ref} className="relative">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        className="text-[#6b6b67] hover:bg-[#f3f3ef] hover:text-[#1d1d1b]"
+        onClick={() => setOpen((current) => !current)}
+      >
+        <MoreHorizontal className="size-4" />
+        <span className="sr-only">Open stop actions</span>
+      </Button>
+      {open ? (
+        <div className="absolute right-0 z-20 mt-2 min-w-40 rounded-xl border border-[#e3e3df] bg-white p-1.5 shadow-[0_18px_40px_-24px_rgba(15,23,42,0.45)]">
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-[#1d1d1b] hover:bg-[#f7f7f4]"
+            onClick={() => {
+              setOpen(false)
+              onEdit()
+            }}
+          >
+            <Pencil className="size-3.5" />
+            Edit
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-[#1d1d1b] hover:bg-[#f7f7f4]"
+            onClick={() => {
+              setOpen(false)
+              onFavorite()
+            }}
+          >
+            <Star className={cn("size-3.5", item.isFavorite && "fill-current")} />
+            Favorite
+          </button>
+          <div className="my-1 h-px bg-[#ecece8]" />
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-[#a54a4a] hover:bg-[#fff4f4]"
+            onClick={() => {
+              setOpen(false)
+              onDelete()
+            }}
+          >
+            <Trash2 className="size-3.5" />
+            Delete
+          </button>
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -503,6 +515,43 @@ export function ScheduleDurationCell({
   )
 }
 
+function AnimatedOrderNumber({
+  value,
+}: {
+  value: number
+}) {
+  const [isAnimating, setIsAnimating] = React.useState(false)
+  const previousValueRef = React.useRef(value)
+
+  React.useEffect(() => {
+    if (previousValueRef.current === value) {
+      return
+    }
+
+    previousValueRef.current = value
+    setIsAnimating(true)
+
+    const timeoutId = window.setTimeout(() => {
+      setIsAnimating(false)
+    }, 220)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [value])
+
+  return (
+    <span
+      className={cn(
+        "inline-flex min-w-[1.5rem] items-center justify-center rounded-md text-[12px] font-semibold tabular-nums text-[#6b6b67] transition-all duration-200 ease-out",
+        isAnimating && "-translate-y-px scale-110 bg-[#eef3ff] text-[#31589d]"
+      )}
+    >
+      {value}
+    </span>
+  )
+}
+
 export function SortableRow({
   row,
   onOpenEditor,
@@ -510,6 +559,7 @@ export function SortableRow({
   onDelete,
   onClearSorting,
   onRowClick,
+  totalRowCount,
   pendingUpdate,
   routeTone,
   showRouteTone,
@@ -520,6 +570,7 @@ export function SortableRow({
   onDelete: (item: DriveStopRow) => void
   onClearSorting: () => void
   onRowClick: (event: React.MouseEvent<HTMLTableRowElement>, row: Row<DriveStopRow>) => void
+  totalRowCount: number
   pendingUpdate?: PendingDriveStopUpdate
   routeTone?: RouteTone
   showRouteTone?: boolean
@@ -554,6 +605,14 @@ export function SortableRow({
                 listeners={listeners}
                 onPointerDown={onClearSorting}
               />
+            </TableCell>
+          )
+        }
+
+        if (cell.column.id === "orderIndicator") {
+          return (
+            <TableCell key={cell.id} className="px-3 py-3 text-center align-middle">
+              {totalRowCount > 1 ? <AnimatedOrderNumber value={row.index + 1} /> : null}
             </TableCell>
           )
         }
