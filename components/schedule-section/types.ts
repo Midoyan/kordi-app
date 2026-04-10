@@ -43,8 +43,9 @@ export type ScheduleSectionProps = {
   drive: Drive
   stopPickupPassengerOptions: StopPickupPassengerOption[]
   onDriveUpdated?: (drive: Drive) => void
-  showDriveSummary?: boolean
   renderHeaderLeading?: (context: { finalArrivalTime: string }) => ReactNode
+  renderHeaderActions?: (context: { finalArrivalTime: string }) => ReactNode
+  renderFooter?: (context: { finalArrivalTime: string }) => ReactNode
 }
 
 export const defaultColumnVisibility: VisibilityState = {

@@ -48,6 +48,12 @@ import {
   TableCell,
   TableRow,
 } from "@/components/ui/table"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 export function StackedAddressText({
   value,
@@ -60,14 +66,37 @@ export function StackedAddressText({
 
   return (
     <span className="block min-w-0">
-      <span className={cn("block truncate text-[#000000]", muted && "text-[#5f5f59]")}>
-        {primary}
-      </span>
       {secondary ? (
-        <span className="mt-0 block truncate text-[11px] leading-4 text-[#5b5b55]">
-          {secondary}
+        <TooltipProvider delay={450}>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span
+                  className={cn(
+                    "inline-block max-w-full truncate text-left text-[#000000]",
+                    muted && "text-[#5f5f59]"
+                  )}
+                >
+                  {primary}
+                </span>
+              }
+            />
+            <TooltipContent
+              side="bottom"
+              align="start"
+              alignOffset={-2}
+              arrowClassName="data-[side=bottom]:left-3.5!"
+              className="max-w-[18rem] rounded-md bg-[#1f1f1d] px-2.5 py-2 text-[11px] leading-4 text-white"
+            >
+              {secondary}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      ) : (
+        <span className={cn("block truncate text-[#000000]", muted && "text-[#5f5f59]")}>
+          {primary}
         </span>
-      ) : null}
+      )}
     </span>
   )
 }
@@ -147,11 +176,9 @@ export function StopPickupPassengerCombobox({
   const anchorRef = useComboboxAnchor()
   const inputRef = React.useRef<HTMLInputElement | null>(null)
   const ignoreInitialFocusRef = React.useRef(true)
+  const highlightedPassengerIdRef = React.useRef<string | undefined>(undefined)
   const [open, setOpen] = React.useState(false)
   const [query, setQuery] = React.useState("")
-  const [highlightedPassengerId, setHighlightedPassengerId] = React.useState<string | undefined>(
-    undefined
-  )
   const normalizedQuery = query.trim().toLowerCase()
   const selectedPeople = value
     .map((id) => passengerLookup.get(id))
@@ -197,7 +224,7 @@ export function StopPickupPassengerCombobox({
       open={open}
       onOpenChange={(nextOpen) => {
         setOpen(nextOpen)
-        setHighlightedPassengerId(undefined)
+        highlightedPassengerIdRef.current = undefined
 
         if (!nextOpen) {
           setQuery("")
@@ -217,7 +244,7 @@ export function StopPickupPassengerCombobox({
         onValueChange(Array.from(new Set(nextValue)))
       }}
       onItemHighlighted={(nextValue) => {
-        setHighlightedPassengerId(nextValue)
+        highlightedPassengerIdRef.current = nextValue
       }}
       itemToStringLabel={(personId) => {
         const person = passengerLookup.get(personId)
@@ -257,10 +284,10 @@ export function StopPickupPassengerCombobox({
             if (
               (event.key === "Tab" || event.key === "Enter") &&
               open &&
-              highlightedPassengerId
+              highlightedPassengerIdRef.current
             ) {
               event.preventDefault()
-              commitSelection(highlightedPassengerId)
+              commitSelection(highlightedPassengerIdRef.current)
               return
             }
 

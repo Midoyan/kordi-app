@@ -51,8 +51,9 @@ export function ScheduleSection({
   drive,
   stopPickupPassengerOptions,
   onDriveUpdated,
-  showDriveSummary = true,
   renderHeaderLeading,
+  renderHeaderActions,
+  renderFooter,
 }: ScheduleSectionProps) {
   const travelTypeLabel = getTravelTypeLabel(drive.travelType)
   const stopAddressColumnLabel = drive.travelType === "pickup" ? "Pickup Address" : "Stop Address"
@@ -61,6 +62,7 @@ export function ScheduleSection({
   const commonLocationLabel =
     drive.location?.address || drive.location?.name || drive.destinationAddress || drive.startLocation
   const supportsRoutePlanning = drive.travelType === "pickup"
+  const showDefaultDriveSummary = !renderHeaderLeading
 
   const {
     columnVisibility,
@@ -236,11 +238,11 @@ export function ScheduleSection({
       },
       {
         accessorKey: "stopDurationSec",
-        meta: { label: "Stop duration" },
+        meta: { label: "Boarding time" },
         enableSorting: false,
         header: ({ column }) => (
           <SortableHeader
-            label="Stop duration"
+            label="Boarding time"
             isSorted={column.getIsSorted()}
             onToggle={() => column.toggleSorting(column.getIsSorted() === "asc")}
           />
@@ -412,7 +414,7 @@ export function ScheduleSection({
           toolbar={(
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                {showDriveSummary ? (
+                {showDefaultDriveSummary ? (
                   <div>
                     <p className="text-[18px] font-semibold text-[#1d1d1b]">{drive.label}</p>
                     <p className="mt-1 text-[13px] leading-6 text-[#6b6b67]">
@@ -425,6 +427,7 @@ export function ScheduleSection({
                 {renderHeaderLeading ? renderHeaderLeading({ finalArrivalTime }) : null}
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
+                {renderHeaderActions ? renderHeaderActions({ finalArrivalTime }) : null}
                 {supportsRoutePlanning ? (
                   <ScheduleRoutingControls
                     stops={displayData.map((item) => ({
@@ -447,29 +450,34 @@ export function ScheduleSection({
                     Dropoff routing stays manual for now
                   </span>
                 )}
-                <WorkspaceColumnToggleMenu columns={visibleColumns} />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="border-rose-200 bg-white text-rose-700 hover:bg-rose-50 hover:text-rose-800"
-                  disabled={
-                    selectedStopCount === 0 ||
-                    isSavingStop ||
-                    isDeletingSelectedStops ||
-                    deletingStopId !== null
-                  }
-                  onClick={() => {
-                    void handleDeleteSelected(selectedRows.map((row) => row.original.id))
-                  }}
-                >
-                  <Trash2 className="size-4" />
-                  {isDeletingSelectedStops
-                    ? "Deleting..."
-                    : selectedStopCount > 0
-                      ? `Delete ${selectedStopCount}`
-                      : "Delete"}
-                </Button>
+                <WorkspaceColumnToggleMenu columns={visibleColumns} showLabel={false} />
+
+                {selectedStopCount > 0 ? (
+
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="border-rose-200 bg-white text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                    disabled={
+                      selectedStopCount === 0 ||
+                      isSavingStop ||
+                      isDeletingSelectedStops ||
+                      deletingStopId !== null
+                    }
+                    onClick={() => {
+                      void handleDeleteSelected(selectedRows.map((row) => row.original.id))
+                    }}
+                  >
+                    <Trash2 className="size-4" />
+                    {isDeletingSelectedStops
+                      ? "Deleting..."
+                      : selectedStopCount > 0
+                        ? `Delete ${selectedStopCount}`
+                        : "Delete"}
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
                   variant="outline"
@@ -543,38 +551,6 @@ export function ScheduleSection({
           )}
         />
 
-        <div className="flex flex-col gap-3 rounded-lg border border-[#f1f1ed] bg-[#fcfcfa] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-col gap-1">
-            <p className="text-[12px] leading-5 text-[#6b6b67]">
-              {selectedStopCount} of {table.getRowModel().rows.length} stop
-              {table.getRowModel().rows.length === 1 ? "" : "s"} selected.
-            </p>
-            <p className="text-[12px] leading-5 text-[#6b6b67]">
-              Drag to sketch a stop order, then recalculate to backfill pickup times from the final arrival.
-            </p>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="border-rose-200 bg-white text-rose-700 hover:bg-rose-50 hover:text-rose-800"
-            disabled={
-              selectedStopCount === 0 ||
-              isSavingStop ||
-              isDeletingSelectedStops ||
-              deletingStopId !== null
-            }
-            onClick={() => {
-              void handleDeleteSelected(selectedRows.map((row) => row.original.id))
-            }}
-          >
-            <Trash2 className="size-4" />
-            {isDeletingSelectedStops
-              ? "Deleting selected..."
-              : `Delete selected${selectedStopCount > 0 ? ` (${selectedStopCount})` : ""}`}
-          </Button>
-        </div>
-
         {hasPendingChanges ? (
           <div className="flex flex-col gap-2 rounded-lg border border-[#dfe7f4] bg-[linear-gradient(180deg,#f8fbff_0%,#f1f6ff_100%)] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
             <p className="text-[12px] leading-5 text-[#49628d]">
@@ -597,12 +573,21 @@ export function ScheduleSection({
             <p className="text-[12px] leading-5 text-[#9a4f4f]">{databaseError}</p>
           </div>
         ) : null}
+
+        {renderFooter ? (
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex-1" />
+            <div className="min-w-0">
+              {renderFooter({ finalArrivalTime })}
+            </div>
+          </div>
+        ) : null}
       </div>
 
-        <ScheduleStopEditorSheet
-          open={sheetOpen}
-          driveLabel={drive.label}
-          travelType={drive.travelType}
+      <ScheduleStopEditorSheet
+        open={sheetOpen}
+        driveLabel={drive.label}
+        travelType={drive.travelType}
         draft={draft}
         draftMode={draftMode}
         handleDraftPickupTimeChange={handleDraftPickupTimeChange}

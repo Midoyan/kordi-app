@@ -17,6 +17,7 @@ type StoredShellState = {
   activeOrganizationId?: string;
   activeProjectIdsByOrganization?: Record<string, string>;
   activeDayIdsByProject?: Record<string, string>;
+  showNavbar?: boolean;
 };
 
 type OrganizationContextValue = {
@@ -27,9 +28,11 @@ type OrganizationContextValue = {
   activeProject: Project | null;
   projectDays: ProjectDay[];
   activeDay: ProjectDay | null;
+  showNavbar: boolean;
   switchOrganization: (organizationId: string) => void;
   switchProject: (projectId: string) => void;
   switchDay: (dayId: string) => void;
+  setShowNavbar: (showNavbar: boolean) => void;
   createOrganization: (name: string) => void;
   renameOrganization: (organizationId: string, name: string) => void;
   deleteOrganization: (organizationId: string) => void;
@@ -58,6 +61,7 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
   const [activeDayIdsByProject, setActiveDayIdsByProject] = React.useState<Record<string, string>>(
     {},
   );
+  const [showNavbar, setShowNavbar] = React.useState(true);
 
   React.useEffect(() => {
     const storedShellState = window.localStorage.getItem(SHELL_STATE_STORAGE_KEY);
@@ -87,6 +91,10 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
         ) {
           setActiveDayIdsByProject(parsedShellState.activeDayIdsByProject);
         }
+
+        if (typeof parsedShellState.showNavbar === "boolean") {
+          setShowNavbar(parsedShellState.showNavbar);
+        }
       } catch {
         window.localStorage.removeItem(SHELL_STATE_STORAGE_KEY);
       }
@@ -100,9 +108,10 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
         activeOrganizationId,
         activeProjectIdsByOrganization,
         activeDayIdsByProject,
+        showNavbar,
       } satisfies StoredShellState),
     );
-  }, [activeDayIdsByProject, activeOrganizationId, activeProjectIdsByOrganization]);
+  }, [activeDayIdsByProject, activeOrganizationId, activeProjectIdsByOrganization, showNavbar]);
 
   React.useEffect(() => {
     if (organizations.some((organization) => organization.id === activeOrganizationId)) {
@@ -294,9 +303,11 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
         activeProject,
         projectDays,
         activeDay,
+        showNavbar,
         switchOrganization,
         switchProject,
         switchDay,
+        setShowNavbar,
         createOrganization,
         renameOrganization,
         deleteOrganization,

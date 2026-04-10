@@ -1,8 +1,8 @@
-import { AppBreadcrumb } from "@/components/app-breadcrumb";
 import { AppSidebar } from "@/components/app-sidebar";
+import { AppTopbar } from "@/components/app-topbar";
 import { OrganizationProvider } from "@/components/organization-provider";
 import { getCurrentUser } from "@/lib/auth";
-import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
 export default async function AppLayout({
   children,
@@ -16,10 +16,7 @@ export default async function AppLayout({
       <OrganizationProvider>
         <AppSidebar user={user} />
         <SidebarInset className="min-h-svh bg-[#fbfbf8]">
-          <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-[#e4e4e1] bg-[#fbfbf8] px-4 md:px-6">
-            <SidebarTrigger />
-            <AppBreadcrumb />
-          </header>
+          <AppTopbar />
           {children}
         </SidebarInset>
       </OrganizationProvider>

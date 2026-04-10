@@ -251,9 +251,24 @@ export function AddressAutofillInput({
   const [isSuggestionsOpen, setIsSuggestionsOpen] = useState(false);
   const sessionTokenRef = useRef<SessionToken | null>(null);
   const blurTimeoutRef = useRef<number | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const isMountedRef = useRef(false);
   const suppressNextSuggestRef = useRef(false);
   const isSearchMode = mode === "search" && hasMapboxToken;
   const trimmedValue = value.trim();
+
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    return () => {
+      isMountedRef.current = false;
+
+      if (animationFrameRef.current !== null) {
+        window.cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!isSearchMode || !search) {
@@ -316,7 +331,13 @@ export function AddressAutofillInput({
   }, []);
 
   const primeFirstSuggestion = () => {
-    window.requestAnimationFrame(() => {
+    animationFrameRef.current = window.requestAnimationFrame(() => {
+      animationFrameRef.current = null;
+
+      if (!isMountedRef.current) {
+        return;
+      }
+
       const activeElement = document.activeElement;
 
       if (!(activeElement instanceof HTMLInputElement) || activeElement.name !== name) {
@@ -581,7 +602,13 @@ export function AddressAutofillInput({
               return;
             }
 
-            window.requestAnimationFrame(() => {
+            animationFrameRef.current = window.requestAnimationFrame(() => {
+              animationFrameRef.current = null;
+
+              if (!isMountedRef.current) {
+                return;
+              }
+
               onValueChange(nextAddress);
             });
           }}

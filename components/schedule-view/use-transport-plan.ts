@@ -2,7 +2,6 @@
 
 import * as React from "react"
 
-import { useCacheSnapshot } from "@/hooks/use-cache-snapshot"
 import type { Drive, TransportPlan } from "@/lib/drive-plan"
 import {
   getCachedTransportPlan,
@@ -12,7 +11,6 @@ import {
   replaceDriveInTransportPlan,
   setCachedTransportPlan,
   setTransportPlanPromise,
-  subscribeTransportPlanCache,
 } from "@/lib/transport-plan-client-cache"
 
 const TRANSPORT_PLAN_REQUEST_RETRY_DELAY_MS = 500
@@ -100,16 +98,11 @@ async function loadTransportPlan(forceRefresh = false) {
 }
 
 export function useTransportPlanState(initialTransportPlan?: TransportPlan | null) {
-  const cachedTransportPlan = useCacheSnapshot(
-    subscribeTransportPlanCache,
-    () => getCachedTransportPlan({ includeExpired: true }),
-    () => initialTransportPlan ?? null
-  )
   const [transportPlan, setTransportPlan] = React.useState<TransportPlan | null>(() =>
-    cachedTransportPlan ?? initialTransportPlan ?? null
+    getCachedTransportPlan({ includeExpired: true }) ?? initialTransportPlan ?? null
   )
   const [isLoading, setIsLoading] = React.useState(
-    () => !(cachedTransportPlan ?? initialTransportPlan)
+    () => !(getCachedTransportPlan({ includeExpired: true }) ?? initialTransportPlan)
   )
   const [error, setError] = React.useState<string | null>(null)
   const [retryToken, setRetryToken] = React.useState(0)
@@ -123,27 +116,6 @@ export function useTransportPlanState(initialTransportPlan?: TransportPlan | nul
     setTransportPlan((currentTransportPlan) => currentTransportPlan ?? initialTransportPlan)
     setIsLoading(false)
   }, [initialTransportPlan])
-
-  React.useEffect(() => {
-    if (!cachedTransportPlan) {
-      if (!initialTransportPlan) {
-        return
-      }
-
-      React.startTransition(() => {
-        setTransportPlan(initialTransportPlan)
-        setError(null)
-        setIsLoading(false)
-      })
-      return
-    }
-
-    React.startTransition(() => {
-      setTransportPlan(cachedTransportPlan)
-      setError(null)
-      setIsLoading(false)
-    })
-  }, [cachedTransportPlan, initialTransportPlan])
 
   const handleDriveUpdated = React.useCallback((nextDrive: Drive) => {
     patchCachedTransportPlan(nextDrive)

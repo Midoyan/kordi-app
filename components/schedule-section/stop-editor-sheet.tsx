@@ -181,8 +181,8 @@ export function ScheduleStopEditorSheet({
                     <p className="text-[13px] font-medium text-[#1d1d1b]">Timing adjustments</p>
                     <p className="mt-1 text-[12px] text-[#6b6b67]">
                       {travelType === "pickup"
-                        ? "Optional per-stop timing inputs for longer pickups or extra traffic slack."
-                        : "Optional stop timing inputs for dwell time at this stop and any traffic slack."}
+                        ? "Optional per-stop timing inputs for longer boarding windows or extra traffic slack."
+                        : "Optional stop timing inputs for boarding time at this stop and any traffic slack."}
                     </p>
                   </div>
                   <ChevronRight
@@ -196,7 +196,7 @@ export function ScheduleStopEditorSheet({
                   <div className="grid gap-4 border-t border-[#ecece8] px-4 py-4 sm:grid-cols-2">
                     <div className="flex flex-col gap-2">
                       <label htmlFor="schedule-stop-duration" className="text-[13px] font-medium text-[#1d1d1b]">
-                        Stop duration (sec)
+                        Boarding time (sec)
                       </label>
                       <Input
                         id="schedule-stop-duration"

@@ -17,6 +17,12 @@ import {
 import { useTransportPlanState } from "@/components/schedule-view/use-transport-plan"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 function SchedulePanel({
   title,
@@ -273,87 +279,129 @@ export function ScheduleView({ initialTransportPlan }: { initialTransportPlan?: 
                 drive.van?.plate_number?.trim() ||
                 "No van assigned"
               const travelTypeLabel = getTravelTypeLabel(drive.travelType)
+              const locationTitle =
+                drive.location?.name?.trim() ||
+                drive.location?.address?.split(",")[0]?.trim() ||
+                drive.destinationAddress?.split(",")[0]?.trim() ||
+                drive.startLocation?.split(",")[0]?.trim() ||
+                "Set location"
               const commonLocation =
                 drive.location?.address ||
                 drive.location?.name ||
                 drive.destinationAddress ||
                 drive.startLocation ||
                 "Set location"
-              const scheduleVerb = drive.travelType === "pickup" ? "arrive by" : "depart at"
-              const routeVerb = drive.travelType === "pickup" ? "Drive to" : "Leave set"
-              const locationMeta =
-                drive.location?.type?.trim() ||
-                `${travelTypeLabel} drive`
+              const scheduledTimeLabel = drive.scheduledTimeLabel || "Unset"
+              const driveNotes = drive.notes?.trim() || ""
+              const shouldShowLocationTooltip =
+                commonLocation.trim().toLowerCase() !== locationTitle.trim().toLowerCase()
 
               return (
                 <article
                   key={getDriveCardKey(drive)}
                   className="rounded-[26px] border border-[#dde2d7] bg-white p-4 shadow-[0_24px_70px_-44px_rgba(15,23,42,0.3)] sm:p-5"
                 >
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="max-w-2xl">
-                      <h3 className="text-[22px] font-semibold tracking-tight text-[#1d1d1b] text-balance">
-                        {drive.label}
-                      </h3>
-                    </div>
-
-                    <div className="flex flex-wrap items-center justify-start gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="h-9 border-[#d8ddd1] bg-white/92 px-3 text-[#1d1d1b] hover:bg-[#f4f7ef]"
-                        onClick={() => openEditDrive(drive)}
-                        disabled={deletingDriveId === drive.id}
-                      >
-                        <PencilLine className="size-4" />
-                        Edit
-                      </Button>
-                    </div>
-                  </div>
                   <ScheduleSection
                     drive={drive}
                     stopPickupPassengerOptions={stopPickupPassengerOptions}
                     onDriveUpdated={handleDriveUpdated}
-                    showDriveSummary={false}
-                    renderHeaderLeading={({ finalArrivalTime }) => (
-                      <>
-                        <div className="inline-flex min-w-0 items-center gap-0">
-                          <span className="text-[12px] font-semibold text-[#75816f]">
-                            {routeVerb}
-                          </span>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="xs"
-                            className="kordi-inline-button"
-                            onClick={() => openEditDrive(drive)}
-                          >
-                            <span className="truncate">
-                              {commonLocation}
-                            </span>
-                          </Button>
-                          <span className="text-[12px] font-semibold text-[#75816f]">
-                            {scheduleVerb}
-                          </span>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="xs"
-                            className="kordi-inline-button"
-                            onClick={() => openEditDrive(drive)}
-                          >
-                            <span className="truncate">
-                              {finalArrivalTime || "Unset"}
-                            </span>
-                          </Button>
+                    renderHeaderLeading={({ finalArrivalTime }) => {
+                      const resolvedTimeLabel = finalArrivalTime || scheduledTimeLabel
+
+                      return (
+                        <div className="flex min-w-0 flex-wrap items-center gap-0.5 text-[22px] font-semibold tracking-tight text-[#1d1d1b]">
+                          <span className="pr-1">{travelTypeLabel}</span>
+                          <span className="text-[#9aa493]">·</span>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger
+                                delay={300}
+                                render={
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    className="px-1 text-[22px] font-semibold"
+                                    onClick={() => openEditDrive(drive)}
+                                  >
+                                    <span className="truncate px-1">
+                                      {locationTitle}
+                                    </span>
+                                  </Button>
+                                }
+                              />
+                              {shouldShowLocationTooltip ? (
+                                <TooltipContent side="bottom" align="start">
+                                  {commonLocation}
+                                </TooltipContent>
+                              ) : null}
+                            </Tooltip>
+                          </TooltipProvider>
+                          <span className="text-[#9aa493]">·</span>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger
+                                delay={300}
+                                render={
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    className="px-1 text-[22px] font-semibold"
+                                    onClick={() => openEditDrive(drive)}
+                                  >
+                                    <span className="truncate">
+                                      {resolvedTimeLabel}
+                                    </span>
+                                  </Button>
+                                }
+                              />
+                              <TooltipContent side="bottom" align="start">
+                                {drive.travelType === "pickup" ? "Arrive by" : "Depart at"}{" "}
+                                {resolvedTimeLabel}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                          <span className="text-[#9aa493]">·</span>
+                          <span className="text-[#9aa493] px-1">{vanSummary}</span>
                         </div>
-                        <span className="rounded-full border border-[#dde3d4] bg-white/90 px-2.5 py-1 text-[11px] font-medium text-[#51614f] shadow-[0_10px_20px_-18px_rgba(15,23,42,0.35)]">
-                          {vanSummary}
-                        </span>
-                        <span className="rounded-full border border-[#dde3d4] bg-white/90 px-2.5 py-1 text-[11px] font-medium text-[#51614f] shadow-[0_10px_20px_-18px_rgba(15,23,42,0.35)]">
-                          {locationMeta}
-                        </span>
-                      </>
+                      )
+                    }}
+                    renderFooter={() =>
+                      driveNotes ? (
+                        <div className="max-w-2xl rounded-2xl border border-[#e7dfbf] bg-[linear-gradient(180deg,#fffdf4_0%,#faf5de_100%)] px-3.5 py-3 text-left shadow-[0_10px_24px_-22px_rgba(120,96,38,0.35)]">
+                          <div className="flex items-start gap-3">
+                            <p className="shrink-0 pt-0.5 text-[10px] font-semibold tracking-[0.14em] text-[#9a8853] uppercase">
+                              Note
+                            </p>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[12px] leading-5 text-[#6f6442]">
+                                {driveNotes}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ) : null
+                    }
+                    renderHeaderActions={() => (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger
+                            delay={300}
+                            render={
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="kordi-btn-no-bordi"
+                                onClick={() => openEditDrive(drive)}
+                                disabled={deletingDriveId === drive.id}
+                              >
+                                <PencilLine className="size-4" />
+                              </Button>
+                            }
+                          />
+                          <TooltipContent>Edit Drive</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     )}
                   />
 

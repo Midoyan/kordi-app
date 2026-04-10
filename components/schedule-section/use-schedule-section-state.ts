@@ -54,6 +54,7 @@ export function useScheduleSectionState({
   const currentDriveIdRef = React.useRef(drive.id)
   const lastSelectedRowIdRef = React.useRef<string | null>(null)
   const animationTokenRef = React.useRef(0)
+  const isMountedRef = React.useRef(false)
 
   const [data, setData] = React.useState(initialData)
   const [pendingUpdates, setPendingUpdates] = React.useState<
@@ -87,6 +88,14 @@ export function useScheduleSectionState({
   )
   const hasManualPickupTimeOverrideRef = React.useRef(false)
 
+  React.useEffect(() => {
+    isMountedRef.current = true
+
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
+
   const cancelAutoStopTimeCalculation = React.useCallback(
     (reason: "manual" | "reset" | "timeout" = "reset") => {
       if (autoCalculationTimeoutRef.current !== null) {
@@ -107,7 +116,10 @@ export function useScheduleSectionState({
       }
 
       autoCalculationAbortControllerRef.current = null
-      setIsAutoCalculatingStopTime(false)
+
+      if (isMountedRef.current) {
+        setIsAutoCalculatingStopTime(false)
+      }
     },
     []
   )
@@ -403,6 +415,10 @@ export function useScheduleSectionState({
             throw new Error("Unable to calculate the stop time automatically.")
           }
 
+          if (!isMountedRef.current) {
+            return
+          }
+
           setDraft((current) =>
             current && current.id === draft.id
               ? {
@@ -425,6 +441,10 @@ export function useScheduleSectionState({
             return
           }
 
+          if (!isMountedRef.current) {
+            return
+          }
+
           setDraft((current) =>
             current && current.id === draft.id
               ? {
@@ -443,7 +463,10 @@ export function useScheduleSectionState({
           }
           autoCalculationAbortControllerRef.current = null
           autoCalculationAbortReasonRef.current = null
-          setIsAutoCalculatingStopTime(false)
+
+          if (isMountedRef.current) {
+            setIsAutoCalculatingStopTime(false)
+          }
         })
     }, requestDelayMs)
 

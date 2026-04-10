@@ -7,6 +7,7 @@ import type { RecalculatedScheduleStop, ScheduleStopInput } from "@/lib/schedule
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { ButtonGroup } from "@/components/ui/button-group"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 type ScheduleRoutingControlsProps = {
   stops: ScheduleStopInput[]
@@ -164,27 +165,37 @@ export function ScheduleRoutingControls({
           <span className="xl:hidden">Fastest Route</span>
         </Button>
 
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={!canRunActions || isRecalculating || isOptimizing}
-          className={cn(
-            "border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef] transition-[background-color,border-color,color,box-shadow] duration-300 ease-[cubic-bezier(0.2,0,0,1)]",
-            isFlashActive("recalculate") &&
-              "border-[#8bc67d] bg-[linear-gradient(180deg,#f4fde8_0%,#daf4bf_100%)] text-[#1f5a23] shadow-[0_10px_24px_-18px_rgba(68,128,59,0.55)]"
-          )}
-          onClick={() => {
-            void runAction("/api/schedule/recalculate", setIsRecalculating, "recalculate")
-          }}
-        >
-          {isFlashActive("recalculate") ? (
-            <Check className="size-4" />
-          ) : (
-            <RefreshCcw className={cn("size-4", isRecalculating && "animate-spin")} />
-          )}
-          <span>Recalculate</span>
-        </Button>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger
+              delay={300}
+              render={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!canRunActions || isRecalculating || isOptimizing}
+                  className={cn(
+                    "border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef] transition-[background-color,border-color,color,box-shadow] duration-300 ease-[cubic-bezier(0.2,0,0,1)]",
+                    isFlashActive("recalculate") &&
+                      "border-[#8bc67d] bg-[linear-gradient(180deg,#f4fde8_0%,#daf4bf_100%)] text-[#1f5a23] shadow-[0_10px_24px_-18px_rgba(68,128,59,0.55)]"
+                  )}
+                  onClick={() => {
+                    void runAction("/api/schedule/recalculate", setIsRecalculating, "recalculate")
+                  }}
+                >
+                  {isFlashActive("recalculate") ? (
+                    <Check className="size-4" />
+                  ) : (
+                    <RefreshCcw className={cn("size-4", isRecalculating && "animate-spin")} />
+                  )}
+                  {/* <span>Recalculate</span> */}
+                </Button>
+              }
+            />
+            <TooltipContent>Recalculate only</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </ButtonGroup>
     </div>
   )
