@@ -9,13 +9,14 @@ import {
   type ReactNode,
   type SetStateAction,
 } from "react";
-import { FileUp } from "lucide-react";
+import { FileUp, Loader2, Sparkles } from "lucide-react";
 
 import { AddressAutofillInput } from "@/components/address-autofill-input";
 import { EditorSheetLayout } from "@/components/editor-sheet-layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SheetFooter } from "@/components/ui/sheet";
+import type { PickupAssignmentSuggestion } from "@/lib/dispatch-assistant-types";
 import type { PersonDraft } from "@/lib/people";
 import {
   parseVCardPayload,
@@ -32,8 +33,14 @@ type PersonEditorSheetProps = {
   onDelete?: () => void;
   onSave: () => void;
   errorMessage?: string | null;
+  suggestionErrorMessage?: string | null;
   isDeleting?: boolean;
   isSaving?: boolean;
+  isSuggestingAssignment?: boolean;
+  isApplyingSuggestion?: boolean;
+  suggestion?: PickupAssignmentSuggestion | null;
+  onSuggestAssignment?: () => void;
+  onApplySuggestion?: () => void;
   setDraft: Dispatch<SetStateAction<PersonDraft | null>>;
 };
 
@@ -45,14 +52,26 @@ export function PersonEditorSheet({
   onDelete,
   onSave,
   errorMessage,
+  suggestionErrorMessage,
   isDeleting = false,
   isSaving = false,
+  isSuggestingAssignment = false,
+  isApplyingSuggestion = false,
+  suggestion = null,
+  onSuggestAssignment,
+  onApplySuggestion,
   setDraft,
 }: PersonEditorSheetProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isDraggingImport, setIsDraggingImport] = useState(false);
   const [importMessage, setImportMessage] = useState<string | null>(null);
   const canImportFromVCard = mode === "create" && Boolean(draft);
+  const canSuggestAssignment =
+    mode === "create" &&
+    Boolean(draft?.name.trim()) &&
+    Boolean(draft?.address.trim()) &&
+    !isSaving &&
+    !isApplyingSuggestion;
 
   const updateDraftField = <TField extends keyof PersonDraft>(
     field: TField,
@@ -212,6 +231,88 @@ export function PersonEditorSheet({
               {errorMessage ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[13px] text-amber-800">
                   {errorMessage}
+                </div>
+              ) : null}
+
+              {mode === "create" ? (
+                <div className="rounded-xl border border-[#e6dcc8] bg-[linear-gradient(180deg,rgba(255,251,242,0.98)_0%,rgba(249,243,230,0.98)_100%)] p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-[13px] font-semibold text-[#2f2615]">AI pickup placement</p>
+                      <p className="mt-1 text-[12px] leading-5 text-[#6d5a31]">
+                        Ask the assistant to pick the best van and pickup slot, then apply it only if you agree.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="border-[#dccb9e] bg-white/80 text-[#5f4a1d] hover:bg-[#fff8ea]"
+                      disabled={!canSuggestAssignment || isSuggestingAssignment}
+                      onClick={onSuggestAssignment}
+                    >
+                      {isSuggestingAssignment ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="size-4" />
+                      )}
+                      {suggestion ? "Refresh suggestion" : "Suggest assignment"}
+                    </Button>
+                  </div>
+
+                  {suggestionErrorMessage ? (
+                    <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-[12px] text-rose-800">
+                      {suggestionErrorMessage}
+                    </div>
+                  ) : null}
+
+                  {suggestion ? (
+                    <div className="mt-3 rounded-lg border border-[#eadfbe] bg-white/86 p-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="rounded-full border border-[#e3d3aa] bg-[#fff8e7] px-2.5 py-1 text-[11px] font-medium text-[#7a5d20]">
+                          {suggestion.assignmentType === "existing-stop" ? "Existing stop" : "New stop"}
+                        </div>
+                        <div className="rounded-full border border-[#d9e1cf] bg-[#f7faf2] px-2.5 py-1 text-[11px] font-medium text-[#4f5d4b]">
+                          {suggestion.vanLabel}
+                        </div>
+                        <div className="rounded-full border border-[#d7dff4] bg-[#f5f8ff] px-2.5 py-1 text-[11px] font-medium text-[#3556a8]">
+                          {suggestion.pickupTime || "Time pending"}
+                        </div>
+                      </div>
+
+                      <p className="mt-3 text-[13px] leading-6 text-[#3e3420]">{suggestion.explanation}</p>
+
+                      <div className="mt-3 grid gap-2 text-[12px] text-[#665737]">
+                        <p>
+                          <span className="font-medium text-[#3a2f1a]">Drive:</span> {suggestion.driveLabel}
+                        </p>
+                        <p>
+                          <span className="font-medium text-[#3a2f1a]">Pickup:</span> {suggestion.pickupAddress}
+                        </p>
+                        <p>
+                          <span className="font-medium text-[#3a2f1a]">Destination:</span> {suggestion.destinationAddress || "Not set"}
+                        </p>
+                        <p>
+                          <span className="font-medium text-[#3a2f1a]">Route delta:</span> +{suggestion.routeDeltaMinutes} min
+                        </p>
+                      </div>
+
+                      <div className="mt-3 space-y-1">
+                        {suggestion.reasoning.map((reason) => (
+                          <p key={reason} className="text-[12px] leading-5 text-[#6d5a31]">
+                            • {reason}
+                          </p>
+                        ))}
+                      </div>
+
+                      <div className="mt-4 flex justify-end">
+                        <Button type="button" disabled={isApplyingSuggestion || isSaving} onClick={onApplySuggestion}>
+                          {isApplyingSuggestion ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+                          Apply suggestion
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 
