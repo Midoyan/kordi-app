@@ -2,18 +2,121 @@
 
 import { useState } from "react";
 import { Loader2, Sparkles } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import type { DispatchAssistantQuestionResponse } from "@/lib/dispatch-assistant-types";
+import type { DispatchAssistantQuestionResponse } from "@/lib/ai/dispatch/types";
 import { upsertPersonInPeopleCache } from "@/lib/people";
 import { primeTransportPlanCache } from "@/lib/transport-plan-client-cache";
+import { cn } from "@/lib/utils";
 
 const starterQuestions = [
   "Summarize today's schedule.",
-  "Find a crew member named Alex.",
   "Explain transport conflicts right now.",
 ];
+
+function AssistantMarkdown({ content }: { content: string }) {
+  return (
+    <div className="space-y-4 text-[13px] leading-6 text-[#3e3420]">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          h1: ({ className, ...props }) => (
+            <h1 className={cn("text-base font-semibold tracking-tight text-[#2e2616]", className)} {...props} />
+          ),
+          h2: ({ className, ...props }) => (
+            <h2 className={cn("text-[15px] font-semibold tracking-tight text-[#2e2616]", className)} {...props} />
+          ),
+          h3: ({ className, ...props }) => (
+            <h3 className={cn("text-[14px] font-semibold text-[#2e2616]", className)} {...props} />
+          ),
+          p: ({ className, ...props }) => (
+            <p className={cn("whitespace-pre-wrap text-[13px] leading-6 text-[#3e3420]", className)} {...props} />
+          ),
+          ul: ({ className, ...props }) => (
+            <ul className={cn("list-disc space-y-1 pl-5 marker:text-[#9d7a2c]", className)} {...props} />
+          ),
+          ol: ({ className, ...props }) => (
+            <ol className={cn("list-decimal space-y-1 pl-5 marker:text-[#9d7a2c]", className)} {...props} />
+          ),
+          li: ({ className, ...props }) => <li className={cn("pl-1", className)} {...props} />,
+          a: ({ className, ...props }) => (
+            <a
+              className={cn(
+                "font-medium text-[#8a6615] underline decoration-[#d8c28b] underline-offset-3 hover:text-[#6f4f05]",
+                className,
+              )}
+              target="_blank"
+              rel="noreferrer"
+              {...props}
+            />
+          ),
+          code: ({ className, children, ...props }) => {
+            const isBlock = Boolean(className?.includes("language-"));
+
+            if (isBlock) {
+              return (
+                <code
+                  className={cn(
+                    "block overflow-x-auto rounded-lg bg-[#2a2418] px-3 py-2 font-mono text-[12px] leading-5 text-[#f8f3e7]",
+                    className,
+                  )}
+                  {...props}
+                >
+                  {children}
+                </code>
+              );
+            }
+
+            return (
+              <code
+                className={cn(
+                  "rounded bg-[#f5ebd3] px-1.5 py-0.5 font-mono text-[12px] text-[#6f4f05]",
+                  className,
+                )}
+                {...props}
+              >
+                {children}
+              </code>
+            );
+          },
+          pre: ({ className, ...props }) => (
+            <pre className={cn("overflow-x-auto rounded-lg bg-[#2a2418] p-0", className)} {...props} />
+          ),
+          blockquote: ({ className, ...props }) => (
+            <blockquote
+              className={cn("border-l-[3px] border-[#d8c28b] pl-4 text-[#6d5a31] italic", className)}
+              {...props}
+            />
+          ),
+          table: ({ className, ...props }) => (
+            <div className="overflow-x-auto">
+              <table className={cn("min-w-full border-collapse text-left text-[12px] leading-5", className)} {...props} />
+            </div>
+          ),
+          thead: ({ className, ...props }) => <thead className={cn("bg-[#f8f1de]", className)} {...props} />,
+          th: ({ className, ...props }) => (
+            <th
+              className={cn(
+                "border border-[#eadfbe] px-2.5 py-2 font-semibold tracking-[0.08em] text-[#6d5a31] uppercase",
+                className,
+              )}
+              {...props}
+            />
+          ),
+          td: ({ className, ...props }) => (
+            <td className={cn("border border-[#eadfbe] px-2.5 py-2 align-top text-[#3e3420]", className)} {...props} />
+          ),
+          hr: ({ className, ...props }) => <hr className={cn("border-[#eadfbe]", className)} {...props} />,
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+}
 
 export function DispatchAssistantCard() {
   const [question, setQuestion] = useState("");
@@ -113,7 +216,11 @@ export function DispatchAssistantCard() {
         <div className="max-w-xl">
           <div className="inline-flex items-center gap-2 rounded-full border border-[#ead8ad] bg-white/75 px-3 py-1 text-[11px] font-semibold tracking-[0.16em] text-[#7a5d20] uppercase">
             <Sparkles className="size-3.5" />
-            Dispatch Assistant
+            {action?.type} 
+          </div>
+          <div className="inline-flex items-center gap-2 rounded-full border border-[#ead8ad] bg-white/75 px-3 py-1 text-[11px] font-semibold tracking-[0.16em] text-[#7a5d20] uppercase">
+            <Sparkles className="size-3.5" />
+            {action?.label} 
           </div>
           <h2 className="mt-3 text-[18px] font-semibold tracking-tight text-[#2e2616]">
             Ask the live ops plan a question
@@ -188,7 +295,7 @@ export function DispatchAssistantCard() {
               <p className="text-[13px] text-[#7d6a41]">Reading the current workspace context…</p>
             ) : answer ? (
               <div className="space-y-4">
-                <p className="whitespace-pre-wrap text-[13px] leading-6 text-[#3e3420]">{answer}</p>
+                <AssistantMarkdown content={answer} />
 
                 {action?.type === "apply-pickup-suggestion" ? (
                   <div className="rounded-lg border border-[#eadfbe] bg-white/80 px-3 py-3">

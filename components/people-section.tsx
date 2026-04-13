@@ -61,7 +61,7 @@ import {
 import type {
   PickupAssignmentSuggestion,
   PickupSuggestionDraft,
-} from "@/lib/dispatch-assistant-types";
+} from "@/lib/ai/dispatch/types";
 import { primeTransportPlanCache } from "@/lib/transport-plan-client-cache";
 import { parseVCardPayload } from "@/lib/vcard";
 import { cn } from "@/lib/utils";

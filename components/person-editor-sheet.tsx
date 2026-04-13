@@ -16,7 +16,7 @@ import { EditorSheetLayout } from "@/components/editor-sheet-layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SheetFooter } from "@/components/ui/sheet";
-import type { PickupAssignmentSuggestion } from "@/lib/dispatch-assistant-types";
+import type { PickupAssignmentSuggestion } from "@/lib/ai/dispatch/types";
 import type { PersonDraft } from "@/lib/people";
 import {
   parseVCardPayload,
