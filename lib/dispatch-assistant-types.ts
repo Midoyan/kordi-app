@@ -4,9 +4,19 @@ export type DispatchAssistantQuestionRequest = {
 
 export type DispatchAssistantQuestionResponse = {
   answer: string;
+  action?: DispatchAssistantAction | null;
 };
 
+export type DispatchAssistantAction =
+  | {
+      type: "apply-pickup-suggestion";
+      label: string;
+      draft: PickupSuggestionDraft;
+      suggestion: PickupAssignmentSuggestion;
+    };
+
 export type PickupSuggestionDraft = {
+  personId?: string | null;
   name: string;
   address: string;
   phone: string;

@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { getCurrentUser } from "@/lib/auth";
 import type {
+  DispatchAssistantAction,
   PickupAssignmentSuggestion,
   PickupPlanStop,
   PickupSuggestionDraft,
@@ -48,10 +49,173 @@ function readString(value: unknown) {
 
 function normalizeDraft(draft: PickupSuggestionDraft): PickupSuggestionDraft {
   return {
+    personId: typeof draft.personId === "string" && draft.personId.trim() ? draft.personId.trim() : null,
     name: readString(draft.name),
     address: readString(draft.address),
     phone: readString(draft.phone),
     role: readString(draft.role),
+  };
+}
+
+function buildPickupSuggestionAction(
+  draft: PickupSuggestionDraft,
+  suggestion: PickupAssignmentSuggestion,
+): DispatchAssistantAction {
+  return {
+    type: "apply-pickup-suggestion",
+    label: "Apply suggestion",
+    draft: normalizeDraft(draft),
+    suggestion,
+  };
+}
+
+function buildPickupSuggestionDraftFromPerson(person: PersonRecord): PickupSuggestionDraft {
+  return {
+    personId: person.id,
+    name: readString(person.name),
+    address: readString(person.address),
+    phone: readString(person.phone),
+    role: readString(person.role),
+  };
+}
+
+function mapCrewMemberRowToCandidatePerson(row: CrewMemberRow): PersonRecord {
+  return {
+    id: row.id,
+    name: readString(row.full_name) || "Unnamed person",
+    address: readString(row.home_address),
+    phone: readString(row.phone),
+    role: readString(row.default_role_title),
+    pickupTime: "",
+    pickupToLocation: "",
+    pickupToLocationName: "",
+    pickupToLocationAddress: "",
+    createdAt: row.created_at,
+  };
+}
+
+function isPickupAssignmentIntent(question: string) {
+  const normalizedQuestion = question.toLowerCase();
+
+  return (
+    normalizedQuestion.includes("assign a pickup") ||
+    normalizedQuestion.includes("pickup assignment") ||
+    normalizedQuestion.includes("create a pickup") ||
+    normalizedQuestion.includes("create pickup") ||
+    normalizedQuestion.includes("set up a pickup") ||
+    normalizedQuestion.includes("setup a pickup") ||
+    normalizedQuestion.includes("suggest transportation") ||
+    normalizedQuestion.includes("transportation options") ||
+    normalizedQuestion.includes("assign transport") ||
+    normalizedQuestion.includes("create a transport") ||
+    normalizedQuestion.includes("assign him") ||
+    normalizedQuestion.includes("assign her") ||
+    normalizedQuestion.includes("assign them") ||
+    normalizedQuestion.includes("pickup for ")
+  );
+}
+
+function extractCandidateNameFromQuestion(question: string) {
+  const cleanedQuestion = question
+    .replace(/\s+/g, " ")
+    .trim();
+  const patterns = [
+    /for\s+([A-ZÀ-ÿ][^?.!,]+?)(?:\?|\.|,|$)/i,
+    /see\s+([A-ZÀ-ÿ][^?.!,]+?)(?:\?|\.|,|$)/i,
+    /added\s+([A-ZÀ-ÿ][^?.!,]+?)(?:\?|\.|,|$)/i,
+    /assign(?:\s+a\s+pickup)?\s+to\s+([A-ZÀ-ÿ][^?.!,]+?)(?:\?|\.|,|$)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = cleanedQuestion.match(pattern);
+
+    if (match?.[1]) {
+      return readString(match[1]);
+    }
+  }
+
+  return "";
+}
+
+function scorePersonAgainstQuestion(person: PersonRecord, question: string) {
+  const normalizedQuestion = question.toLowerCase();
+  const normalizedName = person.name.toLowerCase();
+
+  if (!normalizedName) {
+    return 0;
+  }
+
+  if (normalizedQuestion.includes(normalizedName)) {
+    return 100;
+  }
+
+  const nameTokens = normalizedName.split(/\s+/).filter((token) => token.length > 1);
+  return nameTokens.reduce(
+    (score, token) => score + (normalizedQuestion.includes(token) ? 10 : 0),
+    0,
+  );
+}
+
+function pickBestPersonForAssignment(question: string, people: PersonRecord[]) {
+  const peopleWithAddress = people.filter((person) => readString(person.address));
+  const prefersMostRecent = /\bjust added\b|\brecently added\b|\bnewly added\b/i.test(question);
+
+  if (peopleWithAddress.length === 1) {
+    return peopleWithAddress[0];
+  }
+
+  const candidateName = extractCandidateNameFromQuestion(question).toLowerCase();
+  const rankedPeople = peopleWithAddress
+    .map((person) => ({
+      person,
+      score:
+        scorePersonAgainstQuestion(person, question) +
+        (candidateName && person.name.toLowerCase().includes(candidateName) ? 50 : 0) +
+        (prefersMostRecent && person.createdAt ? Math.max(0, Date.parse(person.createdAt) / 1e11) : 0),
+    }))
+    .sort((first, second) => second.score - first.score);
+
+  if (rankedPeople[0] && rankedPeople[0].score > 0) {
+    return rankedPeople[0].person;
+  }
+
+  return null;
+}
+
+function extractPickupSuggestionDraftFromQuestion(question: string): PickupSuggestionDraft | null {
+  const trimmedQuestion = question.trim();
+  const addressMatch = trimmedQuestion.match(/their address is\s+(.+)$/i);
+
+  if (!addressMatch) {
+    return null;
+  }
+
+  const address = readString(addressMatch[1]);
+
+  if (!address) {
+    return null;
+  }
+
+  const beforeAddress = trimmedQuestion.slice(0, addressMatch.index).trim();
+  const nameCandidate = beforeAddress
+    .replace(/^can you\s+/i, "")
+    .replace(/^(please\s+)?(suggest|recommend|find|choose)\s+/i, "")
+    .replace(/^(transportation|transport|pickup)\s+(options?|assignment|slot|plan)\s+/i, "")
+    .replace(/^options?\s+/i, "")
+    .replace(/^for\s+/i, "")
+    .replace(/[?.!,:\s]+$/g, "")
+    .trim();
+
+  if (!nameCandidate) {
+    return null;
+  }
+
+  return {
+    personId: null,
+    name: nameCandidate,
+    address,
+    phone: "",
+    role: "",
   };
 }
 
@@ -186,7 +350,7 @@ async function maybeGeneratePickupExplanation(
 
   try {
     const result = await generateText({
-      model: openai(process.env.OPENAI_MODEL?.trim() || "gpt-4.1-mini"),
+      model: openai(process.env.OPENAI_MODEL?.trim() || "gpt-5.4-nano"),
       system:
         "You are an operations copilot for a transport scheduling app. Explain the single best pickup assignment in 2-3 short sentences and give exactly 3 concise bullet-style reasons separated by newline characters. Stay concrete and operational.",
       prompt: JSON.stringify({
@@ -218,6 +382,24 @@ async function maybeGeneratePickupExplanation(
       reasoning: suggestion.reasoning,
     };
   }
+}
+
+function buildPickupSuggestionAnswer(
+  draft: PickupSuggestionDraft,
+  suggestion: PickupAssignmentSuggestion,
+) {
+  const subject = draft.name || "This person";
+  const routeDeltaPrefix = suggestion.routeDeltaMinutes > 0 ? "adds" : "keeps";
+  const routeDeltaDetail =
+    suggestion.routeDeltaMinutes > 0
+      ? `This ${routeDeltaPrefix} only ${suggestion.routeDeltaMinutes} extra minute${suggestion.routeDeltaMinutes === 1 ? "" : "s"} to the route`
+      : "This keeps the route unchanged";
+  const seatDetail =
+    suggestion.remainingSeatsBeforeAssignment !== null
+      ? ` and ${suggestion.remainingSeatsBeforeAssignment} seat${suggestion.remainingSeatsBeforeAssignment === 1 ? "" : "s"} remain before assignment.`
+      : ".";
+
+  return `${subject} can be assigned to ${suggestion.vanLabel} on the "${suggestion.driveLabel}" drive. The pickup will be at ${suggestion.pickupAddress}, scheduled for ${suggestion.pickupTime}. ${routeDeltaDetail}${seatDetail}\n\nDo you want me to apply this for you?`;
 }
 
 async function evaluateDriveCandidate(
@@ -453,6 +635,75 @@ async function fetchPeopleRecords() {
   return (data ?? []) as CrewMemberRow[];
 }
 
+async function findExistingCrewMemberForDraft(draft: PickupSuggestionDraft) {
+  const people = await fetchPeopleRecords();
+  const normalizedName = readString(draft.name).toLowerCase();
+  const normalizedAddress = normalizeAddressKey(draft.address);
+
+  if (!normalizedName && !normalizedAddress) {
+    return null;
+  }
+
+  const rankedPeople = people
+    .map((row) => {
+      const rowName = readString(row.full_name).toLowerCase();
+      const rowAddress = normalizeAddressKey(readString(row.home_address));
+      let score = 0;
+
+      if (normalizedName && rowName === normalizedName) {
+        score += 100;
+      } else if (normalizedName && rowName.includes(normalizedName)) {
+        score += 40;
+      }
+
+      if (normalizedAddress && rowAddress === normalizedAddress) {
+        score += 100;
+      } else if (normalizedAddress && rowAddress && normalizedAddress.includes(rowAddress)) {
+        score += 30;
+      }
+
+      return {
+        row,
+        score,
+      };
+    })
+    .sort((first, second) => second.score - first.score);
+
+  return rankedPeople[0] && rankedPeople[0].score >= 100 ? rankedPeople[0].row : null;
+}
+
+async function attachPassengerToStop(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  stopId: string,
+  crewMemberId: string,
+) {
+  const { data: existingPassengerLink, error: existingPassengerError } = await supabase
+    .from("trip_passengers")
+    .select("trip_id")
+    .eq("trip_id", stopId)
+    .eq("crew_member_id", crewMemberId)
+    .maybeSingle();
+
+  if (existingPassengerError) {
+    throw new Error(existingPassengerError.message);
+  }
+
+  if (existingPassengerLink) {
+    return;
+  }
+
+  const { error: passengerError } = await supabase.from("trip_passengers").insert([
+    {
+      trip_id: stopId,
+      crew_member_id: crewMemberId,
+    },
+  ]);
+
+  if (passengerError) {
+    throw new Error(passengerError.message);
+  }
+}
+
 function buildTransportOverview(transportPlan: Awaited<ReturnType<typeof getTransportPlan>>) {
   return {
     driveCount: transportPlan.drives.length,
@@ -598,40 +849,62 @@ export async function applyPickupSuggestion(
   let createdTripId: string | null = null;
   let attachedStopId: string | null = null;
   let originalStopTimeById = new Map<string, string | null>();
+  let targetCrewMemberId: string | null = null;
+  let targetCrewMemberRow: CrewMemberRow | null = null;
 
   try {
-    const { data: createdCrewMember, error: createError } = await supabase
-      .from("crew_members")
-      .insert([
-        {
+    const matchedExistingCrewMember = draft.personId ? null : await findExistingCrewMemberForDraft(draft);
+
+    if (draft.personId || matchedExistingCrewMember) {
+      const targetPersonId = draft.personId ?? matchedExistingCrewMember?.id ?? null;
+      const { data: updatedCrewMember, error: updateError } = await supabase
+        .from("crew_members")
+        .update({
           full_name: draft.name,
           home_address: draft.address,
           phone: draft.phone || null,
           default_role_title: draft.role || null,
-        },
-      ])
-      .select("id, full_name, home_address, phone, default_role_title, created_at")
-      .single();
+        })
+        .eq("id", targetPersonId)
+        .select("id, full_name, home_address, phone, default_role_title, created_at")
+        .single();
 
-    if (createError || !createdCrewMember) {
-      throw new Error(createError?.message || "Failed to create this person.");
+      if (updateError || !updatedCrewMember) {
+        throw new Error(updateError?.message || "Failed to update this person.");
+      }
+
+      targetCrewMemberId = updatedCrewMember.id;
+      targetCrewMemberRow = updatedCrewMember as CrewMemberRow;
+    } else {
+      const { data: createdCrewMember, error: createError } = await supabase
+        .from("crew_members")
+        .insert([
+          {
+            full_name: draft.name,
+            home_address: draft.address,
+            phone: draft.phone || null,
+            default_role_title: draft.role || null,
+          },
+        ])
+        .select("id, full_name, home_address, phone, default_role_title, created_at")
+        .single();
+
+      if (createError || !createdCrewMember) {
+        throw new Error(createError?.message || "Failed to create this person.");
+      }
+
+      createdCrewMemberId = createdCrewMember.id;
+      targetCrewMemberId = createdCrewMember.id;
+      targetCrewMemberRow = createdCrewMember as CrewMemberRow;
     }
 
-    createdCrewMemberId = createdCrewMember.id;
+    if (!targetCrewMemberId || !targetCrewMemberRow) {
+      throw new Error("Unable to resolve the person to assign.");
+    }
 
     if (freshSuggestion.assignmentType === "existing-stop" && freshSuggestion.stopId) {
       attachedStopId = freshSuggestion.stopId;
-
-      const { error: passengerError } = await supabase.from("trip_passengers").insert([
-        {
-          trip_id: freshSuggestion.stopId,
-          crew_member_id: createdCrewMember.id,
-        },
-      ]);
-
-      if (passengerError) {
-        throw new Error(passengerError.message);
-      }
+      await attachPassengerToStop(supabase, freshSuggestion.stopId, targetCrewMemberId);
     } else {
       const stopPlan = freshSuggestion.stopPlan;
       const newStop = stopPlan.find((stop) => stop.isNew);
@@ -659,17 +932,7 @@ export async function applyPickupSuggestion(
 
       createdTripId = createdTrip.id;
       attachedStopId = createdTrip.id;
-
-      const { error: passengerError } = await supabase.from("trip_passengers").insert([
-        {
-          trip_id: createdTrip.id,
-          crew_member_id: createdCrewMember.id,
-        },
-      ]);
-
-      if (passengerError) {
-        throw new Error(passengerError.message);
-      }
+      await attachPassengerToStop(supabase, createdTrip.id, targetCrewMemberId);
     }
 
     const refreshedDrivePlan = await getDrivePlan();
@@ -709,7 +972,7 @@ export async function applyPickupSuggestion(
     }
 
     const transportPlan = await getTransportPlan();
-    const person = mapCrewMemberRowToPerson(createdCrewMember as CrewMemberRow, transportPlan);
+    const person = mapCrewMemberRowToPerson(targetCrewMemberRow, transportPlan);
 
     return {
       person,
@@ -759,13 +1022,52 @@ export async function answerDispatchQuestion(question: string) {
   }
 
   const currentUser = await getCurrentUser().catch(() => null);
+  const parsedDraftFromQuestion = extractPickupSuggestionDraftFromQuestion(trimmedQuestion);
+  const pickupIntent = isPickupAssignmentIntent(trimmedQuestion);
+
+  if (pickupIntent) {
+    const directPeople = (await fetchPeopleRecords()).map(mapCrewMemberRowToCandidatePerson);
+    const directPerson = pickBestPersonForAssignment(trimmedQuestion, directPeople);
+
+    if (directPerson) {
+      const directDraft = buildPickupSuggestionDraftFromPerson(directPerson);
+
+      if (!directDraft.address) {
+        return {
+          answer: `I found ${directDraft.name}, but I still need their address before I can create a pickup assignment. Could you share it?`,
+          action: null,
+        };
+      }
+
+      const directSuggestion = await suggestPickupAssignment(directDraft).catch(() => null);
+
+      if (directSuggestion) {
+        return {
+          answer: buildPickupSuggestionAnswer(directDraft, directSuggestion),
+          action: buildPickupSuggestionAction(directDraft, directSuggestion),
+        };
+      }
+    }
+
+    if (parsedDraftFromQuestion?.address) {
+      const directSuggestion = await suggestPickupAssignment(parsedDraftFromQuestion).catch(() => null);
+
+      if (directSuggestion) {
+        return {
+          answer: buildPickupSuggestionAnswer(parsedDraftFromQuestion, directSuggestion),
+          action: buildPickupSuggestionAction(parsedDraftFromQuestion, directSuggestion),
+        };
+      }
+    }
+  }
 
   const result = await generateText({
-    model: openai(process.env.OPENAI_MODEL?.trim() || "gpt-4.1-mini"),
+    model: openai(process.env.OPENAI_MODEL?.trim() || "gpt-5.4-nano"),
     system: [
       "You are the Kordi dispatch assistant.",
       "Answer using the app's live transport data.",
       "Use tools before making operational claims.",
+      "When you recommend a concrete pickup assignment for a new rider, end with a short call to action asking whether you should apply it.",
       "Be concise, concrete, and action-oriented.",
       currentUser ? `Current signed-in user: ${currentUser.name}.` : null,
     ]
@@ -828,5 +1130,84 @@ export async function answerDispatchQuestion(question: string) {
     },
   });
 
-  return result.text.trim();
+  const suggestionToolResult = result.toolResults.find(
+    (entry) => entry.type === "tool-result" && entry.toolName === "suggest_pickup_assignment" && entry.output,
+  );
+  const action =
+    suggestionToolResult &&
+    suggestionToolResult.type === "tool-result" &&
+    suggestionToolResult.toolName === "suggest_pickup_assignment" &&
+    suggestionToolResult.output
+      ? buildPickupSuggestionAction(
+          {
+            name: readString((suggestionToolResult.input as { name?: unknown }).name),
+            address: readString((suggestionToolResult.input as { address?: unknown }).address),
+            phone: readString((suggestionToolResult.input as { phone?: unknown }).phone),
+            role: readString((suggestionToolResult.input as { role?: unknown }).role),
+          },
+          suggestionToolResult.output as PickupAssignmentSuggestion,
+        )
+      : null;
+  const peopleFromToolResults = result.toolResults
+    .filter((entry) => entry.type === "tool-result" && entry.toolName === "find_people")
+    .flatMap((entry) => {
+      const output = entry.output;
+      return Array.isArray(output) ? (output as PersonRecord[]) : [];
+    });
+  const personDraftFromToolResults =
+    !action && pickupIntent
+      ? pickBestPersonForAssignment(trimmedQuestion, peopleFromToolResults)
+      : null;
+  const peopleFromDatabase =
+    !action && !personDraftFromToolResults && pickupIntent
+      ? (await fetchPeopleRecords()).map(mapCrewMemberRowToCandidatePerson)
+      : [];
+  const personDraftFromDatabase =
+    !action && !personDraftFromToolResults && peopleFromDatabase.length > 0
+      ? pickBestPersonForAssignment(trimmedQuestion, peopleFromDatabase)
+      : null;
+  const fallbackAction =
+    !action && parsedDraftFromQuestion
+      ? await suggestPickupAssignment(parsedDraftFromQuestion)
+          .then((suggestion) =>
+            suggestion ? buildPickupSuggestionAction(parsedDraftFromQuestion, suggestion) : null,
+          )
+          .catch(() => null)
+      : null;
+  const personFallbackAction =
+    !action && !fallbackAction && personDraftFromToolResults
+      ? await suggestPickupAssignment(buildPickupSuggestionDraftFromPerson(personDraftFromToolResults))
+          .then((suggestion) =>
+            suggestion
+              ? buildPickupSuggestionAction(
+                  buildPickupSuggestionDraftFromPerson(personDraftFromToolResults),
+                  suggestion,
+                )
+              : null,
+          )
+          .catch(() => null)
+      : null;
+  const directDatabaseFallbackAction =
+    !action && !fallbackAction && !personFallbackAction && personDraftFromDatabase
+      ? await suggestPickupAssignment(buildPickupSuggestionDraftFromPerson(personDraftFromDatabase))
+          .then((suggestion) =>
+            suggestion
+              ? buildPickupSuggestionAction(
+                  buildPickupSuggestionDraftFromPerson(personDraftFromDatabase),
+                  suggestion,
+                )
+              : null,
+          )
+          .catch(() => null)
+      : null;
+  const finalAction = action ?? fallbackAction ?? personFallbackAction ?? directDatabaseFallbackAction;
+  const answer =
+    finalAction && !/apply this for you\??/i.test(result.text)
+      ? `${result.text.trim()}\n\nDo you want me to apply this for you?`
+      : result.text.trim();
+
+  return {
+    answer,
+    action: finalAction,
+  };
 }

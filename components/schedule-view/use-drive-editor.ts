@@ -28,6 +28,8 @@ import {
 import type { DriveEditorDraft } from "@/components/drive-editor-sheet"
 
 type DriveEditorMode = "create" | "edit" | null
+const EMPTY_LOCATION_OPTIONS: LocationRecord[] = []
+const EMPTY_VEHICLE_OPTIONS: VehicleRecord[] = []
 
 function buildDriveDraft(drive?: Drive): DriveEditorDraft {
   return {
@@ -160,13 +162,13 @@ export function useDriveEditorState({
   const driveSheetParam = searchParams.get("sheet")
   const cachedLocationOptions = useCacheSnapshot(
     subscribeLocationsCache,
-    () => getCachedLocationsSnapshot({ includeExpired: true }) ?? [],
-    () => []
+    () => getCachedLocationsSnapshot({ includeExpired: true }) ?? EMPTY_LOCATION_OPTIONS,
+    () => EMPTY_LOCATION_OPTIONS
   )
   const cachedVehicleOptions = useCacheSnapshot(
     subscribeVehiclesCache,
-    () => getCachedVehiclesSnapshot({ includeExpired: true }) ?? [],
-    () => []
+    () => getCachedVehiclesSnapshot({ includeExpired: true }) ?? EMPTY_VEHICLE_OPTIONS,
+    () => EMPTY_VEHICLE_OPTIONS
   )
 
   const [driveEditorMode, setDriveEditorMode] = React.useState<DriveEditorMode>(null)

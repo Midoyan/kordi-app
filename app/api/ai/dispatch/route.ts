@@ -9,9 +9,9 @@ const requestSchema = z.object({
 export async function POST(request: Request) {
   try {
     const body = requestSchema.parse(await request.json());
-    const answer = await answerDispatchQuestion(body.question);
+    const response = await answerDispatchQuestion(body.question);
 
-    return Response.json({ answer }, { status: 200 });
+    return Response.json(response, { status: 200 });
   } catch (error) {
     return Response.json(
       {

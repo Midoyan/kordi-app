@@ -3,6 +3,7 @@ import { z } from "zod";
 import { applyPickupSuggestion, suggestPickupAssignment } from "@/lib/dispatch-assistant";
 
 const draftSchema = z.object({
+  personId: z.string().nullable().optional(),
   name: z.string(),
   address: z.string(),
   phone: z.string(),

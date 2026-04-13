@@ -6,6 +6,8 @@ import { Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { DispatchAssistantQuestionResponse } from "@/lib/dispatch-assistant-types";
+import { upsertPersonInPeopleCache } from "@/lib/people";
+import { primeTransportPlanCache } from "@/lib/transport-plan-client-cache";
 
 const starterQuestions = [
   "Summarize today's schedule.",
@@ -16,8 +18,11 @@ const starterQuestions = [
 export function DispatchAssistantCard() {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
+  const [action, setAction] = useState<DispatchAssistantQuestionResponse["action"]>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isApplyingAction, setIsApplyingAction] = useState(false);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
 
   const submitQuestion = async (nextQuestion: string) => {
     const trimmedQuestion = nextQuestion.trim();
@@ -29,6 +34,7 @@ export function DispatchAssistantCard() {
     setQuestion(trimmedQuestion);
     setIsLoading(true);
     setError(null);
+    setActionNotice(null);
 
     try {
       const response = await fetch("/api/ai/dispatch", {
@@ -49,10 +55,55 @@ export function DispatchAssistantCard() {
       }
 
       setAnswer(payload.answer);
+      setAction(payload.action ?? null);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "The assistant could not answer that question.");
+      setAction(null);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const applyAction = async () => {
+    if (!action || action.type !== "apply-pickup-suggestion") {
+      return;
+    }
+
+    setIsApplyingAction(true);
+    setError(null);
+    setActionNotice(null);
+
+    try {
+      const response = await fetch("/api/ai/pickup-suggestion", {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          draft: action.draft,
+          suggestion: action.suggestion,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            person?: import("@/lib/people").PersonRecord;
+            transportPlan?: import("@/lib/drive-plan").TransportPlan;
+            error?: string;
+          }
+        | null;
+
+      if (!response.ok || !payload?.person || !payload.transportPlan) {
+        throw new Error(payload?.error ?? "Unable to apply this suggestion.");
+      }
+
+      upsertPersonInPeopleCache(payload.person);
+      primeTransportPlanCache(payload.transportPlan);
+      setActionNotice(`Applied the suggestion for ${payload.person.name}.`);
+      setAction(null);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unable to apply this suggestion.");
+    } finally {
+      setIsApplyingAction(false);
     }
   };
 
@@ -127,11 +178,45 @@ export function DispatchAssistantCard() {
               {error}
             </div>
           ) : null}
+          {actionNotice ? (
+            <div className="mt-3 rounded-lg border border-[#d8e2ff] bg-[#f5f8ff] px-3 py-2.5 text-[13px] text-[#3556a8]">
+              {actionNotice}
+            </div>
+          ) : null}
           <div className="mt-3 min-h-28 rounded-lg border border-dashed border-[#eadfbe] bg-[#fffdf8] px-4 py-3">
             {isLoading ? (
               <p className="text-[13px] text-[#7d6a41]">Reading the current workspace context…</p>
             ) : answer ? (
-              <p className="whitespace-pre-wrap text-[13px] leading-6 text-[#3e3420]">{answer}</p>
+              <div className="space-y-4">
+                <p className="whitespace-pre-wrap text-[13px] leading-6 text-[#3e3420]">{answer}</p>
+
+                {action?.type === "apply-pickup-suggestion" ? (
+                  <div className="rounded-lg border border-[#eadfbe] bg-white/80 px-3 py-3">
+                    <p className="text-[12px] leading-5 text-[#6d5a31]">
+                      Do you want me to apply this for you?
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <Button type="button" disabled={isApplyingAction} onClick={() => void applyAction()}>
+                        {isApplyingAction ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <Sparkles className="size-4" />
+                        )}
+                        {action.label}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef]"
+                        disabled={isApplyingAction}
+                        onClick={() => setAction(null)}
+                      >
+                        Not now
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
             ) : (
               <p className="text-[13px] leading-6 text-[#8b7342]">
                 Try one of the starter prompts or ask a specific ops question.
