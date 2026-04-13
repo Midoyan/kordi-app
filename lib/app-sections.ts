@@ -56,6 +56,14 @@ export const appSections = [
       "Align transport windows, call times, and route changes without juggling multiple tools.",
   },
   {
+    slug: "calendar",
+    label: "Calendar",
+    eyebrow: "Calendar View",
+    title: "View transport timetable on calendar",
+    description:
+      "See all daily transport routes and stops displayed as events on a calendar timeline.",
+  },
+  {
     slug: "settings",
     label: "Settings",
     eyebrow: "Workspace",

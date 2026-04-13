@@ -6,6 +6,7 @@ import { OrganizationScopeBanner } from "@/components/organization-scope-banner"
 import { OrganizationsSettings } from "@/components/organizations-settings";
 import { PeopleSection } from "@/components/people-section";
 import { ScheduleView as ScheduleViewContent } from "@/components/schedule-view";
+import { TransportCalendar } from "@/components/transport-calendar";
 import { VehiclesPage } from "@/components/vehicles-page";
 import { DashboardUpcomingRunsTable } from "@/components/dashboard-upcoming-runs-table";
 import { appSectionMap, appSections, type AppSectionSlug } from "@/lib/app-sections";
@@ -84,6 +85,10 @@ function ScheduleView() {
   return <ScheduleViewContent />;
 }
 
+function CalendarView() {
+  return <TransportCalendar />;
+}
+
 function SettingsView() {
   return <OrganizationsSettings />;
 }
@@ -104,6 +109,8 @@ function renderSectionBody(section: AppSectionSlug) {
       return <LocationsView />;
     case "schedule":
       return <ScheduleView />;
+    case "calendar":
+      return <CalendarView />;
     case "settings":
       return <SettingsView />;
     default:
