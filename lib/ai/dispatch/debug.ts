@@ -114,6 +114,10 @@ export function summarizePickupSuggestion(suggestion?: Partial<PickupAssignmentS
     pickupAddress: readString(suggestion.pickupAddress),
     pickupTime: readString(suggestion.pickupTime),
     arrivalTime: readString(suggestion.arrivalTime),
+    currentFirstPickupTime: readString(suggestion.currentFirstPickupTime),
+    updatedFirstPickupTime: readString(suggestion.updatedFirstPickupTime),
+    firstPickupShiftMinutes:
+      typeof suggestion.firstPickupShiftMinutes === "number" ? suggestion.firstPickupShiftMinutes : null,
     destinationAddress: readString(suggestion.destinationAddress),
     routeDeltaMinutes:
       typeof suggestion.routeDeltaMinutes === "number" ? suggestion.routeDeltaMinutes : null,
@@ -133,6 +137,23 @@ export function summarizePickupSuggestion(suggestion?: Partial<PickupAssignmentS
 export function summarizeAction(action?: DispatchAssistantAction | null) {
   if (!action) {
     return null;
+  }
+
+  if (action.type === "choose-pickup-suggestion") {
+    return {
+      type: action.type,
+      label: action.label,
+      prompt: readString(action.prompt),
+      optionCount: action.options.length,
+      options: action.options.map((option) => ({
+        id: readString(option.id),
+        label: readString(option.label),
+        description: readString(option.description),
+        draft: summarizePickupDraft(option.draft),
+        constraints: summarizeConstraints(option.constraints),
+        suggestion: summarizePickupSuggestion(option.suggestion),
+      })),
+    };
   }
 
   return {

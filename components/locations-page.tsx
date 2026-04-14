@@ -22,7 +22,12 @@ import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from
 
 import { useCacheSnapshot } from "@/hooks/use-cache-snapshot";
 import { AddressAutofillInput } from "@/components/address-autofill-input";
-import { EditorSheetLayout } from "@/components/editor-sheet-layout";
+import {
+  EditorSheetBody,
+  EditorSheetFooter,
+  EditorSheetForm,
+  EditorSheetLayout,
+} from "@/components/editor-sheet-layout";
 import { LocationMapPreview } from "@/components/location-map-preview";
 import {
   WorkspaceColumnToggleMenu,
@@ -31,7 +36,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { SheetFooter } from "@/components/ui/sheet";
 import { TableCell, TableRow } from "@/components/ui/table";
 import {
   createLocation,
@@ -835,9 +839,7 @@ export function LocationsPage({ initialLocations }: { initialLocations?: Locatio
         onOpenChange={(open, eventDetails) =>
           setSheetOpen(
             open,
-            !open &&
-              (eventDetails?.reason === "close-press" ||
-                eventDetails?.reason === "escape-key"),
+            !open && eventDetails?.reason === "close-press",
           )
         }
         title={sheetMode === "edit" ? "Edit location" : "Add location"}
@@ -847,8 +849,8 @@ export function LocationsPage({ initialLocations }: { initialLocations?: Locatio
             : "Save a reusable stop with type, address, and routing notes for the team."
         }
       >
-        <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit}>
-          <div className="min-h-0 space-y-4 overflow-y-auto px-5 py-5">
+        <EditorSheetForm onSubmit={handleSubmit}>
+          <EditorSheetBody className="space-y-4">
             {submitMessage ? (
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[13px] text-amber-800">
                 {submitMessage}
@@ -946,9 +948,9 @@ export function LocationsPage({ initialLocations }: { initialLocations?: Locatio
                 className="w-full rounded-xl border border-input bg-transparent px-3 py-2 text-sm text-[#1d1d1b] outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-3 focus:ring-ring/50"
               />
             </Field>
-          </div>
+          </EditorSheetBody>
 
-          <SheetFooter className="border-t border-[#e7e7e4] bg-white/80 px-5 py-4">
+          <EditorSheetFooter>
             <div className="flex w-full items-center justify-between gap-2">
               <Button type="button" variant="outline" onClick={randomizeForm} disabled={isSaving}>
                 Randomize demo
@@ -967,8 +969,8 @@ export function LocationsPage({ initialLocations }: { initialLocations?: Locatio
                 </Button>
               </div>
             </div>
-          </SheetFooter>
-        </form>
+          </EditorSheetFooter>
+        </EditorSheetForm>
       </EditorSheetLayout>
     </>
   );

@@ -34,8 +34,14 @@ import {
 import {
   buildPickupSuggestionAction,
   buildPickupSuggestionAnswer,
+  buildPickupSuggestionChoiceAction,
+  buildPickupSuggestionChoiceOptions,
   buildPickupSuggestionFallbackAnswer,
+  buildPickupSuggestionNoValidDeadlineAnswer,
+  buildPickupSuggestionOptionsAnswer,
+  getPickupSuggestionLateArrivalMinutes,
   suggestPickupAssignment,
+  suggestPickupAssignmentOptions,
 } from "@/lib/ai/dispatch/pickups";
 import { createDispatchTools } from "@/lib/ai/dispatch/tools";
 import type {
@@ -129,6 +135,17 @@ function needsRelaxedPickupFallback(constraints: PickupSuggestionConstraints | n
   return Boolean(normalizedConstraints.latestArrivalIsRequired || normalizedConstraints.requirePreferredVan);
 }
 
+function isPickupOptionsQuestion(question: string) {
+  const normalizedQuestion = question.toLowerCase();
+
+  return (
+    /\bwhich vans?\b/.test(normalizedQuestion) ||
+    /\bwhat vans?\b/.test(normalizedQuestion) ||
+    (/\bvan\b/.test(normalizedQuestion) && /\bwould work\b/.test(normalizedQuestion)) ||
+    (/\bvan\b/.test(normalizedQuestion) && /\boptions?\b/.test(normalizedQuestion))
+  );
+}
+
 async function resolvePickupSuggestionWithFallbacks(
   draft: {
     personId?: string | null;
@@ -156,11 +173,6 @@ async function resolvePickupSuggestionWithFallbacks(
 
   const relaxedConstraints = buildRelaxedPickupConstraints(requestedConstraints);
   const relaxedSuggestion = await suggestPickupAssignment(draft, relaxedConstraints).catch(() => null);
-
-  if (!relaxedSuggestion) {
-    return null;
-  }
-
   const preferredVanConstraints = normalizePickupSuggestionConstraints({
     ...requestedConstraints,
     latestArrivalIsRequired: false,
@@ -169,6 +181,27 @@ async function resolvePickupSuggestionWithFallbacks(
   const forcedPreferredVanSuggestion = preferredVanConstraints.preferredVan
     ? await suggestPickupAssignment(draft, preferredVanConstraints).catch(() => null)
     : null;
+
+  if (
+    normalizePickupSuggestionConstraints(requestedConstraints).latestArrivalIsRequired &&
+    (!relaxedSuggestion || getPickupSuggestionLateArrivalMinutes(relaxedSuggestion, requestedConstraints) > 0)
+  ) {
+    return {
+      answer: buildPickupSuggestionNoValidDeadlineAnswer(
+        draft,
+        requestedConstraints,
+        relaxedSuggestion,
+        forcedPreferredVanSuggestion,
+      ),
+      action: null,
+      usedRelaxedFallback: true,
+    };
+  }
+
+  if (!relaxedSuggestion) {
+    return null;
+  }
+
   const relaxedAction = buildPickupSuggestionAction(draft, relaxedSuggestion, relaxedConstraints);
 
   return {
@@ -209,6 +242,7 @@ export async function answerDispatchQuestion(question: string) {
     : null;
   const pickupIntent =
     isStructuredPickupAssignmentIntent(extractedIntent) || isPickupAssignmentIntent(trimmedQuestion);
+  const pickupOptionsIntent = pickupIntent && isPickupOptionsQuestion(trimmedQuestion);
 
   dispatchDebugLog("assistant.question.received", {
     requestId,
@@ -220,6 +254,7 @@ export async function answerDispatchQuestion(question: string) {
     intentConstraints: summarizeConstraints(intentConstraints),
     parsedDraftFromQuestion: summarizePickupDraft(parsedDraftFromQuestion),
     pickupIntent,
+    pickupOptionsIntent,
   });
 
   if (pickupIntent) {
@@ -263,6 +298,33 @@ export async function answerDispatchQuestion(question: string) {
           };
         }
 
+        if (pickupOptionsIntent) {
+          const directOptions = await suggestPickupAssignmentOptions(directDraft, intentConstraints, {
+            limit: 3,
+            distinctByVan: true,
+          });
+
+          if (directOptions.length > 1) {
+            const choiceAction = buildPickupSuggestionChoiceAction(
+              buildPickupSuggestionChoiceOptions(directDraft, directOptions, intentConstraints),
+              "Choose which van to assign.",
+            );
+
+            if (choiceAction) {
+              dispatchDebugLog("assistant.direct-options", {
+                requestId,
+                draft: summarizePickupDraft(directDraft),
+                action: summarizeAction(choiceAction),
+              });
+
+              return {
+                answer: buildPickupSuggestionOptionsAnswer(directDraft, directOptions, intentConstraints),
+                action: choiceAction,
+              };
+            }
+          }
+        }
+
         const directResolution = await resolvePickupSuggestionWithFallbacks(directDraft, intentConstraints);
 
         if (directResolution) {
@@ -282,6 +344,37 @@ export async function answerDispatchQuestion(question: string) {
       }
 
       if (parsedDraftFromQuestion?.address && parsedDraftFromQuestion.name) {
+        if (pickupOptionsIntent) {
+          const parsedOptions = await suggestPickupAssignmentOptions(parsedDraftFromQuestion, intentConstraints, {
+            limit: 3,
+            distinctByVan: true,
+          });
+
+          if (parsedOptions.length > 1) {
+            const choiceAction = buildPickupSuggestionChoiceAction(
+              buildPickupSuggestionChoiceOptions(parsedDraftFromQuestion, parsedOptions, intentConstraints),
+              "Choose which van to assign.",
+            );
+
+            if (choiceAction) {
+              dispatchDebugLog("assistant.parsed-draft-options", {
+                requestId,
+                draft: summarizePickupDraft(parsedDraftFromQuestion),
+                action: summarizeAction(choiceAction),
+              });
+
+              return {
+                answer: buildPickupSuggestionOptionsAnswer(
+                  parsedDraftFromQuestion,
+                  parsedOptions,
+                  intentConstraints,
+                ),
+                action: choiceAction,
+              };
+            }
+          }
+        }
+
         const parsedResolution = await resolvePickupSuggestionWithFallbacks(parsedDraftFromQuestion, intentConstraints);
 
         if (parsedResolution) {
@@ -417,8 +510,10 @@ export async function answerDispatchQuestion(question: string) {
   const answer =
     !action && fallbackResolutionResult
       ? fallbackResolutionResult.answer
-      : finalAction && pickupIntent
+      : finalAction?.type === "apply-pickup-suggestion" && pickupIntent
       ? buildPickupSuggestionAnswer(finalAction.draft, finalAction.suggestion, finalAction.constraints)
+      : finalAction?.type === "choose-pickup-suggestion"
+      ? result.text.trim()
       : finalAction && !/apply this for you\??/i.test(result.text)
       ? `${result.text.trim()}\n\nDo you want me to apply this for you?`
       : result.text.trim();

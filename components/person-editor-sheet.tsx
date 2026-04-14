@@ -12,10 +12,14 @@ import {
 import { FileUp, Loader2, Sparkles } from "lucide-react";
 
 import { AddressAutofillInput } from "@/components/address-autofill-input";
-import { EditorSheetLayout } from "@/components/editor-sheet-layout";
+import {
+  EditorSheetBody,
+  EditorSheetFooter,
+  EditorSheetForm,
+  EditorSheetLayout,
+} from "@/components/editor-sheet-layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { SheetFooter } from "@/components/ui/sheet";
 import type { PickupAssignmentSuggestion } from "@/lib/ai/dispatch/types";
 import type { PersonDraft } from "@/lib/people";
 import {
@@ -220,14 +224,14 @@ export function PersonEditorSheet({
               void handleFileSelection(event);
             }}
           />
-          <form
-            className="relative flex flex-1 flex-col"
+          <EditorSheetForm
+            className="relative"
             onSubmit={(event) => {
               event.preventDefault();
               onSave();
             }}
           >
-            <div className="flex flex-1 flex-col gap-5 px-4 pb-4">
+            <EditorSheetBody className="gap-5 px-4 pb-4 pt-0">
               {errorMessage ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[13px] text-amber-800">
                   {errorMessage}
@@ -379,9 +383,9 @@ export function PersonEditorSheet({
                   helperText="Search by venue, hotel, landmark, or full address."
                 />
               </Field>
-            </div>
+            </EditorSheetBody>
 
-            <SheetFooter className="border-t border-[#ecece8] bg-[#fcfcfa]">
+            <EditorSheetFooter className="bg-[#fcfcfa]">
               <div className="flex w-full items-center justify-between gap-2">
                 {mode === "edit" ? (
                   <Button
@@ -418,8 +422,8 @@ export function PersonEditorSheet({
                   </Button>
                 </div>
               </div>
-            </SheetFooter>
-          </form>
+            </EditorSheetFooter>
+          </EditorSheetForm>
           {canImportFromVCard && isDraggingImport ? (
             <div className="pointer-events-none absolute inset-0 z-10 rounded-[inherit] border-2 border-dashed border-[#90a8ff] bg-[#eef3ff]/35" />
           ) : null}

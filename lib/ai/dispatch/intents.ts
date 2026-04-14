@@ -135,6 +135,7 @@ export async function extractDispatchIntent(question: string) {
       "You extract structured dispatch intent from transport scheduling messages in any language.",
       "Classify as pickup-assignment only when the user is asking to add, move, reassign, or suggest a transport slot for a specific person.",
       "Treat pickup-assignment as including requests to deliver someone to a different destination, change vans, or fit them into a time window.",
+      "Treat questions like 'where would Erick fit', 'where can she fit', or 'which van could take him' as pickup-assignment requests when they are asking where a person can be placed in the live pickup plan.",
       "personAddress should be the rider's pickup or home address, not the destination.",
       "destinationQuery should be the requested destination name or address, not the pickup address.",
       "Copy the user's arrival-time wording into latestArrivalTimeRaw when present.",

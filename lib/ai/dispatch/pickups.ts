@@ -32,78 +32,48 @@ import {
   getDriveArrivalTime,
 } from "@/lib/ai/dispatch/transport";
 import type {
-  DispatchAssistantAction,
   PickupAssignmentSuggestion,
   PickupSuggestionConstraints,
   PickupPlanStop,
   PickupSuggestionDraft,
 } from "@/lib/ai/dispatch/types";
-import {
-  normalizeAddressKey,
-  normalizeSearchText,
-  parseTimeToMinutes,
-  readString,
-} from "@/lib/ai/dispatch/utils";
+import { normalizeAddressKey, parseTimeToMinutes } from "@/lib/ai/dispatch/utils";
 import type { ScheduleStopInput } from "@/lib/schedule-recalculation";
 import { createClient } from "@/lib/server";
+import {
+  attachPassengerToStop,
+  captureOriginalStopTimes,
+  findExistingPickupAssignments,
+  recalculateAffectedPickupDrives,
+} from "@/lib/ai/dispatch/pickup-suggestions/apply-helpers";
+import {
+  comparePickupCandidates,
+  getDestinationConstraintScore,
+  getLateArrivalMinutes,
+  getPreferredVanMatchScore,
+  resolveLatestArrivalTimeWithDriveContext,
+} from "@/lib/ai/dispatch/pickup-suggestions/scoring";
+import type {
+  CandidateEvaluation,
+  ExistingPickupAssignment,
+} from "@/lib/ai/dispatch/pickup-suggestions/shared";
+import {
+  normalizePickupSuggestionDraft,
+  validatePickupSuggestionDraft,
+} from "@/lib/ai/dispatch/pickup-suggestions/shared";
 
-type CandidateEvaluation = {
-  suggestion: PickupAssignmentSuggestion;
-  score: number;
-};
-
-type ExistingPickupAssignment = {
-  driveId: string;
-  stopId: string;
-  stopDeleted: boolean;
-  stopSnapshot: {
-    id: string;
-    driveId: string;
-    pickupAddress: string;
-    pickupTime: string | null;
-    stopTitle: string;
-    stopDurationSec: number | null;
-    trafficBufferSec: number | null;
-    notes: string | null;
-  };
-  remainingPassengerCount: number;
-};
-
-function normalizeDraft(draft: PickupSuggestionDraft): PickupSuggestionDraft {
-  return {
-    personId: typeof draft.personId === "string" && draft.personId.trim() ? draft.personId.trim() : null,
-    name: readString(draft.name),
-    address: readString(draft.address),
-    phone: readString(draft.phone),
-    role: readString(draft.role),
-  };
-}
-
-export function buildPickupSuggestionAction(
-  draft: PickupSuggestionDraft,
-  suggestion: PickupAssignmentSuggestion,
-  constraints?: PickupSuggestionConstraints | null,
-): DispatchAssistantAction {
-  return {
-    type: "apply-pickup-suggestion",
-    label: "Apply suggestion",
-    draft: normalizeDraft(draft),
-    constraints: normalizePickupSuggestionConstraints(constraints),
-    suggestion,
-  };
-}
-
-function validateDraft(draft: PickupSuggestionDraft) {
-  if (!draft.name) {
-    return "Name is required.";
-  }
-
-  if (!draft.address) {
-    return "Address is required before the assistant can place this pickup.";
-  }
-
-  return null;
-}
+export {
+  buildPickupSuggestionAction,
+  buildPickupSuggestionChoiceAction,
+  buildPickupSuggestionChoiceOptions,
+} from "@/lib/ai/dispatch/pickup-suggestions/actions";
+export {
+  buildPickupSuggestionAnswer,
+  buildPickupSuggestionFallbackAnswer,
+  buildPickupSuggestionNoValidDeadlineAnswer,
+  buildPickupSuggestionOptionsAnswer,
+} from "@/lib/ai/dispatch/pickup-suggestions/answers";
+export { getPickupSuggestionLateArrivalMinutes } from "@/lib/ai/dispatch/pickup-suggestions/scoring";
 
 function normalizeTimingSeconds(value: number | null | undefined) {
   if (typeof value !== "number" || Number.isNaN(value) || value <= 0) {
@@ -169,6 +139,12 @@ function createDeterministicReasoningParts(suggestion: PickupAssignmentSuggestio
     `${Math.max(0, suggestion.routeDeltaMinutes)} extra route minute${Math.abs(suggestion.routeDeltaMinutes) === 1 ? "" : "s"} keeps the detour low while staying inside the active pickup run.`,
   ];
 
+  if (suggestion.firstPickupShiftMinutes > 0 && suggestion.updatedFirstPickupTime) {
+    parts.push(
+      `The first pickup on this van moves ${suggestion.firstPickupShiftMinutes} minute${suggestion.firstPickupShiftMinutes === 1 ? "" : "s"} earlier to ${suggestion.updatedFirstPickupTime}.`,
+    );
+  }
+
   if (suggestion.remainingSeatsBeforeAssignment !== null) {
     parts.push(
       `${suggestion.remainingSeatsBeforeAssignment} seat${suggestion.remainingSeatsBeforeAssignment === 1 ? "" : "s"} remain before adding this rider.`,
@@ -185,231 +161,6 @@ function getRecommendationKey(
   pickupAddress: string,
 ) {
   return [driveId, assignmentType, stopId ?? "new", normalizeAddressKey(pickupAddress)].join("::");
-}
-
-function scoreQueryAgainstValue(value: string, query: string) {
-  const normalizedValue = normalizeSearchText(value);
-  const normalizedQuery = normalizeSearchText(query);
-
-  if (!normalizedValue || !normalizedQuery) {
-    return 0;
-  }
-
-  if (normalizedValue === normalizedQuery) {
-    return 120;
-  }
-
-  if (normalizedValue.includes(normalizedQuery) || normalizedQuery.includes(normalizedValue)) {
-    return 90;
-  }
-
-  const queryTokens = normalizedQuery.split(/\s+/).filter((token) => token.length > 1);
-
-  if (queryTokens.length === 0) {
-    return 0;
-  }
-
-  const matchedTokens = queryTokens.filter((token) => normalizedValue.includes(token)).length;
-
-  if (matchedTokens === 0) {
-    return 0;
-  }
-
-  return Math.round((matchedTokens / queryTokens.length) * 70);
-}
-
-function getDestinationConstraintScore(drive: Drive, constraints: PickupSuggestionConstraints) {
-  if (!constraints.destinationQuery) {
-    return 0;
-  }
-
-  const candidates = [
-    drive.location?.name,
-    drive.location?.address,
-    drive.destinationAddress,
-    drive.label,
-  ].filter((value): value is string => Boolean(value && value.trim()));
-
-  return candidates.reduce(
-    (bestScore, value) => Math.max(bestScore, scoreQueryAgainstValue(value, constraints.destinationQuery)),
-    0,
-  );
-}
-
-function getPreferredVanMatchScore(drive: Drive, constraints: PickupSuggestionConstraints) {
-  if (!constraints.preferredVan) {
-    return 0;
-  }
-
-  const candidates = [
-    drive.van?.label,
-    drive.driver?.name,
-    drive.label,
-  ].filter((value): value is string => Boolean(value && value.trim()));
-
-  return candidates.reduce(
-    (bestScore, value) => Math.max(bestScore, scoreQueryAgainstValue(value, constraints.preferredVan)),
-    0,
-  );
-}
-
-function suggestionMatchesPreferredVan(
-  suggestion: Pick<PickupAssignmentSuggestion, "vanLabel" | "driveLabel">,
-  constraints: PickupSuggestionConstraints,
-) {
-  if (!constraints.preferredVan) {
-    return false;
-  }
-
-  return (
-    scoreQueryAgainstValue(suggestion.vanLabel, constraints.preferredVan) >= 60 ||
-    scoreQueryAgainstValue(suggestion.driveLabel, constraints.preferredVan) >= 60
-  );
-}
-
-function getLateArrivalMinutes(arrivalTime: string, constraints: PickupSuggestionConstraints) {
-  if (!constraints.latestArrivalTime) {
-    return 0;
-  }
-
-  const arrivalMinutes = parseTimeToMinutes(arrivalTime);
-  const latestArrivalMinutes = parseTimeToMinutes(constraints.latestArrivalTime);
-
-  if (arrivalMinutes === null || latestArrivalMinutes === null) {
-    return 180;
-  }
-
-  return Math.max(0, arrivalMinutes - latestArrivalMinutes);
-}
-
-function formatClockMinutes(minutes: number) {
-  const normalizedMinutes = ((minutes % (24 * 60)) + 24 * 60) % (24 * 60);
-  const hours = Math.floor(normalizedMinutes / 60);
-  const remainingMinutes = normalizedMinutes % 60;
-  return `${String(hours).padStart(2, "0")}:${String(remainingMinutes).padStart(2, "0")}`;
-}
-
-function getAmbiguousClockCandidates(value: string) {
-  const trimmedValue = readString(value).toLowerCase().replace(/\./g, "").replace(/\s+/g, "");
-
-  if (!trimmedValue) {
-    return [];
-  }
-
-  if (/(am|pm)$/.test(trimmedValue)) {
-    const explicitMinutes = parseTimeToMinutes(trimmedValue);
-    return explicitMinutes === null ? [] : [explicitMinutes];
-  }
-
-  const match = trimmedValue.match(/^(\d{1,2})(?::(\d{2}))?$/);
-
-  if (!match) {
-    const parsedMinutes = parseTimeToMinutes(trimmedValue);
-    return parsedMinutes === null ? [] : [parsedMinutes];
-  }
-
-  const hoursToken = match[1];
-  const hours = Number(hoursToken);
-  const minutes = Number(match[2] ?? "0");
-
-  if (Number.isNaN(hours) || Number.isNaN(minutes) || minutes < 0 || minutes > 59) {
-    return [];
-  }
-
-  if (hours > 12 || (hoursToken.length > 1 && hoursToken.startsWith("0"))) {
-    const parsedMinutes = parseTimeToMinutes(trimmedValue);
-    return parsedMinutes === null ? [] : [parsedMinutes];
-  }
-
-  if (hours < 1 || hours > 12) {
-    return [];
-  }
-
-  const morningHours = hours === 12 ? 0 : hours;
-  const eveningHours = hours === 12 ? 12 : hours + 12;
-  return Array.from(new Set([morningHours * 60 + minutes, eveningHours * 60 + minutes]));
-}
-
-function scoreCandidateMinutesAgainstContext(candidateMinutes: number, contextMinutes: number[]) {
-  if (contextMinutes.length === 0) {
-    return {
-      support: 0,
-      nearestDistance: Number.POSITIVE_INFINITY,
-    };
-  }
-
-  return contextMinutes.reduce(
-    (summary, contextMinute) => {
-      const distance = Math.abs(contextMinute - candidateMinutes);
-      return {
-        support: summary.support + Math.max(0, 360 - distance),
-        nearestDistance: Math.min(summary.nearestDistance, distance),
-      };
-    },
-    {
-      support: 0,
-      nearestDistance: Number.POSITIVE_INFINITY,
-    },
-  );
-}
-
-function resolveLatestArrivalTimeWithDriveContext(
-  constraints: PickupSuggestionConstraints,
-  drives: Drive[],
-) {
-  if (!constraints.latestArrivalTime || !constraints.latestArrivalTimeIsAmbiguous) {
-    return constraints;
-  }
-
-  const rawTime = constraints.latestArrivalTimeRaw || constraints.latestArrivalTime;
-  const candidates = getAmbiguousClockCandidates(rawTime);
-
-  if (candidates.length < 2) {
-    return constraints;
-  }
-
-  const pickupArrivalMinutes = drives
-    .filter((drive) => drive.travelType === "pickup")
-    .map((drive) => parseTimeToMinutes(getDriveArrivalTime(drive)))
-    .filter((minutes): minutes is number => minutes !== null);
-
-  const rankedCandidates = candidates
-    .map((candidateMinutes) => ({
-      candidateMinutes,
-      ...scoreCandidateMinutesAgainstContext(candidateMinutes, pickupArrivalMinutes),
-    }))
-    .sort((first, second) => {
-      if (first.support !== second.support) {
-        return second.support - first.support;
-      }
-
-      if (first.nearestDistance !== second.nearestDistance) {
-        return first.nearestDistance - second.nearestDistance;
-      }
-
-      return first.candidateMinutes - second.candidateMinutes;
-    });
-
-  const resolvedTime = formatClockMinutes(rankedCandidates[0]?.candidateMinutes ?? candidates[0]);
-  const resolvedConstraints = {
-    ...constraints,
-    latestArrivalTime: resolvedTime,
-  } satisfies PickupSuggestionConstraints;
-
-  dispatchDebugLog("pickup.constraints.latest-arrival-resolved", {
-    rawTime,
-    normalizedTime: constraints.latestArrivalTime,
-    resolvedTime,
-    pickupArrivalTimes: pickupArrivalMinutes.map((minutes) => formatClockMinutes(minutes)),
-    rankedCandidates: rankedCandidates.map((candidate) => ({
-      time: formatClockMinutes(candidate.candidateMinutes),
-      support: candidate.support,
-      nearestDistanceMinutes:
-        Number.isFinite(candidate.nearestDistance) ? candidate.nearestDistance : null,
-    })),
-  });
-
-  return resolvedConstraints;
 }
 
 async function maybeGeneratePickupExplanation(
@@ -457,81 +208,6 @@ async function maybeGeneratePickupExplanation(
       reasoning: suggestion.reasoning,
     };
   }
-}
-
-export function buildPickupSuggestionAnswer(
-  draft: PickupSuggestionDraft,
-  suggestion: PickupAssignmentSuggestion,
-  constraints?: PickupSuggestionConstraints | null,
-) {
-  const normalizedConstraints = normalizePickupSuggestionConstraints(constraints);
-  const subject = draft.name || "This person";
-  const lateArrivalMinutes = getLateArrivalMinutes(suggestion.arrivalTime, normalizedConstraints);
-  const arrivalTargetLabel =
-    normalizedConstraints.latestArrivalTimeIsAmbiguous && normalizedConstraints.latestArrivalTimeRaw
-      ? `"${normalizedConstraints.latestArrivalTimeRaw}"`
-      : normalizedConstraints.latestArrivalTime;
-  const timingDetail = normalizedConstraints.latestArrivalTime
-    ? lateArrivalMinutes > 0
-      ? `${subject} would arrive at ${suggestion.arrivalTime || "the current drive time"}, which is ${lateArrivalMinutes} minute${lateArrivalMinutes === 1 ? "" : "s"} later than ${arrivalTargetLabel}.`
-      : `${subject} would arrive at ${suggestion.arrivalTime || "the current drive time"}, which stays on or before ${arrivalTargetLabel}.`
-    : "";
-  const preferredVanMatched = suggestionMatchesPreferredVan(suggestion, normalizedConstraints);
-  const seatDetail =
-    suggestion.remainingSeatsBeforeAssignment !== null
-      ? `${suggestion.remainingSeatsBeforeAssignment} seat${suggestion.remainingSeatsBeforeAssignment === 1 ? "" : "s"} remain before assignment`
-      : "capacity looks open";
-  const routeDetail =
-    suggestion.routeDeltaMinutes > 0
-      ? `adds ${suggestion.routeDeltaMinutes} extra minute${suggestion.routeDeltaMinutes === 1 ? "" : "s"}`
-      : "keeps the route unchanged";
-
-  if (normalizedConstraints.preferredVan && !preferredVanMatched) {
-    return `Not really. ${normalizedConstraints.preferredVan} is not the best fit for this request. Best live option is ${suggestion.vanLabel} on "${suggestion.driveLabel}", picking up ${subject} at ${suggestion.pickupTime} from ${suggestion.pickupAddress} and arriving at ${suggestion.arrivalTime}. This ${routeDetail}, and ${seatDetail}.${timingDetail ? ` ${timingDetail}` : ""}\n\nDo you want me to apply this instead?`;
-  }
-
-  if (lateArrivalMinutes > 0 && normalizedConstraints.latestArrivalTime) {
-    return `Maybe. I do not see a live pickup that gets ${subject} there by ${arrivalTargetLabel}. The closest fit is ${suggestion.vanLabel} on "${suggestion.driveLabel}", picking up at ${suggestion.pickupTime} from ${suggestion.pickupAddress} and arriving at ${suggestion.arrivalTime}. This ${routeDetail}, and ${seatDetail}.${timingDetail ? ` ${timingDetail}` : ""}\n\nDo you want me to apply this closest option?`;
-  }
-
-  return `Yes. ${suggestion.vanLabel} can pick up ${subject} at ${suggestion.pickupTime} from ${suggestion.pickupAddress} on "${suggestion.driveLabel}" and arrive at ${suggestion.arrivalTime}. This ${routeDetail}, and ${seatDetail}.${timingDetail ? ` ${timingDetail}` : ""}\n\nDo you want me to apply this?`;
-}
-
-export function buildPickupSuggestionFallbackAnswer(
-  draft: PickupSuggestionDraft,
-  requestedConstraints: PickupSuggestionConstraints | null | undefined,
-  suggestion: PickupAssignmentSuggestion,
-  forcedPreferredVanSuggestion?: PickupAssignmentSuggestion | null,
-) {
-  const normalizedRequestedConstraints = normalizePickupSuggestionConstraints(requestedConstraints);
-  const subject = draft.name || "This person";
-  const arrivalTargetLabel =
-    normalizedRequestedConstraints.latestArrivalTimeIsAmbiguous &&
-    normalizedRequestedConstraints.latestArrivalTimeRaw
-      ? `"${normalizedRequestedConstraints.latestArrivalTimeRaw}"`
-      : normalizedRequestedConstraints.latestArrivalTime;
-  const preferredVanMatched = suggestionMatchesPreferredVan(suggestion, normalizedRequestedConstraints);
-  const lateArrivalMinutes = getLateArrivalMinutes(suggestion.arrivalTime, normalizedRequestedConstraints);
-  const alternativeSentence = `Best live option is ${suggestion.vanLabel} on "${suggestion.driveLabel}", picking up ${subject} at ${suggestion.pickupTime} from ${suggestion.pickupAddress} and arriving at ${suggestion.arrivalTime}.`;
-
-  if (normalizedRequestedConstraints.preferredVan && !preferredVanMatched) {
-    const forcedPreferredVanLateMinutes = forcedPreferredVanSuggestion
-      ? getLateArrivalMinutes(forcedPreferredVanSuggestion.arrivalTime, normalizedRequestedConstraints)
-      : 0;
-    const forcedPreferredVanDetail = forcedPreferredVanSuggestion
-      ? forcedPreferredVanLateMinutes > 0 && arrivalTargetLabel
-        ? ` If we force ${normalizedRequestedConstraints.preferredVan} anyway, ${subject} would arrive at ${forcedPreferredVanSuggestion.arrivalTime}, which is ${forcedPreferredVanLateMinutes} minute${forcedPreferredVanLateMinutes === 1 ? "" : "s"} later than ${arrivalTargetLabel}.`
-        : ` If we force ${normalizedRequestedConstraints.preferredVan} anyway, the best live slot I can see is "${forcedPreferredVanSuggestion.driveLabel}", arriving at ${forcedPreferredVanSuggestion.arrivalTime}.`
-      : ` I do not see a workable live pickup slot on ${normalizedRequestedConstraints.preferredVan} from ${draft.address}.`;
-
-    return `Not really. ${normalizedRequestedConstraints.preferredVan} is not the best fit for this request. ${alternativeSentence}${forcedPreferredVanDetail}\n\nDo you want me to apply the better alternative instead?`;
-  }
-
-  if (lateArrivalMinutes > 0 && arrivalTargetLabel) {
-    return `Maybe. I do not see a live option that gets ${subject} there by ${arrivalTargetLabel}. ${alternativeSentence} That arrives ${lateArrivalMinutes} minute${lateArrivalMinutes === 1 ? "" : "s"} later than requested.\n\nDo you want me to apply this closest option instead?`;
-  }
-
-  return buildPickupSuggestionAnswer(draft, suggestion, normalizedRequestedConstraints);
 }
 
 async function evaluateDriveCandidate(
@@ -624,6 +300,7 @@ async function evaluateDriveCandidate(
 
   const normalizedAddress = normalizeAddressKey(draft.address);
   const existingStop = drive.stops.find((stop) => normalizeAddressKey(stop.pickupAddress) === normalizedAddress);
+  const currentFirstPickupTime = drive.stops[0]?.pickupTimeLabel.trim() || "";
 
   if (existingStop) {
     const recommendationKey = getRecommendationKey(
@@ -649,6 +326,9 @@ async function evaluateDriveCandidate(
         pickupAddress: existingStop.pickupAddress.trim(),
         pickupTime: existingStop.pickupTimeLabel.trim(),
         arrivalTime,
+        currentFirstPickupTime,
+        updatedFirstPickupTime: currentFirstPickupTime,
+        firstPickupShiftMinutes: 0,
         destinationAddress,
         routeDeltaMinutes: 0,
         reasoning: [
@@ -702,6 +382,13 @@ async function evaluateDriveCandidate(
   const recalculatedStops = await recalculateScheduleStops(orderedStops, arrivalTime, cache, token);
   const candidateDurationSeconds = await getRouteDurationSeconds(orderedStops, cache, token);
   const insertedStop = recalculatedStops.find((stop) => stop.id === insertedStopId);
+  const updatedFirstPickupTime = recalculatedStops[0]?.pickupTime.trim() || currentFirstPickupTime;
+  const currentFirstPickupMinutes = currentFirstPickupTime ? parseTimeToMinutes(currentFirstPickupTime) : null;
+  const updatedFirstPickupMinutes = updatedFirstPickupTime ? parseTimeToMinutes(updatedFirstPickupTime) : null;
+  const firstPickupShiftMinutes =
+    currentFirstPickupMinutes !== null && updatedFirstPickupMinutes !== null
+      ? Math.max(0, currentFirstPickupMinutes - updatedFirstPickupMinutes)
+      : 0;
 
   if (!insertedStop) {
     dispatchDebugLog("pickup.candidate.rejected", {
@@ -730,6 +417,9 @@ async function evaluateDriveCandidate(
     pickupAddress: insertedStop.pickupAddress.trim(),
     pickupTime: insertedStop.pickupTime.trim(),
     arrivalTime,
+    currentFirstPickupTime,
+    updatedFirstPickupTime,
+    firstPickupShiftMinutes,
     destinationAddress,
     routeDeltaMinutes,
     reasoning: createDeterministicReasoningParts({
@@ -747,6 +437,9 @@ async function evaluateDriveCandidate(
       pickupAddress: insertedStop.pickupAddress.trim(),
       pickupTime: insertedStop.pickupTime.trim(),
       arrivalTime,
+      currentFirstPickupTime,
+      updatedFirstPickupTime,
+      firstPickupShiftMinutes,
       destinationAddress,
       routeDeltaMinutes,
       reasoning: [],
@@ -800,27 +493,15 @@ async function evaluateDriveCandidate(
   return candidateResult;
 }
 
-function compareCandidates(first: CandidateEvaluation, second: CandidateEvaluation) {
-  if (first.score !== second.score) {
-    return first.score - second.score;
-  }
-
-  if (first.suggestion.routeDeltaMinutes !== second.suggestion.routeDeltaMinutes) {
-    return first.suggestion.routeDeltaMinutes - second.suggestion.routeDeltaMinutes;
-  }
-
-  return first.suggestion.pickupTime.localeCompare(second.suggestion.pickupTime);
-}
-
-export async function suggestPickupAssignment(
+async function findPickupAssignmentCandidates(
   draftInput: PickupSuggestionDraft,
   constraintsInput?: PickupSuggestionConstraints | null,
 ) {
-  const draft = normalizeDraft(draftInput);
+  const draft = normalizePickupSuggestionDraft(draftInput);
   const resolvedCrewMember = await resolveExistingCrewMemberForDraft(draft).catch(() => null);
   const canonicalDraft = resolvedCrewMember ? canonicalizePickupSuggestionDraft(draft, resolvedCrewMember) : draft;
   const requestedConstraints = normalizePickupSuggestionConstraints(constraintsInput);
-  const validationError = validateDraft(canonicalDraft);
+  const validationError = validatePickupSuggestionDraft(canonicalDraft);
 
   const drives = await getDrivePlan();
   const constraints = resolveLatestArrivalTimeWithDriveContext(requestedConstraints, drives);
@@ -854,6 +535,19 @@ export async function suggestPickupAssignment(
   );
   const candidates = candidateResults.filter((entry): entry is CandidateEvaluation => Boolean(entry));
 
+  return {
+    canonicalDraft,
+    constraints,
+    candidates,
+  };
+}
+
+export async function suggestPickupAssignment(
+  draftInput: PickupSuggestionDraft,
+  constraintsInput?: PickupSuggestionConstraints | null,
+) {
+  const { canonicalDraft, constraints, candidates } = await findPickupAssignmentCandidates(draftInput, constraintsInput);
+
   if (candidates.length === 0) {
     dispatchDebugLog("pickup.suggest.no-candidates", {
       canonicalDraft: summarizePickupDraft(canonicalDraft),
@@ -862,7 +556,7 @@ export async function suggestPickupAssignment(
     return null;
   }
 
-  candidates.sort(compareCandidates);
+  candidates.sort(comparePickupCandidates);
   const bestSuggestion = candidates[0].suggestion;
   const explanation = await maybeGeneratePickupExplanation(
     bestSuggestion,
@@ -888,137 +582,44 @@ export async function suggestPickupAssignment(
   return finalizedSuggestion;
 }
 
-async function attachPassengerToStop(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  stopId: string,
-  crewMemberId: string,
+export async function suggestPickupAssignmentOptions(
+  draftInput: PickupSuggestionDraft,
+  constraintsInput?: PickupSuggestionConstraints | null,
+  options?: {
+    limit?: number;
+    distinctByVan?: boolean;
+  },
 ) {
-  const { data: existingPassengerLink, error: existingPassengerError } = await supabase
-    .from("trip_passengers")
-    .select("trip_id")
-    .eq("trip_id", stopId)
-    .eq("crew_member_id", crewMemberId)
-    .maybeSingle();
+  const { canonicalDraft, constraints, candidates } = await findPickupAssignmentCandidates(draftInput, constraintsInput);
 
-  if (existingPassengerError) {
-    throw new Error(existingPassengerError.message);
+  if (candidates.length === 0) {
+    dispatchDebugLog("pickup.options.no-candidates", {
+      canonicalDraft: summarizePickupDraft(canonicalDraft),
+      constraints: summarizeConstraints(constraints),
+    });
+    return [];
   }
 
-  if (existingPassengerLink) {
-    return false;
-  }
+  const limit = Math.max(1, options?.limit ?? 3);
+  const distinctByVan = options?.distinctByVan ?? true;
+  candidates.sort(comparePickupCandidates);
 
-  const { error: passengerError } = await supabase.from("trip_passengers").insert([
-    {
-      trip_id: stopId,
-      crew_member_id: crewMemberId,
-    },
-  ]);
+  const filteredCandidates = distinctByVan
+    ? candidates.filter((candidate, index, entries) =>
+        entries.findIndex((entry) => entry.suggestion.vanLabel === candidate.suggestion.vanLabel) === index,
+      )
+    : candidates;
 
-  if (passengerError) {
-    throw new Error(passengerError.message);
-  }
+  const selectedOptions = filteredCandidates.slice(0, limit).map((candidate) => candidate.suggestion);
 
-  return true;
-}
+  dispatchDebugLog("pickup.options.selected", {
+    canonicalDraft: summarizePickupDraft(canonicalDraft),
+    constraints: summarizeConstraints(constraints),
+    optionCount: selectedOptions.length,
+    options: selectedOptions.map((suggestion) => summarizePickupSuggestion(suggestion)),
+  });
 
-function findExistingPickupAssignments(drives: Drive[], crewMemberId: string): ExistingPickupAssignment[] {
-  return drives
-    .filter((drive) => drive.travelType === "pickup")
-    .flatMap((drive) =>
-      drive.stops.flatMap((stop) => {
-        const isAssigned = stop.stopPickupPassengers.some((passenger) => passenger.id === crewMemberId);
-
-        if (!isAssigned) {
-          return [];
-        }
-
-        return [
-          {
-            driveId: drive.id,
-            stopId: stop.id,
-            stopDeleted: false,
-            stopSnapshot: {
-              id: stop.id,
-              driveId: drive.id,
-              pickupAddress: stop.pickupAddress.trim(),
-              pickupTime: stop.pickupTime,
-              stopTitle: stop.stopTitle,
-              stopDurationSec: stop.stopDurationSec,
-              trafficBufferSec: stop.trafficBufferSec,
-              notes: stop.notes,
-            },
-            remainingPassengerCount: stop.stopPickupPassengers.filter((passenger) => passenger.id !== crewMemberId)
-              .length,
-          },
-        ];
-      }),
-    );
-}
-
-function captureOriginalStopTimes(drives: Drive[], driveIds: Iterable<string>) {
-  const targetDriveIds = new Set(Array.from(driveIds));
-  const originalStopTimeById = new Map<string, string | null>();
-
-  for (const drive of drives) {
-    if (!targetDriveIds.has(drive.id)) {
-      continue;
-    }
-
-    for (const stop of drive.stops) {
-      originalStopTimeById.set(stop.id, stop.pickupTime);
-    }
-  }
-
-  return originalStopTimeById;
-}
-
-async function recalculateAffectedPickupDrives(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  driveIds: Iterable<string>,
-) {
-  const targetDriveIds = new Set(Array.from(driveIds));
-
-  if (targetDriveIds.size === 0) {
-    return;
-  }
-
-  const refreshedDrivePlan = await getDrivePlan();
-  const token = assertMapboxToken();
-  const cache: CoordinateCache = new Map();
-
-  for (const drive of refreshedDrivePlan) {
-    if (!targetDriveIds.has(drive.id) || drive.travelType !== "pickup") {
-      continue;
-    }
-
-    const updatedStops = buildScheduleInputs(drive);
-
-    if (updatedStops.length === 0) {
-      continue;
-    }
-
-    const { orderedStops } = await optimizeScheduleStops(updatedStops, token);
-    const recalculatedStops = await recalculateScheduleStops(
-      orderedStops,
-      getDriveArrivalTime(drive),
-      cache,
-      token,
-    );
-    const updateResults = await Promise.all(
-      recalculatedStops.map((stop) =>
-        supabase
-          .from("trips")
-          .update({ pickup_time: `${stop.pickupTime}:00` })
-          .eq("id", stop.id),
-      ),
-    );
-    const failedUpdate = updateResults.find((result) => result.error);
-
-    if (failedUpdate?.error) {
-      throw new Error(failedUpdate.error.message);
-    }
-  }
+  return selectedOptions;
 }
 
 export async function applyPickupSuggestion(
@@ -1026,11 +627,11 @@ export async function applyPickupSuggestion(
   constraintsInput: PickupSuggestionConstraints | null | undefined,
   suggestion: PickupAssignmentSuggestion,
 ) {
-  const draft = normalizeDraft(draftInput);
+  const draft = normalizePickupSuggestionDraft(draftInput);
   const constraints = normalizePickupSuggestionConstraints(constraintsInput);
   const resolvedCrewMember = await resolveExistingCrewMemberForDraft(draft).catch(() => null);
   const canonicalDraft = resolvedCrewMember ? canonicalizePickupSuggestionDraft(draft, resolvedCrewMember) : draft;
-  const validationError = validateDraft(canonicalDraft);
+  const validationError = validatePickupSuggestionDraft(canonicalDraft);
 
   dispatchDebugLog("pickup.apply.start", {
     draft: summarizePickupDraft(draft),

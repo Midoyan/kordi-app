@@ -173,6 +173,16 @@ export function DispatchAssistantCard() {
       return;
     }
 
+    return applyPickupSuggestionAction(action);
+  };
+
+  const applyPickupSuggestionAction = async (
+    nextAction: Extract<DispatchAssistantQuestionResponse["action"], { type: "apply-pickup-suggestion" }>,
+  ) => {
+    if (!nextAction) {
+      return;
+    }
+
     setIsApplyingAction(true);
     setError(null);
     setActionNotice(null);
@@ -184,9 +194,9 @@ export function DispatchAssistantCard() {
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          draft: action.draft,
-          constraints: action.constraints,
-          suggestion: action.suggestion,
+          draft: nextAction.draft,
+          constraints: nextAction.constraints,
+          suggestion: nextAction.suggestion,
         }),
       });
       const payload = (await response.json().catch(() => null)) as
@@ -233,23 +243,21 @@ export function DispatchAssistantCard() {
           onClick={() => setIsCollapsed((currentValue) => !currentValue)}
         >
           {isCollapsed ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
-          {isCollapsed ? "Expand chat" : "Minimize chat"}
+          {isCollapsed ? "Open" : "Minimize"}
         </Button>
       </div>
 
       {isCollapsed ? (
-        <div
-          id="dispatch-assistant-content"
-          className="mt-4 rounded-xl border border-[#eadfbe] bg-white/70 px-4 py-3 text-[13px] text-[#6d5a31]"
-        >
-          {question ? (
+        question ? (
+          <div
+            id="dispatch-assistant-content"
+            className="mt-4 rounded-xl border border-[#eadfbe] bg-white/70 px-4 py-3 text-[13px] text-[#6d5a31]"
+          >
             <p className="truncate">
               Last question: <span className="font-medium text-[#3e3420]">{question}</span>
             </p>
-          ) : (
-            <p>The assistant is minimized. Expand it to ask or review questions.</p>
-          )}
-        </div>
+          </div>
+        ) : null
       ) : (
         <div id="dispatch-assistant-content" className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
         <form
@@ -327,6 +335,54 @@ export function DispatchAssistantCard() {
                         )}
                         {action.label}
                       </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef]"
+                        disabled={isApplyingAction}
+                        onClick={() => setAction(null)}
+                      >
+                        Not now
+                      </Button>
+                    </div>
+                  </div>
+                ) : action?.type === "choose-pickup-suggestion" ? (
+                  <div className="rounded-lg border border-[#eadfbe] bg-white/80 px-3 py-3">
+                    <p className="text-[12px] leading-5 text-[#6d5a31]">{action.prompt}</p>
+                    <div className="mt-3 flex flex-col gap-2">
+                      {action.options.map((option) => (
+                        <div
+                          key={option.id}
+                          className="flex flex-col gap-2 rounded-lg border border-[#f0e4c8] bg-[#fffdf8] px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                        >
+                          <div>
+                            <p className="text-[13px] font-medium text-[#2e2616]">{option.label}</p>
+                            <p className="text-[12px] leading-5 text-[#6d5a31]">{option.description}</p>
+                          </div>
+                          <Button
+                            type="button"
+                            disabled={isApplyingAction}
+                            onClick={() =>
+                              void applyPickupSuggestionAction({
+                                type: "apply-pickup-suggestion",
+                                label: `Apply ${option.label}`,
+                                draft: option.draft,
+                                constraints: option.constraints,
+                                suggestion: option.suggestion,
+                              })
+                            }
+                          >
+                            {isApplyingAction ? (
+                              <Loader2 className="size-4 animate-spin" />
+                            ) : (
+                              <Sparkles className="size-4" />
+                            )}
+                            {`Apply ${option.label}`}
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3">
                       <Button
                         type="button"
                         variant="outline"

@@ -2,10 +2,14 @@
 
 import { type ComponentProps } from "react";
 
-import { EditorSheetLayout } from "@/components/editor-sheet-layout";
+import {
+  EditorSheetBody,
+  EditorSheetFooter,
+  EditorSheetForm,
+  EditorSheetLayout,
+} from "@/components/editor-sheet-layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { SheetFooter } from "@/components/ui/sheet";
 import { type PersonRecord } from "@/lib/people";
 import { vehicleTypes, type VehicleRecord, type VehicleType } from "@/lib/vehicles";
 
@@ -92,8 +96,8 @@ export function VehicleEditorSheet({
       title={sheetMode === "edit" ? "Edit van" : "Add van"}
       description="Create or update a van record with the fields stored in the backend."
     >
-      <form className="flex flex-1 flex-col" onSubmit={onSubmit}>
-        <div className="space-y-4 overflow-y-auto px-5 py-5">
+      <EditorSheetForm onSubmit={onSubmit}>
+        <EditorSheetBody className="space-y-4">
           {submitMessage ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[13px] text-amber-800">
               {submitMessage}
@@ -208,9 +212,9 @@ export function VehicleEditorSheet({
               className="w-full rounded-xl border border-input bg-transparent px-3 py-2 text-sm text-[#1d1d1b] outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-3 focus:ring-ring/50"
             />
           </Field>
-        </div>
+        </EditorSheetBody>
 
-        <SheetFooter className="border-t border-[#e7e7e4] bg-white/80 px-5 py-4">
+        <EditorSheetFooter>
           <div className="flex w-full items-center justify-between gap-2">
             {sheetMode === "edit" && editingVehicleId ? (
               <Button
@@ -244,8 +248,8 @@ export function VehicleEditorSheet({
               </Button>
             </div>
           </div>
-        </SheetFooter>
-      </form>
+        </EditorSheetFooter>
+      </EditorSheetForm>
     </EditorSheetLayout>
   );
 }

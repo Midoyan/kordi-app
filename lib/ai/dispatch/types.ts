@@ -7,6 +7,15 @@ export type DispatchAssistantQuestionResponse = {
   action?: DispatchAssistantAction | null;
 };
 
+export type PickupSuggestionChoice = {
+  id: string;
+  label: string;
+  description: string;
+  draft: PickupSuggestionDraft;
+  constraints: PickupSuggestionConstraints;
+  suggestion: PickupAssignmentSuggestion;
+};
+
 export type PickupSuggestionConstraints = {
   destinationQuery: string;
   latestArrivalTime: string;
@@ -24,6 +33,12 @@ export type DispatchAssistantAction =
       draft: PickupSuggestionDraft;
       constraints: PickupSuggestionConstraints;
       suggestion: PickupAssignmentSuggestion;
+    }
+  | {
+      type: "choose-pickup-suggestion";
+      label: string;
+      prompt: string;
+      options: PickupSuggestionChoice[];
     };
 
 export type PickupSuggestionDraft = {
@@ -57,6 +72,9 @@ export type PickupAssignmentSuggestion = {
   pickupAddress: string;
   pickupTime: string;
   arrivalTime: string;
+  currentFirstPickupTime: string;
+  updatedFirstPickupTime: string;
+  firstPickupShiftMinutes: number;
   destinationAddress: string;
   routeDeltaMinutes: number;
   reasoning: string[];

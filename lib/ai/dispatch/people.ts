@@ -128,7 +128,11 @@ export function isPickupAssignmentIntent(question: string) {
     normalizedQuestion.includes("assign him") ||
     normalizedQuestion.includes("assign her") ||
     normalizedQuestion.includes("assign them") ||
-    normalizedQuestion.includes("pickup for ")
+    normalizedQuestion.includes("pickup for ") ||
+    normalizedQuestion.includes("where would ") ||
+    normalizedQuestion.includes("where could ") ||
+    normalizedQuestion.includes("where can ") ||
+    normalizedQuestion.includes(" fit?")
   );
 }
 
@@ -139,6 +143,8 @@ export function extractCandidateNameFromQuestion(question: string) {
     /see\s+([A-ZÀ-ÿ][^?.!,]+?)(?:\?|\.|,|$)/i,
     /added\s+([A-ZÀ-ÿ][^?.!,]+?)(?:\?|\.|,|$)/i,
     /assign(?:\s+a\s+pickup)?\s+to\s+([A-ZÀ-ÿ][^?.!,]+?)(?:\?|\.|,|$)/i,
+    /where\s+would\s+([A-ZÀ-ÿ][^?.!,]+?)\s+fit(?:\?|\.|,|$)/i,
+    /where\s+(?:could|can)\s+([A-ZÀ-ÿ][^?.!,]+?)\s+fit(?:\?|\.|,|$)/i,
   ];
 
   for (const pattern of patterns) {
