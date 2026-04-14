@@ -16,6 +16,9 @@ import { AlertCircle } from "lucide-react"
 
 const TRANSPORT_PLAN_REQUEST_RETRY_DELAY_MS = 500
 const TRANSPORT_PLAN_REQUEST_MAX_ATTEMPTS = 2
+const LOCAL_TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+const DAY_BOUNDARY_PADDING_HOURS_BEFORE = 2
+const DAY_BOUNDARY_PADDING_HOURS_AFTER = 4
 
 function wait(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
@@ -54,29 +57,102 @@ async function fetchTransportPlanWithRetry(): Promise<TransportPlan> {
   throw lastError instanceof Error ? lastError : new Error("Unable to load drives.")
 }
 
-// Convert time string HH:MM to ISO time for same day
-function createEventTime(timeLabel: string | null, dateString: string): Date | null {
-  if (!timeLabel) return null
-
-  const [hours, minutes] = timeLabel.split(":").map(Number)
-  if (isNaN(hours) || isNaN(minutes)) return null
-
-  const date = new Date(dateString)
-  date.setHours(hours, minutes, 0, 0)
-  return date
-}
-
 // Get today's date in YYYY-MM-DD format
 function getTodayDate(): string {
   const today = new Date()
-  return today.toISOString().split("T")[0]
+  const year = today.getFullYear()
+  const month = String(today.getMonth() + 1).padStart(2, "0")
+  const day = String(today.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
 }
 
-function dateToTemporalZonedDateTime(date: Date): typeof Temporal.ZonedDateTime.prototype {
-  // Convert JS Date to Temporal.ZonedDateTime
-  const isoString = date.toISOString()
-  const plainDateTime = Temporal.PlainDateTime.from(isoString.split(".")[0])
-  return plainDateTime.toZonedDateTime("UTC")
+function parseTimeLabel(timeLabel: string | null) {
+  if (!timeLabel) {
+    return null
+  }
+
+  const [hours, minutes] = timeLabel.split(":").map(Number)
+
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return null
+  }
+
+  return { hours, minutes }
+}
+
+function toZonedDateTime(dateString: string, timeLabel: string | null) {
+  const time = parseTimeLabel(timeLabel)
+
+  if (!time) {
+    return null
+  }
+
+  const plainDateTime = Temporal.PlainDateTime.from(
+    `${dateString}T${String(time.hours).padStart(2, "0")}:${String(time.minutes).padStart(2, "0")}:00`,
+  )
+
+  return plainDateTime.toZonedDateTime(LOCAL_TIME_ZONE)
+}
+
+function addMinimumDuration(
+  start: Temporal.ZonedDateTime,
+  end: Temporal.ZonedDateTime | null,
+  minimumMinutes: number,
+) {
+  if (!end || end.epochMilliseconds <= start.epochMilliseconds) {
+    return start.add({ minutes: minimumMinutes })
+  }
+
+  const actualMinutes = Math.ceil((end.epochMilliseconds - start.epochMilliseconds) / 60000)
+  return start.add({ minutes: Math.max(minimumMinutes, actualMinutes) })
+}
+
+function isZonedDateTime(value: Temporal.ZonedDateTime | Temporal.PlainDate): value is Temporal.ZonedDateTime {
+  return "epochMilliseconds" in value
+}
+
+function formatBoundaryHour(hour: number) {
+  return `${String(Math.max(0, Math.min(24, hour))).padStart(2, "0")}:00`
+}
+
+function computeDayBoundaries(events: CalendarEventExternal[]) {
+  if (events.length === 0) {
+    return {
+      start: "03:00",
+      end: "12:00",
+    }
+  }
+
+  const earliestStart = events.reduce((currentEarliest, event) => {
+    if (!isZonedDateTime(event.start) || !isZonedDateTime(currentEarliest)) {
+      return currentEarliest
+    }
+
+    return event.start.epochMilliseconds < currentEarliest.epochMilliseconds ? event.start : currentEarliest
+  }, events[0].start)
+
+  const latestEnd = events.reduce((currentLatest, event) => {
+    if (!isZonedDateTime(event.end) || !isZonedDateTime(currentLatest)) {
+      return currentLatest
+    }
+
+    return event.end.epochMilliseconds > currentLatest.epochMilliseconds ? event.end : currentLatest
+  }, events[0].end)
+
+  if (!isZonedDateTime(earliestStart) || !isZonedDateTime(latestEnd)) {
+    return {
+      start: "03:00",
+      end: "12:00",
+    }
+  }
+
+  const startHour = Math.max(0, earliestStart.hour - DAY_BOUNDARY_PADDING_HOURS_BEFORE)
+  const endHour = Math.min(24, latestEnd.hour + DAY_BOUNDARY_PADDING_HOURS_AFTER + (latestEnd.minute > 0 || latestEnd.second > 0 ? 1 : 0))
+
+  return {
+    start: formatBoundaryHour(startHour),
+    end: formatBoundaryHour(endHour),
+  }
 }
 
 function createEventsFromDrives(drives: Drive[]): CalendarEventExternal[] {
@@ -84,26 +160,15 @@ function createEventsFromDrives(drives: Drive[]): CalendarEventExternal[] {
   const events: CalendarEventExternal[] = []
 
   for (const drive of drives) {
-    // Create main drive event
-    const startTime = createEventTime(drive.startTimeLabel, today)
+    const startTime = toZonedDateTime(today, drive.startTimeLabel)
+
     if (startTime) {
-      // Calculate end time based on last stop
-      let endTime = new Date(startTime)
       const lastStop = drive.stops[drive.stops.length - 1]
-      if (lastStop?.pickupTimeLabel) {
-        const stopTime = createEventTime(lastStop.pickupTimeLabel, today)
-        if (stopTime) {
-          endTime = new Date(stopTime)
-          // Add stop duration if available
-          if (lastStop.stopDurationSec) {
-            endTime.setSeconds(endTime.getSeconds() + lastStop.stopDurationSec)
-          } else {
-            endTime.setMinutes(endTime.getMinutes() + 30)
-          }
-        }
-      } else {
-        endTime.setMinutes(endTime.getMinutes() + 60)
-      }
+      const lastStopTime = toZonedDateTime(today, lastStop?.pickupTimeLabel ?? null)
+      const minimumMinutes = lastStop?.stopDurationSec
+        ? Math.max(30, Math.ceil(lastStop.stopDurationSec / 60))
+        : 30
+      const endTime = addMinimumDuration(startTime, lastStopTime, minimumMinutes)
 
       const stopsList = drive.stops
         .map((stop) => {
@@ -115,8 +180,8 @@ function createEventsFromDrives(drives: Drive[]): CalendarEventExternal[] {
       events.push({
         id: drive.id,
         title: `${drive.label}`,
-        start: dateToTemporalZonedDateTime(startTime),
-        end: dateToTemporalZonedDateTime(endTime),
+        start: startTime,
+        end: endTime,
         description: `Driver: ${drive.driver?.name || "Unassigned"}\nVehicle: ${drive.van?.label || "Unassigned"}\nStops: ${stopsList}`,
       })
     }
@@ -174,9 +239,12 @@ export function TransportCalendar() {
     try {
       const transportPlan = await fetchTransportPlanWithRetry()
       const events = createEventsFromDrives(transportPlan.drives)
+      const dayBoundaries = computeDayBoundaries(events)
 
       const newCalendar = createCalendar({
         views: [createViewDay(), createViewWeek()],
+        defaultView: "day",
+        dayBoundaries,
         events: events,
         callbacks: {
           onEventClick(calendarEvent) {
