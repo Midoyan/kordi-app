@@ -29,6 +29,7 @@ const sectionIcons = {
   map: Globe,
   locations: MapPin,
   schedule: CalendarDays,
+  calendar: CalendarDays,
   settings: Settings,
 } as const;
 
