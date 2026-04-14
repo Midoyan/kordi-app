@@ -29,6 +29,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 type WorkspaceDataTableProps<TData> = {
   table: ReactTable<TData>
@@ -52,6 +53,7 @@ type WorkspaceDataTableProps<TData> = {
 type WorkspaceColumnToggleMenuProps<TData> = {
   columns: Column<TData, unknown>[]
   className?: string
+  showLabel?: boolean
 }
 
 type WorkspaceVCardToolbarControls = {
@@ -92,6 +94,7 @@ function getColumnToggleLabel<TData>(column: Column<TData, unknown>) {
 export function WorkspaceColumnToggleMenu<TData>({
   columns,
   className,
+  showLabel = true,
 }: WorkspaceColumnToggleMenuProps<TData>) {
   const [open, setOpen] = React.useState(false)
   const ref = React.useRef<HTMLDivElement | null>(null)
@@ -111,20 +114,37 @@ export function WorkspaceColumnToggleMenu<TData>({
     return () => document.removeEventListener("mousedown", handlePointerDown)
   }, [open])
 
+  const triggerButton = (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className={cn(
+        "text-[#1d1d1b]",
+        showLabel
+          ? "border-[#dbdbd6] bg-white hover:bg-[#f3f3ef]"
+          : "kordi-btn-no-bordi"
+      )}
+      onClick={() => setOpen((current) => !current)}
+    >
+      <Settings2 className="size-4" />
+      {showLabel ? <span>Columns</span> : null}
+      <ChevronDown className="size-4" />
+    </Button>
+  )
+
   return (
     <div ref={ref} className={cn("relative", className)}>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef]"
-        onClick={() => setOpen((current) => !current)}
-      >
-        <Settings2 className="size-4" />
-        <span className="hidden lg:inline">Columns</span>
-        <span className="lg:hidden">Columns</span>
-        <ChevronDown className="size-4" />
-      </Button>
+      {showLabel ? (
+        triggerButton
+      ) : (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger delay={300} render={triggerButton} />
+            <TooltipContent>Columns</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
       {open ? (
         <div className="absolute right-0 z-20 mt-2 min-w-52 rounded-xl border border-[#e3e3df] bg-white p-2 shadow-[0_18px_40px_-24px_rgba(15,23,42,0.45)]">
           {columns.map((column) => (
@@ -393,10 +413,6 @@ export function WorkspaceVCardTable<TData>({
         }}
       />
       <div
-        className={cn(
-          "rounded-xl border border-[#e7e7e4] bg-white p-2 transition-all",
-          isDragging && "border-dashed border-[#90a8ff] bg-[#f7f9ff]"
-        )}
         onDrop={(event) => {
           void handleDrop(event)
         }}

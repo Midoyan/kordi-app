@@ -25,11 +25,20 @@ import {
 import { PencilLine, Plus, Search } from "lucide-react";
 
 import { useCacheSnapshot } from "@/hooks/use-cache-snapshot";
+import { DispatchAssistantCard } from "@/components/dispatch-assistant-card";
 import { PersonEditorSheet } from "@/components/person-editor-sheet";
+import { StackedAddressText } from "@/components/schedule-section/table-parts";
+import { splitAddressLabel } from "@/components/schedule-section/helpers";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { TableCell, TableRow } from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   WorkspaceColumnToggleMenu,
   WorkspaceVCardTable,
@@ -44,10 +53,16 @@ import {
   getPersonSearchText,
   primePeopleCache,
   subscribePeopleCache,
+  upsertPersonInPeopleCache,
   type PersonDraft,
   type PersonRecord,
   updatePerson,
 } from "@/lib/people";
+import type {
+  PickupAssignmentSuggestion,
+  PickupSuggestionDraft,
+} from "@/lib/ai/dispatch/types";
+import { primeTransportPlanCache } from "@/lib/transport-plan-client-cache";
 import { parseVCardPayload } from "@/lib/vcard";
 import { cn } from "@/lib/utils";
 
@@ -76,7 +91,67 @@ function formatDateAdded(value: string | null) {
 }
 
 function formatPickupTime(value: string) {
-  return value.trim() || "Not assigned";
+  return value.trim() || "-";
+}
+
+function PickupToLocationText({
+  name,
+  address,
+  fallback,
+}: {
+  name: string;
+  address: string;
+  fallback: string;
+}) {
+  const trimmedName = name.trim();
+  const trimmedAddress = address.trim();
+  const { primary, secondary } = splitAddressLabel(trimmedAddress);
+  const label = trimmedName || primary || fallback;
+  const hasLocationTitle = Boolean(trimmedName);
+  const tooltipText = [trimmedName && primary ? primary : null, secondary || null]
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .join(", ");
+
+  if (!tooltipText) {
+    return (
+      <p
+        className={cn(
+          "text-[13px] leading-6",
+          hasLocationTitle ? "font-semibold text-[#1d1d1b]" : "text-[#43433f]"
+        )}
+      >
+        {label}
+      </p>
+    );
+  }
+
+  return (
+    <TooltipProvider delay={900}>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <span
+              className={cn(
+                "inline-block max-w-full truncate text-[13px] leading-6",
+                hasLocationTitle ? "font-semibold text-[#1d1d1b]" : "text-[#43433f]"
+              )}
+            >
+              {label}
+            </span>
+          }
+        />
+        <TooltipContent
+          side="bottom"
+          align="start"
+          alignOffset={-2}
+          arrowClassName="data-[side=bottom]:left-3.5!"
+          className="max-w-[18rem] rounded-md bg-[#1f1f1d] px-2.5 py-2 text-[11px] leading-4 text-white"
+        >
+          {tooltipText}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 }
 
 function toDraft(person: PersonRecord): PersonDraft {
@@ -88,47 +163,70 @@ function toDraft(person: PersonRecord): PersonDraft {
   };
 }
 
+function toPickupSuggestionDraft(draft: PersonDraft): PickupSuggestionDraft {
+  return {
+    name: draft.name.trim(),
+    address: draft.address.trim(),
+    phone: draft.phone.trim(),
+    role: draft.role.trim(),
+  };
+}
+
+function getDraftSuggestionKey(draft: PersonDraft | null) {
+  if (!draft) {
+    return "";
+  }
+
+  return [draft.name.trim(), draft.address.trim(), draft.phone.trim(), draft.role.trim()].join("::");
+}
+
 function insertAtVisibleIndex(
   currentPeople: PersonRecord[],
   incomingPeople: PersonRecord[],
   visibleIds: string[],
   insertionIndex: number | null,
 ) {
-  if (currentPeople.length === 0) {
-    return incomingPeople;
+  const dedupedIncomingPeople = Array.from(
+    new Map(incomingPeople.map((person) => [person.id, person])).values(),
+  );
+  const incomingIds = new Set(dedupedIncomingPeople.map((person) => person.id));
+  const nextCurrentPeople = currentPeople.filter((person) => !incomingIds.has(person.id));
+
+  if (nextCurrentPeople.length === 0) {
+    return dedupedIncomingPeople;
   }
 
   const boundedIndex =
-    insertionIndex === null ? currentPeople.length : Math.max(0, Math.min(insertionIndex, visibleIds.length));
+    insertionIndex === null ? nextCurrentPeople.length : Math.max(0, Math.min(insertionIndex, visibleIds.length));
 
   if (visibleIds.length === 0) {
     return boundedIndex === 0
-      ? [...incomingPeople, ...currentPeople]
-      : [...currentPeople, ...incomingPeople];
+      ? [...dedupedIncomingPeople, ...nextCurrentPeople]
+      : [...nextCurrentPeople, ...dedupedIncomingPeople];
   }
 
   if (boundedIndex >= visibleIds.length) {
     const anchorId = visibleIds[visibleIds.length - 1];
-    const anchorIndex = currentPeople.findIndex((person) => person.id === anchorId);
+    const anchorIndex = nextCurrentPeople.findIndex((person) => person.id === anchorId);
 
     if (anchorIndex < 0) {
-      return [...currentPeople, ...incomingPeople];
+      return [...nextCurrentPeople, ...dedupedIncomingPeople];
     }
 
-    const nextPeople = [...currentPeople];
-    nextPeople.splice(anchorIndex + 1, 0, ...incomingPeople);
+    const nextPeople = [...nextCurrentPeople];
+    nextPeople.splice(anchorIndex + 1, 0, ...dedupedIncomingPeople);
     return nextPeople;
   }
 
   const beforeId = visibleIds[boundedIndex];
-  const beforeIndex = currentPeople.findIndex((person) => person.id === beforeId);
+  const beforeIndex = nextCurrentPeople.findIndex((person) => person.id === beforeId);
 
   if (beforeIndex < 0) {
-    return [...incomingPeople, ...currentPeople];
+    return [...dedupedIncomingPeople, ...nextCurrentPeople];
   }
 
-  const nextPeople = [...currentPeople];
-  nextPeople.splice(beforeIndex, 0, ...incomingPeople);
+  const nextPeople = [...nextCurrentPeople];
+  nextPeople.splice(beforeIndex, 0, ...dedupedIncomingPeople);
   return nextPeople;
 }
 
@@ -224,12 +322,23 @@ export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[
   const [editorMode, setEditorMode] = useState<"create" | "edit" | null>(null);
   const [editingPersonId, setEditingPersonId] = useState<string | null>(null);
   const [editorDraft, setEditorDraft] = useState<PersonDraft | null>(null);
+  const [assignmentSuggestion, setAssignmentSuggestion] = useState<PickupAssignmentSuggestion | null>(null);
+  const [assignmentSuggestionError, setAssignmentSuggestionError] = useState<string | null>(null);
+  const [isSuggestingAssignment, setIsSuggestingAssignment] = useState(false);
+  const [isApplyingAssignment, setIsApplyingAssignment] = useState(false);
+  const [assignmentSuggestionDraftKey, setAssignmentSuggestionDraftKey] = useState("");
   const [recentlyInsertedIds, setRecentlyInsertedIds] = useState<string[]>([]);
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
   const insertAnimationTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (initialPeople) {
+    if (!initialPeople) {
+      return;
+    }
+
+    // Seed an empty client cache from the server snapshot, but never let an older
+    // server render overwrite live client mutations like create/update/delete.
+    if (getCachedPeopleSnapshot({ includeExpired: true }) === null) {
       primePeopleCache(initialPeople);
     }
   }, [initialPeople]);
@@ -325,12 +434,18 @@ export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[
     setEditingPersonId(null);
     setEditorDraft(null);
     setEditorError(null);
+    setAssignmentSuggestion(null);
+    setAssignmentSuggestionError(null);
+    setAssignmentSuggestionDraftKey("");
   };
 
   const openEditor = (person: PersonRecord) => {
     setEditorMode("edit");
     setEditingPersonId(person.id);
     setEditorError(null);
+    setAssignmentSuggestion(null);
+    setAssignmentSuggestionError(null);
+    setAssignmentSuggestionDraftKey("");
     setEditorDraft(toDraft(person));
   };
 
@@ -338,9 +453,24 @@ export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[
     setEditorMode("create");
     setEditingPersonId(null);
     setEditorError(null);
+    setAssignmentSuggestion(null);
+    setAssignmentSuggestionError(null);
+    setAssignmentSuggestionDraftKey("");
     setEditorDraft(createEmptyPersonDraft());
     clearAddPersonQuery();
   };
+
+  useEffect(() => {
+    const draftKey = getDraftSuggestionKey(editorDraft);
+
+    if (!assignmentSuggestion || !assignmentSuggestionDraftKey || !draftKey) {
+      return;
+    }
+
+    if (draftKey !== assignmentSuggestionDraftKey) {
+      setAssignmentSuggestion(null);
+    }
+  }, [assignmentSuggestion, assignmentSuggestionDraftKey, editorDraft]);
 
   const columns: ColumnDef<PersonRecord>[] = [
     {
@@ -384,7 +514,7 @@ export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[
       ),
       cell: ({ row }: CellContext<PersonRecord, unknown>) => (
         <p className="whitespace-normal px-3 text-[13px] leading-6 text-[#43433f]">
-          {row.original.role || "Role not set"}
+          { row.original.role }
         </p>
       ),
     },
@@ -408,7 +538,7 @@ export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[
             </p>
             {!isRoleColumnVisible ? (
               <p className="text-[12px] text-[#7a7a74]">
-                {row.original.role || "Role not set"}
+                { row.original.role }
               </p>
             ) : null}
           </div>
@@ -442,9 +572,13 @@ export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[
         />
       ),
       cell: ({ row }: CellContext<PersonRecord, unknown>) => (
-        <p className="whitespace-normal px-3 text-[13px] leading-6 text-[#43433f]">
-          {row.original.address || "Address not added"}
-        </p>
+        <div className="px-3 text-[13px] leading-6 text-[#43433f]">
+          {row.original.address ? (
+            <StackedAddressText value={row.original.address} muted />
+          ) : (
+            "-" // Address Not Added
+          )}
+        </div>
       ),
     },
     {
@@ -475,17 +609,12 @@ export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[
       ),
       cell: ({ row }: CellContext<PersonRecord, unknown>) => (
         row.original.pickupToLocationName || row.original.pickupToLocationAddress ? (
-          <div className="space-y-0.5 px-3">
-            {row.original.pickupToLocationName ? (
-              <p className="text-[13px] font-semibold leading-5 text-[#1d1d1b]">
-                {row.original.pickupToLocationName}
-              </p>
-            ) : null}
-            {row.original.pickupToLocationAddress ? (
-              <p className="whitespace-normal text-[13px] leading-6 text-[#43433f]">
-                {row.original.pickupToLocationAddress}
-              </p>
-            ) : null}
+          <div className="px-3">
+            <PickupToLocationText
+              name={row.original.pickupToLocationName}
+              address={row.original.pickupToLocationAddress}
+              fallback={row.original.pickupToLocation || "Not assigned"}
+            />
           </div>
         ) : (
           <p className="whitespace-normal px-3 text-[13px] leading-6 text-[#43433f]">
@@ -620,7 +749,10 @@ export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[
     try {
       if (editorMode === "create") {
         const createdPerson = await createPerson(editorDraft);
-        setPeople((currentPeople) => [createdPerson, ...currentPeople]);
+        setPeople((currentPeople) => [
+          createdPerson,
+          ...currentPeople.filter((person) => person.id !== createdPerson.id),
+        ]);
         setNotice("Added a new person to the shared roster.");
       } else if (editingPersonId) {
         const updatedPerson = await updatePerson(editingPersonId, editorDraft);
@@ -674,9 +806,104 @@ export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[
     }
   };
 
+  const requestAssignmentSuggestion = async () => {
+    if (!editorDraft || editorMode !== "create") {
+      return;
+    }
+
+    setIsSuggestingAssignment(true);
+    setAssignmentSuggestionError(null);
+
+    try {
+      const response = await fetch("/api/ai/pickup-suggestion", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          draft: toPickupSuggestionDraft(editorDraft),
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { suggestion?: PickupAssignmentSuggestion | null; error?: string }
+        | null;
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? "Unable to suggest a pickup assignment.");
+      }
+
+      if (!payload?.suggestion) {
+        throw new Error("No eligible pickup route is available for this address.");
+      }
+
+      setAssignmentSuggestion(payload.suggestion);
+      setAssignmentSuggestionDraftKey(getDraftSuggestionKey(editorDraft));
+    } catch (error) {
+      setAssignmentSuggestion(null);
+      setAssignmentSuggestionError(
+        error instanceof Error ? error.message : "Unable to suggest a pickup assignment.",
+      );
+    } finally {
+      setIsSuggestingAssignment(false);
+    }
+  };
+
+  const applyAssignmentSuggestion = async () => {
+    if (!editorDraft || editorMode !== "create" || !assignmentSuggestion) {
+      return;
+    }
+
+    setIsApplyingAssignment(true);
+    setEditorError(null);
+    setAssignmentSuggestionError(null);
+
+    try {
+      const response = await fetch("/api/ai/pickup-suggestion", {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          draft: toPickupSuggestionDraft(editorDraft),
+          suggestion: assignmentSuggestion,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            person?: PersonRecord;
+            transportPlan?: import("@/lib/drive-plan").TransportPlan;
+            error?: string;
+          }
+        | null;
+
+      if (!response.ok || !payload?.person || !payload.transportPlan) {
+        throw new Error(payload?.error ?? "Unable to apply the suggested pickup.");
+      }
+
+      const person = payload.person;
+      const transportPlan = payload.transportPlan;
+
+      upsertPersonInPeopleCache(person);
+      primeTransportPlanCache(transportPlan);
+      setPeople((currentPeople) => [
+        person,
+        ...currentPeople.filter((currentPerson) => currentPerson.id !== person.id),
+      ]);
+      setNotice("Added the person and placed them into the suggested pickup run.");
+      closeEditor();
+    } catch (error) {
+      setAssignmentSuggestionError(
+        error instanceof Error ? error.message : "Unable to apply the suggested pickup.",
+      );
+    } finally {
+      setIsApplyingAssignment(false);
+    }
+  };
+
   return (
     <>
-      <div className="grid">
+      <div className="grid gap-4">
+        <DispatchAssistantCard />
         <PeoplePanel
           title="People roster"
           description="Load, search, edit, and import crew members from the shared people source."
@@ -849,8 +1076,18 @@ export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[
           void saveEditedPerson();
         }}
         errorMessage={editorError}
+        suggestionErrorMessage={assignmentSuggestionError}
         isDeleting={isDeleting}
         isSaving={isSaving}
+        isSuggestingAssignment={isSuggestingAssignment}
+        isApplyingSuggestion={isApplyingAssignment}
+        suggestion={assignmentSuggestion}
+        onSuggestAssignment={() => {
+          void requestAssignmentSuggestion();
+        }}
+        onApplySuggestion={() => {
+          void applyAssignmentSuggestion();
+        }}
         setDraft={setEditorDraft}
       />
     </>

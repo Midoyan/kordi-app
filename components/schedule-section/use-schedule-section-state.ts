@@ -38,13 +38,15 @@ type ScheduleSheetOpenChangeDetails = {
 
 type UseScheduleSectionStateOptions = Pick<
   ScheduleSectionProps,
-  "drive" | "stopPickupPassengerOptions" | "onDriveUpdated"
+  "drive" | "stopPickupPassengerOptions" | "onDriveUpdated" | "sharedColumnVisibility" | "onSharedColumnVisibilityChange"
 >
 
 export function useScheduleSectionState({
   drive,
   stopPickupPassengerOptions,
   onDriveUpdated,
+  sharedColumnVisibility,
+  onSharedColumnVisibilityChange,
 }: UseScheduleSectionStateOptions) {
   const initialData = React.useMemo(() => buildInitialStopRows(drive), [drive])
   const passengerLookup = React.useMemo(
@@ -54,6 +56,7 @@ export function useScheduleSectionState({
   const currentDriveIdRef = React.useRef(drive.id)
   const lastSelectedRowIdRef = React.useRef<string | null>(null)
   const animationTokenRef = React.useRef(0)
+  const isMountedRef = React.useRef(false)
 
   const [data, setData] = React.useState(initialData)
   const [pendingUpdates, setPendingUpdates] = React.useState<
@@ -61,8 +64,20 @@ export function useScheduleSectionState({
   >({})
   const [pendingOrder, setPendingOrder] = React.useState<string[] | null>(null)
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(
+  const [internalColumnVisibility, setInternalColumnVisibility] = React.useState<VisibilityState>(
     defaultColumnVisibility
+  )
+  const columnVisibility = sharedColumnVisibility ?? internalColumnVisibility
+  const setColumnVisibility = React.useCallback<React.Dispatch<React.SetStateAction<VisibilityState>>>(
+    (updater) => {
+      if (onSharedColumnVisibilityChange) {
+        onSharedColumnVisibilityChange(updater)
+        return
+      }
+
+      setInternalColumnVisibility(updater)
+    },
+    [onSharedColumnVisibilityChange]
   )
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [activeId, setActiveId] = React.useState<string | null>(null)
@@ -87,6 +102,14 @@ export function useScheduleSectionState({
   )
   const hasManualPickupTimeOverrideRef = React.useRef(false)
 
+  React.useEffect(() => {
+    isMountedRef.current = true
+
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
+
   const cancelAutoStopTimeCalculation = React.useCallback(
     (reason: "manual" | "reset" | "timeout" = "reset") => {
       if (autoCalculationTimeoutRef.current !== null) {
@@ -107,7 +130,10 @@ export function useScheduleSectionState({
       }
 
       autoCalculationAbortControllerRef.current = null
-      setIsAutoCalculatingStopTime(false)
+
+      if (isMountedRef.current) {
+        setIsAutoCalculatingStopTime(false)
+      }
     },
     []
   )
@@ -124,7 +150,9 @@ export function useScheduleSectionState({
     setPendingUpdates({})
     setPendingOrder(null)
     setRowSelection({})
-    setColumnVisibility(defaultColumnVisibility)
+    if (!onSharedColumnVisibilityChange) {
+      setInternalColumnVisibility(defaultColumnVisibility)
+    }
     setSorting([])
     setActiveId(null)
     setSheetOpen(false)
@@ -141,7 +169,7 @@ export function useScheduleSectionState({
     autoCalculationAttemptRef.current = null
     hasManualPickupTimeOverrideRef.current = false
     lastSelectedRowIdRef.current = null
-  }, [cancelAutoStopTimeCalculation, drive])
+  }, [cancelAutoStopTimeCalculation, drive, onSharedColumnVisibilityChange])
 
   const displayData = React.useMemo(
     () => (pendingOrder ? orderDriveStops(data, pendingOrder) : data),
@@ -403,6 +431,10 @@ export function useScheduleSectionState({
             throw new Error("Unable to calculate the stop time automatically.")
           }
 
+          if (!isMountedRef.current) {
+            return
+          }
+
           setDraft((current) =>
             current && current.id === draft.id
               ? {
@@ -425,6 +457,10 @@ export function useScheduleSectionState({
             return
           }
 
+          if (!isMountedRef.current) {
+            return
+          }
+
           setDraft((current) =>
             current && current.id === draft.id
               ? {
@@ -443,7 +479,10 @@ export function useScheduleSectionState({
           }
           autoCalculationAbortControllerRef.current = null
           autoCalculationAbortReasonRef.current = null
-          setIsAutoCalculatingStopTime(false)
+
+          if (isMountedRef.current) {
+            setIsAutoCalculatingStopTime(false)
+          }
         })
     }, requestDelayMs)
 
@@ -654,21 +693,25 @@ export function useScheduleSectionState({
     setIsConfirmingChanges(true)
 
     try {
-      await Promise.all(
-        changedStops.map(async (item) => {
-          const response = await fetch(`/api/trips/${item.id}`, {
-            method: "PATCH",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              pickup_time: item.pickupTimeSource,
-            }),
-          })
+      for (const item of changedStops) {
+        const pickupTimeSource = item.pickupTimeSource?.trim() ?? ""
 
-          await parseMutationResponse(response, "Unable to save recalculated stop times.")
+        if (!pickupTimeSource) {
+          throw new Error("One of the recalculated stops is missing a pickup time.")
+        }
+
+        const response = await fetch(`/api/trips/${item.id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            pickup_time: pickupTimeSource,
+          }),
         })
-      )
+
+        await parseMutationResponse(response, "Unable to save recalculated stop times.")
+      }
 
       const nextDrive = buildDriveFromStopRows(drive, nextData, passengerLookup)
 

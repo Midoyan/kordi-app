@@ -249,14 +249,34 @@ export function AddressAutofillInput({
   const [suggestions, setSuggestions] = useState<SearchBoxSuggestion[]>([]);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [isSuggestionsOpen, setIsSuggestionsOpen] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
   const sessionTokenRef = useRef<SessionToken | null>(null);
   const blurTimeoutRef = useRef<number | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const isMountedRef = useRef(false);
   const suppressNextSuggestRef = useRef(false);
   const isSearchMode = mode === "search" && hasMapboxToken;
   const trimmedValue = value.trim();
 
   useEffect(() => {
+    isMountedRef.current = true;
+
+    return () => {
+      isMountedRef.current = false;
+
+      if (animationFrameRef.current !== null) {
+        window.cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!isSearchMode || !search) {
+      return;
+    }
+
+    if (!isFocused) {
       return;
     }
 
@@ -305,7 +325,7 @@ export function AddressAutofillInput({
       controller.abort();
       window.clearTimeout(timeoutId);
     };
-  }, [isSearchMode, proximity, search, trimmedValue]);
+  }, [isFocused, isSearchMode, proximity, search, trimmedValue]);
 
   useEffect(() => {
     return () => {
@@ -316,7 +336,13 @@ export function AddressAutofillInput({
   }, []);
 
   const primeFirstSuggestion = () => {
-    window.requestAnimationFrame(() => {
+    animationFrameRef.current = window.requestAnimationFrame(() => {
+      animationFrameRef.current = null;
+
+      if (!isMountedRef.current) {
+        return;
+      }
+
       const activeElement = document.activeElement;
 
       if (!(activeElement instanceof HTMLInputElement) || activeElement.name !== name) {
@@ -474,6 +500,7 @@ export function AddressAutofillInput({
       value={value}
       onFocus={(event) => {
         onFocus?.(event);
+        setIsFocused(true);
 
         if (isSearchMode && trimmedValue.length >= MIN_SEARCH_CHARACTERS && suggestions.length > 0) {
           setIsSuggestionsOpen(true);
@@ -481,6 +508,7 @@ export function AddressAutofillInput({
       }}
       onBlur={(event) => {
         onBlur?.(event);
+        setIsFocused(false);
 
         if (!isSearchMode) {
           return;
@@ -581,7 +609,13 @@ export function AddressAutofillInput({
               return;
             }
 
-            window.requestAnimationFrame(() => {
+            animationFrameRef.current = window.requestAnimationFrame(() => {
+              animationFrameRef.current = null;
+
+              if (!isMountedRef.current) {
+                return;
+              }
+
               onValueChange(nextAddress);
             });
           }}

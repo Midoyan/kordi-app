@@ -13,12 +13,16 @@ import {
   ComboboxTrigger,
   ComboboxValue,
 } from "@/components/ui/combobox"
-import { EditorSheetLayout } from "@/components/editor-sheet-layout"
+import {
+  EditorSheetBody,
+  EditorSheetFooter,
+  EditorSheetForm,
+  EditorSheetLayout,
+} from "@/components/editor-sheet-layout"
 import { LocationDetailsDialog } from "@/components/location-details-dialog"
 import { LocationPickerInput } from "@/components/location-picker-input"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { SheetFooter } from "@/components/ui/sheet"
 import type {
   LocationDraft,
   LocationRecord,
@@ -189,14 +193,13 @@ export function DriveEditorSheet({
         descriptionClassName="mt-0 text-sm"
       >
         {draft ? (
-          <form
-            className="flex flex-1 flex-col"
+          <EditorSheetForm
             onSubmit={(event) => {
               event.preventDefault()
               onSave()
             }}
           >
-            <div className="flex flex-1 flex-col gap-5 px-4 pb-4">
+            <EditorSheetBody className="gap-5 px-4 pb-4 pt-0">
               {errorMessage ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[13px] text-amber-800">
                   {errorMessage}
@@ -386,9 +389,9 @@ export function DriveEditorSheet({
                   className="min-h-24 rounded-xl border border-[#d8dcd2] bg-white px-3 py-2.5 text-[14px] text-[#1d1d1b] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] outline-none transition-[border-color,box-shadow] duration-200 ease-[cubic-bezier(0.2,0,0,1)] placeholder:text-[#8a8f85] focus:border-[#7d8f78] focus:ring-3 focus:ring-[#d8e2d2]"
                 />
               </Field>
-            </div>
+            </EditorSheetBody>
 
-            <SheetFooter className="border-t border-[#ecece8] bg-[#fcfcfa]">
+            <EditorSheetFooter className="bg-[#fcfcfa]">
               <div className="flex w-full items-center justify-between gap-2">
                 {mode === "edit" && onDelete ? (
                   <Button
@@ -425,8 +428,8 @@ export function DriveEditorSheet({
                   </Button>
                 </div>
               </div>
-            </SheetFooter>
-          </form>
+            </EditorSheetFooter>
+          </EditorSheetForm>
         ) : null}
       </EditorSheetLayout>
 

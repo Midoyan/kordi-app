@@ -83,7 +83,7 @@ export function buildAdvancedTimingCaption(
   const parts: string[] = []
 
   if (!showStopDuration && normalizeTimingSeconds(stop.stopDurationSec) > 0) {
-    parts.push(`+${formatDurationSeconds(stop.stopDurationSec)} stop`)
+    parts.push(`+${formatDurationSeconds(stop.stopDurationSec)} boarding`)
   }
 
   if (!showTrafficBuffer && normalizeTimingSeconds(stop.trafficBufferSec) > 0) {

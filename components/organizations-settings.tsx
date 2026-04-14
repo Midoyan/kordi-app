@@ -7,6 +7,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  Presentation,
   Trash2,
   Users,
 } from "lucide-react";
@@ -35,6 +36,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 
 type DialogState =
@@ -47,10 +49,12 @@ export function OrganizationsSettings() {
   const {
     organizations,
     activeOrganization,
+    showNavbar,
     switchOrganization,
     createOrganization,
     renameOrganization,
     deleteOrganization,
+    setShowNavbar,
   } = useOrganizations();
   const [dialogState, setDialogState] = React.useState<DialogState>(null);
   const [draftName, setDraftName] = React.useState("");
@@ -208,6 +212,33 @@ export function OrganizationsSettings() {
       </Card>
 
       <div className="grid gap-4">
+        <Card className="border border-[#e3e3df] bg-white py-0 shadow-[0_12px_30px_-26px_rgba(15,23,42,0.45)]">
+          <CardHeader className="px-5 py-5">
+            <CardTitle className="text-[17px] text-[#1d1d1b]">Presentation mode</CardTitle>
+            <CardDescription className="mt-1 text-[13px] leading-6 text-[#6b6b67]">
+              Hide the top navbar for demos while keeping the sidebar visible.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="px-5 pb-5">
+            <label
+              htmlFor="show-navbar"
+              className="flex cursor-pointer items-start gap-3 rounded-[18px] border border-[#e6e5df] bg-[#fcfcfa] p-4 transition-colors hover:border-[#dddcd5]"
+            >
+              <Checkbox
+                id="show-navbar"
+                checked={showNavbar}
+                onCheckedChange={setShowNavbar}
+                className="mt-0.5"
+              />
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <Presentation className="size-4 text-[#686863]" />
+                  <p className="text-[14px] font-medium text-[#1d1d1b]">Show top navbar</p>
+                </div>
+              </div>
+            </label>
+          </CardContent>
+        </Card>
         <Card className="border border-[#e3e3df] bg-[linear-gradient(180deg,#ffffff_0%,#f8f7f2_100%)] py-0 shadow-[0_12px_30px_-26px_rgba(15,23,42,0.45)]">
           <CardHeader className="px-5 py-5">
             <CardTitle className="text-[17px] text-[#1d1d1b]">Current org</CardTitle>
@@ -362,4 +393,3 @@ export function OrganizationsSettings() {
     </div>
   );
 }
-

@@ -1,9 +1,15 @@
 "use client"
 
 import * as React from "react"
-import type { ComponentProps } from "react"
 import { ChevronRight, LoaderCircle } from "lucide-react"
 
+import {
+  EditorSheetBody,
+  EditorSheetFooter,
+  EditorSheetForm,
+  EditorSheetLayout,
+  type EditorSheetOpenChangeDetails,
+} from "@/components/editor-sheet-layout"
 import type { StopPickupPassengerOption } from "@/lib/drive-plan"
 import { getTravelTypeLabel, type TravelType } from "@/lib/travels"
 import { cn } from "@/lib/utils"
@@ -16,17 +22,6 @@ import type { DriveStopRow } from "@/components/schedule-section/types"
 import type { ScheduleStopDraftMode } from "@/components/schedule-section/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
-
-type SheetOpenChange = NonNullable<ComponentProps<typeof Sheet>["onOpenChange"]>
-type StopEditorOpenChangeDetails = Parameters<SheetOpenChange>[1]
 
 type ScheduleStopEditorSheetProps = {
   open: boolean
@@ -45,7 +40,7 @@ type ScheduleStopEditorSheetProps = {
   deletingStopId: string | null
   setDraft: React.Dispatch<React.SetStateAction<DriveStopRow | null>>
   setTimingAdjustmentsOpen: React.Dispatch<React.SetStateAction<boolean>>
-  onOpenChange: (open: boolean, eventDetails?: StopEditorOpenChangeDetails) => void
+  onOpenChange: (open: boolean, eventDetails?: EditorSheetOpenChangeDetails) => void
   onDelete: (item: DriveStopRow) => void
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void
 }
@@ -75,24 +70,26 @@ export function ScheduleStopEditorSheet({
   const showGuidedAddressAndAdvancedFields = draftMode !== "create" || hasSelectedPassengers
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} disablePointerDismissal>
-      <SheetContent side="right" className="w-full border-l border-[#ecece8] bg-white sm:max-w-xl">
-        <SheetHeader className="gap-1 border-b border-[#ecece8] px-6 py-5">
-          <SheetTitle>
-            {draftMode === "create"
-              ? "New stop"
-              : draft
-              ? `${getStopPickupPassengerNames(draft.stopPickupPassengerIds, passengerLookup).length} passenger${getStopPickupPassengerNames(draft.stopPickupPassengerIds, passengerLookup).length === 1 ? "" : "s"}`
-              : "Stop details"}
-          </SheetTitle>
-          <SheetDescription>
-            {draftMode === "create"
-              ? `Add a new stop inside ${driveLabel} without leaving this ${getTravelTypeLabel(travelType).toLowerCase()} drive.`
-              : `Edit the selected stop in ${driveLabel} without leaving this ${getTravelTypeLabel(travelType).toLowerCase()} drive.`}
-          </SheetDescription>
-        </SheetHeader>
-
-        <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-6 py-5">
+    <EditorSheetLayout
+      open={open}
+      onOpenChange={onOpenChange}
+      title={
+        draftMode === "create"
+          ? "New stop"
+          : draft
+          ? `${getStopPickupPassengerNames(draft.stopPickupPassengerIds, passengerLookup).length} passenger${getStopPickupPassengerNames(draft.stopPickupPassengerIds, passengerLookup).length === 1 ? "" : "s"}`
+          : "Stop details"
+      }
+      description={
+        draftMode === "create"
+          ? `Add a new stop inside ${driveLabel} without leaving this ${getTravelTypeLabel(travelType).toLowerCase()} drive.`
+          : `Edit the selected stop in ${driveLabel} without leaving this ${getTravelTypeLabel(travelType).toLowerCase()} drive.`
+      }
+      contentClassName="sm:max-w-xl"
+      headerClassName="gap-1 px-6 py-5"
+    >
+      <EditorSheetForm onSubmit={onSubmit}>
+        <EditorSheetBody className="gap-5 px-6">
           {/* <div className="rounded-xl border border-[#ecece8] bg-[#fbfbf8] p-4">
             <p className="text-[12px] font-semibold tracking-[0.12em] text-[#777772] uppercase">
               Stop snapshot
@@ -123,7 +120,7 @@ export function ScheduleStopEditorSheet({
 
           <Separator className="bg-[#ecece8]" /> */}
 
-          <form className="flex flex-col gap-4" onSubmit={onSubmit}>
+          <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
               <label className="text-[13px] font-medium text-[#1d1d1b]">
                 Stop pickup passengers
@@ -181,8 +178,8 @@ export function ScheduleStopEditorSheet({
                     <p className="text-[13px] font-medium text-[#1d1d1b]">Timing adjustments</p>
                     <p className="mt-1 text-[12px] text-[#6b6b67]">
                       {travelType === "pickup"
-                        ? "Optional per-stop timing inputs for longer pickups or extra traffic slack."
-                        : "Optional stop timing inputs for dwell time at this stop and any traffic slack."}
+                        ? "Optional per-stop timing inputs for longer boarding windows or extra traffic slack."
+                        : "Optional stop timing inputs for boarding time at this stop and any traffic slack."}
                     </p>
                   </div>
                   <ChevronRight
@@ -196,7 +193,7 @@ export function ScheduleStopEditorSheet({
                   <div className="grid gap-4 border-t border-[#ecece8] px-4 py-4 sm:grid-cols-2">
                     <div className="flex flex-col gap-2">
                       <label htmlFor="schedule-stop-duration" className="text-[13px] font-medium text-[#1d1d1b]">
-                        Stop duration (sec)
+                        Boarding time (sec)
                       </label>
                       <Input
                         id="schedule-stop-duration"
@@ -248,59 +245,59 @@ export function ScheduleStopEditorSheet({
               </div>
             ) : null}
 
-            <SheetFooter className="px-0 pt-2">
-              <div className="flex w-full items-center justify-between gap-2">
-                {draft && draftMode === "edit" ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="border-rose-200 bg-white text-rose-700 hover:bg-rose-50 hover:text-rose-800"
-                    disabled={
-                      isSavingStop ||
-                      isDeletingSelectedStops ||
-                      deletingStopId === draft.id
-                    }
-                    onClick={() => {
-                      onDelete(draft)
-                    }}
-                  >
-                    {deletingStopId === draft.id ? "Deleting..." : "Delete stop"}
-                  </Button>
-                ) : (
-                  <span />
-                )}
+          </div>
+        </EditorSheetBody>
+        <EditorSheetFooter className="bg-[#fcfcfa] px-6">
+          <div className="flex w-full items-center justify-between gap-2">
+            {draft && draftMode === "edit" ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="border-rose-200 bg-white text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                disabled={
+                  isSavingStop ||
+                  isDeletingSelectedStops ||
+                  deletingStopId === draft.id
+                }
+                onClick={() => {
+                  onDelete(draft)
+                }}
+              >
+                {deletingStopId === draft.id ? "Deleting..." : "Delete stop"}
+              </Button>
+            ) : (
+              <span />
+            )}
 
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => onOpenChange(false)}
-                    disabled={
-                      isSavingStop ||
-                      isAutoCalculatingStopTime ||
-                      isDeletingSelectedStops ||
-                      (draft ? deletingStopId === draft.id : false)
-                    }
-                  >
-                    Done
-                  </Button>
-                  <Button
-                    type="submit"
-                    disabled={
-                      isSavingStop ||
-                      isAutoCalculatingStopTime ||
-                      isDeletingSelectedStops ||
-                      (draft ? deletingStopId === draft.id : false)
-                    }
-                  >
-                    {isSavingStop ? "Saving…" : draftMode === "create" ? "Create stop" : "Save stop"}
-                  </Button>
-                </div>
-              </div>
-            </SheetFooter>
-          </form>
-        </div>
-      </SheetContent>
-    </Sheet>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={
+                  isSavingStop ||
+                  isAutoCalculatingStopTime ||
+                  isDeletingSelectedStops ||
+                  (draft ? deletingStopId === draft.id : false)
+                }
+              >
+                Done
+              </Button>
+              <Button
+                type="submit"
+                disabled={
+                  isSavingStop ||
+                  isAutoCalculatingStopTime ||
+                  isDeletingSelectedStops ||
+                  (draft ? deletingStopId === draft.id : false)
+                }
+              >
+                {isSavingStop ? "Saving…" : draftMode === "create" ? "Create stop" : "Save stop"}
+              </Button>
+            </div>
+          </div>
+        </EditorSheetFooter>
+      </EditorSheetForm>
+    </EditorSheetLayout>
   )
 }

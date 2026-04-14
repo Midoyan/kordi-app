@@ -308,6 +308,13 @@ export function primePeopleCache(people: PersonRecord[]) {
   return storePeopleCache(people);
 }
 
+export function upsertPersonInPeopleCache(person: PersonRecord) {
+  return updatePeopleCache((currentPeople) => [
+    person,
+    ...currentPeople.filter((entry) => entry.id !== person.id),
+  ]);
+}
+
 function updatePeopleCache(
   update: (currentPeople: PersonRecord[]) => PersonRecord[],
 ) {
