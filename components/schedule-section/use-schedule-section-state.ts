@@ -693,21 +693,25 @@ export function useScheduleSectionState({
     setIsConfirmingChanges(true)
 
     try {
-      await Promise.all(
-        changedStops.map(async (item) => {
-          const response = await fetch(`/api/trips/${item.id}`, {
-            method: "PATCH",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              pickup_time: item.pickupTimeSource,
-            }),
-          })
+      for (const item of changedStops) {
+        const pickupTimeSource = item.pickupTimeSource?.trim() ?? ""
 
-          await parseMutationResponse(response, "Unable to save recalculated stop times.")
+        if (!pickupTimeSource) {
+          throw new Error("One of the recalculated stops is missing a pickup time.")
+        }
+
+        const response = await fetch(`/api/trips/${item.id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            pickup_time: pickupTimeSource,
+          }),
         })
-      )
+
+        await parseMutationResponse(response, "Unable to save recalculated stop times.")
+      }
 
       const nextDrive = buildDriveFromStopRows(drive, nextData, passengerLookup)
 

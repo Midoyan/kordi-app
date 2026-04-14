@@ -148,24 +148,26 @@ export function CallSheet({ drives = [] }: CallSheetProps) {
                 {/* Date Header */}
                 <View style={{ backgroundColor: '#1e293b', padding: 16, marginBottom: 16 }}>
                     <Text style={{ fontSize: 16, fontWeight: 700, color: '#ffffff', textAlign: 'center' }}>
-                        {data.dayOfWeek}
+                        {/* {data.dayOfWeek} */}
+                        KORDI
                     </Text>
-                    <Text style={{ fontSize: 14, color: '#ffffff', textAlign: 'center', marginTop: 2 }}>
+                    {/* <Text style={{ fontSize: 14, color: '#ffffff', textAlign: 'center', marginTop: 2 }}>
                         {data.shootDate}
-                    </Text>
-                    <Text style={{ fontSize: 12, color: '#ffffff', textAlign: 'center', marginTop: 8 }}>
+                    </Text> */}
+                    {/* <Text style={{ fontSize: 12, color: '#ffffff', textAlign: 'center', marginTop: 8 }}>
                         SHOOT DAY {data.shootDay}
-                    </Text>
+                    </Text> */}
                 </View>
 
                 {/* Transportation Schedule */}
                 <View style={{ marginBottom: 24 }}>
                     <View style={{ backgroundColor: '#1e293b', padding: 8, marginBottom: 2 }}>
                         <Text style={{ fontSize: 10, fontWeight: 700, color: '#ffffff' }}>
-                            TRANSPORTATION {data.transportationDate}
+                            TRANSPORTATION PLAN
                         </Text>
                     </View>
 
+                    {/* {data.transportationDate} */}
                     <Table columns={[
                         { width: { fraction: 0.08 } },
                         { width: { fraction: 0.15 } },

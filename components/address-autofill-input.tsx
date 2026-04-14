@@ -249,6 +249,7 @@ export function AddressAutofillInput({
   const [suggestions, setSuggestions] = useState<SearchBoxSuggestion[]>([]);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [isSuggestionsOpen, setIsSuggestionsOpen] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
   const sessionTokenRef = useRef<SessionToken | null>(null);
   const blurTimeoutRef = useRef<number | null>(null);
   const animationFrameRef = useRef<number | null>(null);
@@ -272,6 +273,10 @@ export function AddressAutofillInput({
 
   useEffect(() => {
     if (!isSearchMode || !search) {
+      return;
+    }
+
+    if (!isFocused) {
       return;
     }
 
@@ -320,7 +325,7 @@ export function AddressAutofillInput({
       controller.abort();
       window.clearTimeout(timeoutId);
     };
-  }, [isSearchMode, proximity, search, trimmedValue]);
+  }, [isFocused, isSearchMode, proximity, search, trimmedValue]);
 
   useEffect(() => {
     return () => {
@@ -495,6 +500,7 @@ export function AddressAutofillInput({
       value={value}
       onFocus={(event) => {
         onFocus?.(event);
+        setIsFocused(true);
 
         if (isSearchMode && trimmedValue.length >= MIN_SEARCH_CHARACTERS && suggestions.length > 0) {
           setIsSuggestionsOpen(true);
@@ -502,6 +508,7 @@ export function AddressAutofillInput({
       }}
       onBlur={(event) => {
         onBlur?.(event);
+        setIsFocused(false);
 
         if (!isSearchMode) {
           return;

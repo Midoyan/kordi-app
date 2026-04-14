@@ -3,28 +3,191 @@ import "server-only";
 import { generateText, stepCountIs } from "ai";
 
 import { getCurrentUser } from "@/lib/auth";
+import { getTransportPlan } from "@/lib/drive-plan";
+import {
+  dispatchDebugLog,
+  summarizeAction,
+  summarizeConstraints,
+  summarizePickupDraft,
+  summarizePickupSuggestion,
+} from "@/lib/ai/dispatch/debug";
+import {
+  buildPickupSuggestionConstraintsFromIntent,
+  buildPickupSuggestionDraftFromIntent,
+  extractDispatchIntent,
+  isStructuredPickupAssignmentIntent,
+  normalizePickupSuggestionConstraints,
+} from "@/lib/ai/dispatch/intents";
 import { getDispatchModel } from "@/lib/ai/dispatch/model";
 import {
   buildPickupSuggestionDraftFromPerson,
+  buildPickupSuggestionDraftFromCrewMemberRow,
+  canonicalizePickupSuggestionDraft,
   extractPickupSuggestionDraftFromQuestion,
   fetchPeopleRecords,
   isPickupAssignmentIntent,
+  mapCrewMemberRowToAssignmentCandidatePerson,
   mapCrewMemberRowToCandidatePerson,
   pickBestPersonForAssignment,
+  resolveExistingCrewMemberForDraft,
 } from "@/lib/ai/dispatch/people";
 import {
   buildPickupSuggestionAction,
   buildPickupSuggestionAnswer,
+  buildPickupSuggestionFallbackAnswer,
   suggestPickupAssignment,
 } from "@/lib/ai/dispatch/pickups";
 import { createDispatchTools } from "@/lib/ai/dispatch/tools";
 import type {
   DispatchAssistantAction,
   PickupAssignmentSuggestion,
+  PickupSuggestionConstraints,
 } from "@/lib/ai/dispatch/types";
 import { readString } from "@/lib/ai/dispatch/utils";
 
+function createRequestId() {
+  return `dispatch-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function summarizeToolResult(
+  entry: {
+    type: string;
+    toolName?: string;
+    input?: unknown;
+    output?: unknown;
+  },
+) {
+  if (entry.toolName === "suggest_pickup_assignment") {
+    return {
+      type: entry.type,
+      toolName: entry.toolName,
+      input: summarizePickupDraft(
+        entry.input && typeof entry.input === "object"
+          ? {
+              personId: null,
+              name: readString((entry.input as { name?: unknown }).name),
+              address: readString((entry.input as { address?: unknown }).address),
+              phone: readString((entry.input as { phone?: unknown }).phone),
+              role: readString((entry.input as { role?: unknown }).role),
+            }
+          : null,
+      ),
+      constraints:
+        entry.input && typeof entry.input === "object" && "constraints" in entry.input
+          ? summarizeConstraints((entry.input as { constraints?: Partial<PickupSuggestionConstraints> }).constraints)
+          : null,
+      output: summarizePickupSuggestion(entry.output as PickupAssignmentSuggestion | null | undefined),
+    };
+  }
+
+  return {
+    type: entry.type,
+    toolName: entry.toolName ?? "unknown",
+    input: entry.input ?? null,
+    output: entry.output ?? null,
+  };
+}
+
+function mergePickupSuggestionDrafts(
+  baseDraft: ReturnType<typeof buildPickupSuggestionDraftFromPerson>,
+  overrideDraft?: ReturnType<typeof buildPickupSuggestionDraftFromIntent> | null,
+) {
+  if (!overrideDraft) {
+    return baseDraft;
+  }
+
+  return {
+    personId: baseDraft.personId,
+    name: baseDraft.name,
+    address: readString(overrideDraft.address) || baseDraft.address,
+    phone: readString(overrideDraft.phone) || baseDraft.phone,
+    role: readString(overrideDraft.role) || baseDraft.role,
+  };
+}
+
+async function canonicalizeDraftIfExisting(draft: {
+  personId?: string | null;
+  name: string;
+  address: string;
+  phone: string;
+  role: string;
+}) {
+  const existingCrewMember = await resolveExistingCrewMemberForDraft(draft).catch(() => null);
+  return existingCrewMember ? canonicalizePickupSuggestionDraft(draft, existingCrewMember) : draft;
+}
+
+function buildRelaxedPickupConstraints(constraints: PickupSuggestionConstraints | null | undefined) {
+  return normalizePickupSuggestionConstraints({
+    ...constraints,
+    latestArrivalIsRequired: false,
+    requirePreferredVan: false,
+  });
+}
+
+function needsRelaxedPickupFallback(constraints: PickupSuggestionConstraints | null | undefined) {
+  const normalizedConstraints = normalizePickupSuggestionConstraints(constraints);
+  return Boolean(normalizedConstraints.latestArrivalIsRequired || normalizedConstraints.requirePreferredVan);
+}
+
+async function resolvePickupSuggestionWithFallbacks(
+  draft: {
+    personId?: string | null;
+    name: string;
+    address: string;
+    phone: string;
+    role: string;
+  },
+  requestedConstraints: PickupSuggestionConstraints | null | undefined,
+) {
+  const strictSuggestion = await suggestPickupAssignment(draft, requestedConstraints).catch(() => null);
+
+  if (strictSuggestion) {
+    const strictAction = buildPickupSuggestionAction(draft, strictSuggestion, requestedConstraints);
+    return {
+      answer: buildPickupSuggestionAnswer(draft, strictSuggestion, requestedConstraints),
+      action: strictAction,
+      usedRelaxedFallback: false,
+    };
+  }
+
+  if (!needsRelaxedPickupFallback(requestedConstraints)) {
+    return null;
+  }
+
+  const relaxedConstraints = buildRelaxedPickupConstraints(requestedConstraints);
+  const relaxedSuggestion = await suggestPickupAssignment(draft, relaxedConstraints).catch(() => null);
+
+  if (!relaxedSuggestion) {
+    return null;
+  }
+
+  const preferredVanConstraints = normalizePickupSuggestionConstraints({
+    ...requestedConstraints,
+    latestArrivalIsRequired: false,
+    requirePreferredVan: true,
+  });
+  const forcedPreferredVanSuggestion = preferredVanConstraints.preferredVan
+    ? await suggestPickupAssignment(draft, preferredVanConstraints).catch(() => null)
+    : null;
+  const relaxedAction = buildPickupSuggestionAction(draft, relaxedSuggestion, relaxedConstraints);
+
+  return {
+    answer: buildPickupSuggestionFallbackAnswer(
+      draft,
+      requestedConstraints,
+      relaxedSuggestion,
+      forcedPreferredVanSuggestion,
+    ),
+    action: relaxedAction,
+    usedRelaxedFallback: true,
+  };
+}
+
+type PickupSuggestionResolution = Awaited<ReturnType<typeof resolvePickupSuggestionWithFallbacks>>;
+
 export async function answerDispatchQuestion(question: string) {
+  const requestId = createRequestId();
+  const startedAt = Date.now();
   const trimmedQuestion = question.trim();
 
   if (!trimmedQuestion) {
@@ -36,44 +199,124 @@ export async function answerDispatchQuestion(question: string) {
   }
 
   const currentUser = await getCurrentUser().catch(() => null);
-  const parsedDraftFromQuestion = extractPickupSuggestionDraftFromQuestion(trimmedQuestion);
-  const pickupIntent = isPickupAssignmentIntent(trimmedQuestion);
+  const intentStartedAt = Date.now();
+  const extractedIntent = await extractDispatchIntent(trimmedQuestion).catch(() => null);
+  const intentDraft = buildPickupSuggestionDraftFromIntent(extractedIntent);
+  const intentConstraints = buildPickupSuggestionConstraintsFromIntent(extractedIntent);
+  const rawParsedDraftFromQuestion = intentDraft ?? extractPickupSuggestionDraftFromQuestion(trimmedQuestion);
+  const parsedDraftFromQuestion = rawParsedDraftFromQuestion
+    ? await canonicalizeDraftIfExisting(rawParsedDraftFromQuestion)
+    : null;
+  const pickupIntent =
+    isStructuredPickupAssignmentIntent(extractedIntent) || isPickupAssignmentIntent(trimmedQuestion);
+
+  dispatchDebugLog("assistant.question.received", {
+    requestId,
+    question: trimmedQuestion,
+    currentUser: currentUser?.name ?? null,
+    intentDurationMs: Date.now() - intentStartedAt,
+    extractedIntent,
+    intentDraft: summarizePickupDraft(intentDraft),
+    intentConstraints: summarizeConstraints(intentConstraints),
+    parsedDraftFromQuestion: summarizePickupDraft(parsedDraftFromQuestion),
+    pickupIntent,
+  });
 
   if (pickupIntent) {
-    const directPeople = (await fetchPeopleRecords()).map(mapCrewMemberRowToCandidatePerson);
-    const directPerson = pickBestPersonForAssignment(trimmedQuestion, directPeople);
+    try {
+      const directResolutionStartedAt = Date.now();
+      const [directPeopleRows, transportPlan] = await Promise.all([fetchPeopleRecords(), getTransportPlan()]);
+      const directPeople = directPeopleRows.map((row) =>
+        mapCrewMemberRowToAssignmentCandidatePerson(row, transportPlan),
+      );
+      const directPerson = pickBestPersonForAssignment(
+        [trimmedQuestion, extractedIntent?.personName, extractedIntent?.personAddress].filter(Boolean).join(" "),
+        directPeople,
+      );
 
-    if (directPerson) {
-      const directDraft = buildPickupSuggestionDraftFromPerson(directPerson);
+      dispatchDebugLog("assistant.direct-match", {
+        requestId,
+        matchedPerson: directPerson
+          ? {
+              id: directPerson.id,
+              name: directPerson.name,
+              address: directPerson.address,
+              pickupToLocation: directPerson.pickupToLocation,
+            }
+          : null,
+        directPeopleCount: directPeople.length,
+      });
 
-      if (!directDraft.address) {
-        return {
-          answer: `I found ${directDraft.name}, but I still need their address before I can create a pickup assignment. Could you share it?`,
-          action: null,
-        };
+      if (directPerson) {
+        const directPersonRow = directPeopleRows.find((row) => row.id === directPerson.id) ?? null;
+        const directDraft = mergePickupSuggestionDrafts(
+          directPersonRow
+            ? buildPickupSuggestionDraftFromCrewMemberRow(directPersonRow, transportPlan)
+            : buildPickupSuggestionDraftFromPerson(directPerson),
+          intentDraft,
+        );
+
+        if (!directDraft.address) {
+          return {
+            answer: `I found ${directDraft.name}, but I still need their address before I can create a pickup assignment. Could you share it?`,
+            action: null,
+          };
+        }
+
+        const directResolution = await resolvePickupSuggestionWithFallbacks(directDraft, intentConstraints);
+
+        if (directResolution) {
+          dispatchDebugLog("assistant.direct-suggestion", {
+            requestId,
+            draft: summarizePickupDraft(directDraft),
+            action: summarizeAction(directResolution.action),
+            usedRelaxedFallback: directResolution.usedRelaxedFallback,
+            durationMs: Date.now() - directResolutionStartedAt,
+          });
+
+          return {
+            answer: directResolution.answer,
+            action: directResolution.action,
+          };
+        }
       }
 
-      const directSuggestion = await suggestPickupAssignment(directDraft).catch(() => null);
+      if (parsedDraftFromQuestion?.address && parsedDraftFromQuestion.name) {
+        const parsedResolution = await resolvePickupSuggestionWithFallbacks(parsedDraftFromQuestion, intentConstraints);
 
-      if (directSuggestion) {
-        return {
-          answer: buildPickupSuggestionAnswer(directDraft, directSuggestion),
-          action: buildPickupSuggestionAction(directDraft, directSuggestion),
-        };
+        if (parsedResolution) {
+          dispatchDebugLog("assistant.parsed-draft-suggestion", {
+            requestId,
+            draft: summarizePickupDraft(parsedDraftFromQuestion),
+            action: summarizeAction(parsedResolution.action),
+            usedRelaxedFallback: parsedResolution.usedRelaxedFallback,
+            durationMs: Date.now() - directResolutionStartedAt,
+          });
+
+          return {
+            answer: parsedResolution.answer,
+            action: parsedResolution.action,
+          };
+        }
       }
-    }
-
-    if (parsedDraftFromQuestion?.address) {
-      const directSuggestion = await suggestPickupAssignment(parsedDraftFromQuestion).catch(() => null);
-
-      if (directSuggestion) {
-        return {
-          answer: buildPickupSuggestionAnswer(parsedDraftFromQuestion, directSuggestion),
-          action: buildPickupSuggestionAction(parsedDraftFromQuestion, directSuggestion),
-        };
-      }
+    } catch (error) {
+      dispatchDebugLog("assistant.direct-resolution-error", {
+        requestId,
+        error,
+        extractedIntent,
+        parsedDraftFromQuestion: summarizePickupDraft(parsedDraftFromQuestion),
+        durationMs: Date.now() - startedAt,
+      });
     }
   }
+
+  const modelStartedAt = Date.now();
+  dispatchDebugLog("assistant.model-start", {
+    requestId,
+    pickupIntent,
+    parsedDraftFromQuestion: summarizePickupDraft(parsedDraftFromQuestion),
+    intentConstraints: summarizeConstraints(intentConstraints),
+  });
 
   const result = await generateText({
     model: getDispatchModel(),
@@ -89,8 +332,17 @@ export async function answerDispatchQuestion(question: string) {
       .join(" "),
     prompt: trimmedQuestion,
     stopWhen: stepCountIs(5),
-    temperature: 0.2,
+    temperature: 0,
     tools: createDispatchTools(),
+  });
+
+  dispatchDebugLog("assistant.model-response", {
+    requestId,
+    durationMs: Date.now() - modelStartedAt,
+    text: result.text,
+    toolResults: result.toolResults.map((entry) =>
+      summarizeToolResult(entry as { type: string; toolName?: string; input?: unknown; output?: unknown }),
+    ),
   });
 
   const suggestionToolResult = result.toolResults.find(
@@ -102,13 +354,21 @@ export async function answerDispatchQuestion(question: string) {
     suggestionToolResult.toolName === "suggest_pickup_assignment" &&
     suggestionToolResult.output
       ? buildPickupSuggestionAction(
-          {
+          await canonicalizeDraftIfExisting({
+            personId: null,
             name: readString((suggestionToolResult.input as { name?: unknown }).name),
             address: readString((suggestionToolResult.input as { address?: unknown }).address),
             phone: readString((suggestionToolResult.input as { phone?: unknown }).phone),
             role: readString((suggestionToolResult.input as { role?: unknown }).role),
-          },
+          }),
           suggestionToolResult.output as PickupAssignmentSuggestion,
+          suggestionToolResult.input &&
+            typeof suggestionToolResult.input === "object" &&
+            "constraints" in suggestionToolResult.input
+            ? normalizePickupSuggestionConstraints(
+                (suggestionToolResult.input as { constraints?: Partial<PickupSuggestionConstraints> }).constraints,
+              )
+            : intentConstraints,
         )
       : null;
   const peopleFromToolResults = result.toolResults
@@ -127,45 +387,50 @@ export async function answerDispatchQuestion(question: string) {
     !action && !personDraftFromToolResults && peopleFromDatabase.length > 0
       ? pickBestPersonForAssignment(trimmedQuestion, peopleFromDatabase)
       : null;
-  const fallbackAction =
+  const fallbackResolution: PickupSuggestionResolution =
     !action && parsedDraftFromQuestion
-      ? await suggestPickupAssignment(parsedDraftFromQuestion)
-          .then((suggestion) =>
-            suggestion ? buildPickupSuggestionAction(parsedDraftFromQuestion, suggestion) : null,
-          )
+      ? await resolvePickupSuggestionWithFallbacks(parsedDraftFromQuestion, intentConstraints)
+          .then((result) => result ?? null)
           .catch(() => null)
       : null;
-  const personFallbackAction =
-    !action && !fallbackAction && personDraftFromToolResults
-      ? await suggestPickupAssignment(buildPickupSuggestionDraftFromPerson(personDraftFromToolResults))
-          .then((suggestion) =>
-            suggestion
-              ? buildPickupSuggestionAction(
-                  buildPickupSuggestionDraftFromPerson(personDraftFromToolResults),
-                  suggestion,
-                )
-              : null,
-          )
+  const personFallbackResolution: PickupSuggestionResolution =
+    !action && !fallbackResolution && personDraftFromToolResults
+      ? await resolvePickupSuggestionWithFallbacks(
+          buildPickupSuggestionDraftFromPerson(personDraftFromToolResults),
+          intentConstraints,
+        )
+          .then((result) => result ?? null)
           .catch(() => null)
       : null;
-  const directDatabaseFallbackAction =
-    !action && !fallbackAction && !personFallbackAction && personDraftFromDatabase
-      ? await suggestPickupAssignment(buildPickupSuggestionDraftFromPerson(personDraftFromDatabase))
-          .then((suggestion) =>
-            suggestion
-              ? buildPickupSuggestionAction(
-                  buildPickupSuggestionDraftFromPerson(personDraftFromDatabase),
-                  suggestion,
-                )
-              : null,
-          )
+  const directDatabaseFallbackResolution: PickupSuggestionResolution =
+    !action && !fallbackResolution && !personFallbackResolution && personDraftFromDatabase
+      ? await resolvePickupSuggestionWithFallbacks(
+          buildPickupSuggestionDraftFromPerson(personDraftFromDatabase),
+          intentConstraints,
+        )
+          .then((result) => result ?? null)
           .catch(() => null)
       : null;
-  const finalAction = action ?? fallbackAction ?? personFallbackAction ?? directDatabaseFallbackAction;
+  const fallbackResolutionResult =
+    fallbackResolution ?? personFallbackResolution ?? directDatabaseFallbackResolution;
+  const finalAction = action ?? fallbackResolutionResult?.action ?? null;
   const answer =
-    finalAction && !/apply this for you\??/i.test(result.text)
+    !action && fallbackResolutionResult
+      ? fallbackResolutionResult.answer
+      : finalAction && pickupIntent
+      ? buildPickupSuggestionAnswer(finalAction.draft, finalAction.suggestion, finalAction.constraints)
+      : finalAction && !/apply this for you\??/i.test(result.text)
       ? `${result.text.trim()}\n\nDo you want me to apply this for you?`
       : result.text.trim();
+
+  dispatchDebugLog("assistant.final", {
+    requestId,
+    totalDurationMs: Date.now() - startedAt,
+    answer,
+    action: summarizeAction(finalAction),
+    usedToolAction: Boolean(action),
+    usedFallbackAction: Boolean(!action && fallbackResolutionResult),
+  });
 
   return {
     answer,

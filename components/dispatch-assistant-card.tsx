@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronUp, Loader2, Sparkles } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -119,6 +119,7 @@ function AssistantMarkdown({ content }: { content: string }) {
 }
 
 export function DispatchAssistantCard() {
+  const [isCollapsed, setIsCollapsed] = useState(true);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [action, setAction] = useState<DispatchAssistantQuestionResponse["action"]>(null);
@@ -184,15 +185,16 @@ export function DispatchAssistantCard() {
         },
         body: JSON.stringify({
           draft: action.draft,
+          constraints: action.constraints,
           suggestion: action.suggestion,
         }),
       });
       const payload = (await response.json().catch(() => null)) as
         | {
-            person?: import("@/lib/people").PersonRecord;
-            transportPlan?: import("@/lib/drive-plan").TransportPlan;
-            error?: string;
-          }
+          person?: import("@/lib/people").PersonRecord;
+          transportPlan?: import("@/lib/drive-plan").TransportPlan;
+          error?: string;
+        }
         | null;
 
       if (!response.ok || !payload?.person || !payload.transportPlan) {
@@ -214,42 +216,42 @@ export function DispatchAssistantCard() {
     <section className="rounded-xl border border-[#e5dcc8] bg-[linear-gradient(180deg,rgba(255,251,242,0.98)_0%,rgba(249,243,230,0.98)_100%)] p-5 shadow-[0_18px_50px_-34px_rgba(69,49,13,0.28)]">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="max-w-xl">
-          <div className="inline-flex items-center gap-2 rounded-full border border-[#ead8ad] bg-white/75 px-3 py-1 text-[11px] font-semibold tracking-[0.16em] text-[#7a5d20] uppercase">
-            <Sparkles className="size-3.5" />
-            {action?.type} 
-          </div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-[#ead8ad] bg-white/75 px-3 py-1 text-[11px] font-semibold tracking-[0.16em] text-[#7a5d20] uppercase">
-            <Sparkles className="size-3.5" />
-            {action?.label} 
-          </div>
-          <h2 className="mt-3 text-[18px] font-semibold tracking-tight text-[#2e2616]">
-            Ask the live ops plan a question
+          <h2 className="mt-0 text-[18px] font-semibold tracking-tight text-[#2e2616]">
+            Your planning assistant
           </h2>
           <p className="mt-1 text-[13px] leading-6 text-[#6d5a31]">
-            This assistant can read the current roster, transport plan, and route conflicts before it answers.
+            It can read the current roster, transport plan, and route conflicts before it answers.
           </p>
         </div>
-
-        <div className="flex flex-wrap gap-2">
-          {starterQuestions.map((starterQuestion) => (
-            <Button
-              key={starterQuestion}
-              type="button"
-              variant="outline"
-              size="sm"
-              className="border-[#dccb9e] bg-white/80 text-[#5f4a1d] hover:bg-[#fff8ea]"
-              disabled={isLoading}
-              onClick={() => {
-                void submitQuestion(starterQuestion);
-              }}
-            >
-              {starterQuestion}
-            </Button>
-          ))}
-        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="border-[#dccb9e] bg-white/80 text-[#5f4a1d] hover:bg-[#fff8ea]"
+          aria-expanded={!isCollapsed}
+          aria-controls="dispatch-assistant-content"
+          onClick={() => setIsCollapsed((currentValue) => !currentValue)}
+        >
+          {isCollapsed ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
+          {isCollapsed ? "Expand chat" : "Minimize chat"}
+        </Button>
       </div>
 
-      <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+      {isCollapsed ? (
+        <div
+          id="dispatch-assistant-content"
+          className="mt-4 rounded-xl border border-[#eadfbe] bg-white/70 px-4 py-3 text-[13px] text-[#6d5a31]"
+        >
+          {question ? (
+            <p className="truncate">
+              Last question: <span className="font-medium text-[#3e3420]">{question}</span>
+            </p>
+          ) : (
+            <p>The assistant is minimized. Expand it to ask or review questions.</p>
+          )}
+        </div>
+      ) : (
+        <div id="dispatch-assistant-content" className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
         <form
           className="rounded-xl border border-[#eadfbe] bg-white/86 p-4"
           onSubmit={(event) => {
@@ -268,9 +270,23 @@ export function DispatchAssistantCard() {
             className="mt-2 min-h-28 border-[#ded4bc] bg-[#fffdf8] text-[13px] shadow-none"
           />
           <div className="mt-3 flex items-center justify-between gap-3">
-            <p className="text-[11px] leading-5 text-[#8b7342]">
-              The answer is grounded in the current app data, not a static FAQ.
-            </p>
+            <div className="flex flex-wrap gap-2">
+              {starterQuestions.map((starterQuestion) => (
+                <Button
+                  key={starterQuestion}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="border-[#dccb9e] italic bg-white/80 text-[#5f4a1d] hover:bg-[#fff8ea]"
+                  disabled={isLoading}
+                  onClick={() => {
+                    void submitQuestion(starterQuestion);
+                  }}
+                >
+                  {starterQuestion}
+                </Button>
+              ))}
+            </div>
             <Button type="submit" disabled={isLoading || !question.trim()}>
               {isLoading ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
               Ask
@@ -332,6 +348,7 @@ export function DispatchAssistantCard() {
           </div>
         </div>
       </div>
+      )}
     </section>
   );
 }

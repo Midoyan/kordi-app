@@ -7,11 +7,22 @@ export type DispatchAssistantQuestionResponse = {
   action?: DispatchAssistantAction | null;
 };
 
+export type PickupSuggestionConstraints = {
+  destinationQuery: string;
+  latestArrivalTime: string;
+  latestArrivalTimeRaw: string;
+  latestArrivalTimeIsAmbiguous: boolean;
+  latestArrivalIsRequired: boolean;
+  preferredVan: string;
+  requirePreferredVan: boolean;
+};
+
 export type DispatchAssistantAction =
   | {
       type: "apply-pickup-suggestion";
       label: string;
       draft: PickupSuggestionDraft;
+      constraints: PickupSuggestionConstraints;
       suggestion: PickupAssignmentSuggestion;
     };
 
@@ -45,6 +56,7 @@ export type PickupAssignmentSuggestion = {
   stopTitle: string;
   pickupAddress: string;
   pickupTime: string;
+  arrivalTime: string;
   destinationAddress: string;
   routeDeltaMinutes: number;
   reasoning: string[];
@@ -54,6 +66,7 @@ export type PickupAssignmentSuggestion = {
 
 export type PickupSuggestionRequest = {
   draft: PickupSuggestionDraft;
+  constraints?: PickupSuggestionConstraints | null;
 };
 
 export type PickupSuggestionResponse = {
@@ -62,5 +75,6 @@ export type PickupSuggestionResponse = {
 
 export type ApplyPickupSuggestionRequest = {
   draft: PickupSuggestionDraft;
+  constraints?: PickupSuggestionConstraints | null;
   suggestion: PickupAssignmentSuggestion;
 };

@@ -12,6 +12,16 @@ export const pickupSuggestionDraftSchema = z.object({
   role: z.string(),
 });
 
+export const pickupSuggestionConstraintsSchema = z.object({
+  destinationQuery: z.string().default(""),
+  latestArrivalTime: z.string().default(""),
+  latestArrivalTimeRaw: z.string().default(""),
+  latestArrivalTimeIsAmbiguous: z.boolean().default(false),
+  latestArrivalIsRequired: z.boolean().default(false),
+  preferredVan: z.string().default(""),
+  requirePreferredVan: z.boolean().default(false),
+});
+
 export const pickupPlanStopSchema = z.object({
   id: z.string().nullable(),
   stopTitle: z.string(),
@@ -34,6 +44,7 @@ export const pickupAssignmentSuggestionSchema = z.object({
   stopTitle: z.string(),
   pickupAddress: z.string(),
   pickupTime: z.string(),
+  arrivalTime: z.string(),
   destinationAddress: z.string(),
   routeDeltaMinutes: z.number(),
   reasoning: z.array(z.string()),
@@ -43,9 +54,11 @@ export const pickupAssignmentSuggestionSchema = z.object({
 
 export const pickupSuggestionRequestSchema = z.object({
   draft: pickupSuggestionDraftSchema,
+  constraints: pickupSuggestionConstraintsSchema.nullable().optional(),
 });
 
 export const applyPickupSuggestionRequestSchema = z.object({
   draft: pickupSuggestionDraftSchema,
+  constraints: pickupSuggestionConstraintsSchema.nullable().optional(),
   suggestion: pickupAssignmentSuggestionSchema,
 });

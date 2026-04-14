@@ -5,7 +5,7 @@ import type { PersonRecord } from "@/lib/people";
 import { createClient } from "@/lib/server";
 
 import type { PickupSuggestionDraft } from "@/lib/ai/dispatch/types";
-import { normalizeAddressKey, readString } from "@/lib/ai/dispatch/utils";
+import { normalizeAddressKey, normalizeSearchText, readString } from "@/lib/ai/dispatch/utils";
 
 export type CrewMemberRow = {
   id: string;
@@ -15,6 +15,18 @@ export type CrewMemberRow = {
   default_role_title: string | null;
   created_at: string | null;
 };
+
+function findCrewMemberDriveContext(row: CrewMemberRow, transportPlan: TransportPlan) {
+  return transportPlan.drives
+    .flatMap((drive) =>
+      drive.stops.map((stop) => ({
+        drive,
+        stop,
+        hasPassenger: stop.stopPickupPassengers.some((passenger) => passenger.id === row.id),
+      })),
+    )
+    .find((entry) => entry.hasPassenger);
+}
 
 export function buildPickupSuggestionDraftFromPerson(person: PersonRecord): PickupSuggestionDraft {
   return {
@@ -41,16 +53,31 @@ export function mapCrewMemberRowToCandidatePerson(row: CrewMemberRow): PersonRec
   };
 }
 
+export function mapCrewMemberRowToAssignmentCandidatePerson(
+  row: CrewMemberRow,
+  transportPlan: TransportPlan,
+): PersonRecord {
+  const driveContext = findCrewMemberDriveContext(row, transportPlan);
+
+  return {
+    id: row.id,
+    name: readString(row.full_name) || "Unnamed person",
+    address: readString(row.home_address) || readString(driveContext?.stop.pickupAddress),
+    phone: readString(row.phone),
+    role: readString(row.default_role_title),
+    pickupTime: driveContext?.stop.pickupTimeLabel.trim() || "",
+    pickupToLocation:
+      [driveContext?.drive.location?.name?.trim(), driveContext?.drive.destinationAddress.trim()]
+        .filter(Boolean)
+        .join(" · ") || "",
+    pickupToLocationName: driveContext?.drive.location?.name?.trim() || "",
+    pickupToLocationAddress: driveContext?.drive.destinationAddress.trim() || "",
+    createdAt: row.created_at,
+  };
+}
+
 export function mapCrewMemberRowToPerson(row: CrewMemberRow, transportPlan: TransportPlan): PersonRecord {
-  const driveContext = transportPlan.drives
-    .flatMap((drive) =>
-      drive.stops.map((stop) => ({
-        drive,
-        stop,
-        hasPassenger: stop.stopPickupPassengers.some((passenger) => passenger.id === row.id),
-      })),
-    )
-    .find((entry) => entry.hasPassenger);
+  const driveContext = findCrewMemberDriveContext(row, transportPlan);
 
   return {
     id: row.id,
@@ -66,6 +93,21 @@ export function mapCrewMemberRowToPerson(row: CrewMemberRow, transportPlan: Tran
     pickupToLocationName: driveContext?.drive.location?.name?.trim() || "",
     pickupToLocationAddress: driveContext?.drive.destinationAddress.trim() || "",
     createdAt: row.created_at,
+  };
+}
+
+export function buildPickupSuggestionDraftFromCrewMemberRow(
+  row: CrewMemberRow,
+  transportPlan: TransportPlan,
+): PickupSuggestionDraft {
+  const driveContext = findCrewMemberDriveContext(row, transportPlan);
+
+  return {
+    personId: row.id,
+    name: readString(row.full_name) || "Unnamed person",
+    address: readString(row.home_address) || readString(driveContext?.stop.pickupAddress),
+    phone: readString(row.phone),
+    role: readString(row.default_role_title),
   };
 }
 
@@ -111,8 +153,8 @@ export function extractCandidateNameFromQuestion(question: string) {
 }
 
 function scorePersonAgainstQuestion(person: PersonRecord, question: string) {
-  const normalizedQuestion = question.toLowerCase();
-  const normalizedName = person.name.toLowerCase();
+  const normalizedQuestion = normalizeSearchText(question);
+  const normalizedName = normalizeSearchText(person.name);
 
   if (!normalizedName) {
     return 0;
@@ -129,6 +171,26 @@ function scorePersonAgainstQuestion(person: PersonRecord, question: string) {
   );
 }
 
+function scoreAddressAgainstQuestion(person: PersonRecord, question: string) {
+  const normalizedQuestion = normalizeSearchText(question);
+  const normalizedAddress = normalizeSearchText(person.address);
+
+  if (!normalizedAddress) {
+    return 0;
+  }
+
+  if (normalizedQuestion.includes(normalizedAddress)) {
+    return 60;
+  }
+
+  const addressTokens = normalizedAddress.split(/\s+/).filter((token) => token.length > 2);
+
+  return addressTokens.reduce(
+    (score, token) => score + (normalizedQuestion.includes(token) ? 5 : 0),
+    0,
+  );
+}
+
 export function pickBestPersonForAssignment(question: string, people: PersonRecord[]) {
   const peopleWithAddress = people.filter((person) => readString(person.address));
   const prefersMostRecent = /\bjust added\b|\brecently added\b|\bnewly added\b/i.test(question);
@@ -137,13 +199,14 @@ export function pickBestPersonForAssignment(question: string, people: PersonReco
     return peopleWithAddress[0];
   }
 
-  const candidateName = extractCandidateNameFromQuestion(question).toLowerCase();
+  const candidateName = normalizeSearchText(extractCandidateNameFromQuestion(question));
   const rankedPeople = peopleWithAddress
     .map((person) => ({
       person,
       score:
         scorePersonAgainstQuestion(person, question) +
-        (candidateName && person.name.toLowerCase().includes(candidateName) ? 50 : 0) +
+        scoreAddressAgainstQuestion(person, question) +
+        (candidateName && normalizeSearchText(person.name).includes(candidateName) ? 50 : 0) +
         (prefersMostRecent && person.createdAt ? Math.max(0, Date.parse(person.createdAt) / 1e11) : 0),
     }))
     .sort((first, second) => second.score - first.score);
@@ -206,9 +269,8 @@ export async function fetchPeopleRecords() {
   return (data ?? []) as CrewMemberRow[];
 }
 
-export async function findExistingCrewMemberForDraft(draft: PickupSuggestionDraft) {
-  const people = await fetchPeopleRecords();
-  const normalizedName = readString(draft.name).toLowerCase();
+function findBestCrewMemberMatchForDraft(draft: PickupSuggestionDraft, people: CrewMemberRow[]) {
+  const normalizedName = normalizeSearchText(readString(draft.name));
   const normalizedAddress = normalizeAddressKey(draft.address);
 
   if (!normalizedName && !normalizedAddress) {
@@ -218,12 +280,13 @@ export async function findExistingCrewMemberForDraft(draft: PickupSuggestionDraf
   const rankedPeople = people
     .map((row) => {
       const rowName = readString(row.full_name).toLowerCase();
+      const normalizedRowName = normalizeSearchText(rowName);
       const rowAddress = normalizeAddressKey(readString(row.home_address));
       let score = 0;
 
-      if (normalizedName && rowName === normalizedName) {
+      if (normalizedName && normalizedRowName === normalizedName) {
         score += 100;
-      } else if (normalizedName && rowName.includes(normalizedName)) {
+      } else if (normalizedName && normalizedRowName.includes(normalizedName)) {
         score += 40;
       }
 
@@ -241,4 +304,46 @@ export async function findExistingCrewMemberForDraft(draft: PickupSuggestionDraf
     .sort((first, second) => second.score - first.score);
 
   return rankedPeople[0] && rankedPeople[0].score >= 100 ? rankedPeople[0].row : null;
+}
+
+export async function findCrewMemberById(id: string) {
+  const normalizedId = readString(id);
+
+  if (!normalizedId) {
+    return null;
+  }
+
+  const people = await fetchPeopleRecords();
+  return people.find((row) => row.id === normalizedId) ?? null;
+}
+
+export async function resolveExistingCrewMemberForDraft(draft: PickupSuggestionDraft) {
+  if (draft.personId) {
+    const crewMemberById = await findCrewMemberById(draft.personId);
+
+    if (crewMemberById) {
+      return crewMemberById;
+    }
+  }
+
+  const people = await fetchPeopleRecords();
+  return findBestCrewMemberMatchForDraft(draft, people);
+}
+
+export async function findExistingCrewMemberForDraft(draft: PickupSuggestionDraft) {
+  const people = await fetchPeopleRecords();
+  return findBestCrewMemberMatchForDraft(draft, people);
+}
+
+export function canonicalizePickupSuggestionDraft(
+  draft: PickupSuggestionDraft,
+  crewMember: CrewMemberRow,
+): PickupSuggestionDraft {
+  return {
+    personId: crewMember.id,
+    name: readString(crewMember.full_name) || readString(draft.name),
+    address: readString(draft.address) || readString(crewMember.home_address),
+    phone: readString(draft.phone) || readString(crewMember.phone),
+    role: readString(draft.role) || readString(crewMember.default_role_title),
+  };
 }
