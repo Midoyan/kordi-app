@@ -43,7 +43,11 @@ export function EditorSheetLayout({
   contentWrapperProps,
 }: EditorSheetLayoutProps) {
   const handleOpenChange: SheetOpenChange = (nextOpen, eventDetails) => {
-    if (!nextOpen && eventDetails?.reason !== "close-press") {
+    if (
+      !nextOpen &&
+      eventDetails?.reason !== "close-press" &&
+      eventDetails?.reason !== "escape-key"
+    ) {
       return;
     }
 

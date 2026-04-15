@@ -1,6 +1,7 @@
 import { answerDispatchQuestion } from "@/lib/ai/dispatch";
 import { dispatchDebugLog, summarizeAction } from "@/lib/ai/dispatch/debug";
 import { dispatchQuestionRequestSchema } from "@/lib/ai/dispatch/schemas";
+import { ZodError } from "zod";
 
 export async function POST(request: Request) {
   const startedAt = Date.now();
@@ -25,6 +26,15 @@ export async function POST(request: Request) {
       durationMs: Date.now() - startedAt,
       error,
     });
+
+    if (error instanceof ZodError) {
+      return Response.json(
+        {
+          error: error.message,
+        },
+        { status: 400 },
+      );
+    }
 
     return Response.json(
       {
