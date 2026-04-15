@@ -98,6 +98,8 @@ export function getSectionActionHref(section: AppSectionSlug) {
       return `/${section}?sheet=add-vehicle`;
     case "locations":
       return `/${section}?sheet=add-location`;
+    case "calendar":
+      return `/${section}?sheet=add-event`;
     case "schedule":
       return `/${section}?sheet=add-drive`;
     default:
