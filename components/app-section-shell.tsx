@@ -13,7 +13,7 @@ export function AppSectionShell({
 }: AppSectionShellProps) {
   if (fullscreen) {
     return (
-      <section className="flex h-[calc(100svh-3.5rem)] min-h-0 w-full flex-1 flex-col">
+      <section className="flex min-h-0 w-full flex-1 flex-col">
         {children}
       </section>
     );

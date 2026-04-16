@@ -7,7 +7,7 @@ import {
 export async function POST(request: Request) {
   try {
     const body = pickupSuggestionRequestSchema.parse(await request.json());
-    const suggestion = await suggestPickupAssignment(body.draft, body.constraints);
+    const suggestion = await suggestPickupAssignment(body.draft, body.constraints, body.model);
 
     return Response.json({ suggestion }, { status: 200 });
   } catch (error) {
@@ -23,7 +23,7 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   try {
     const body = applyPickupSuggestionRequestSchema.parse(await request.json());
-    const result = await applyPickupSuggestion(body.draft, body.constraints, body.suggestion);
+    const result = await applyPickupSuggestion(body.draft, body.constraints, body.suggestion, body.model);
 
     return Response.json(result, { status: 200 });
   } catch (error) {

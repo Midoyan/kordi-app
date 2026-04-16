@@ -11,9 +11,10 @@ export async function POST(request: Request) {
     dispatchDebugLog("api.dispatch.request", {
       question: body.question,
       questionLength: body.question.trim().length,
+      model: body.model?.trim() || null,
     });
 
-    const response = await answerDispatchQuestion(body.question);
+    const response = await answerDispatchQuestion(body.question, body.model);
     dispatchDebugLog("api.dispatch.success", {
       durationMs: Date.now() - startedAt,
       answerLength: response.answer.trim().length,

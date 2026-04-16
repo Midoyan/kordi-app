@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const dispatchQuestionRequestSchema = z.object({
   question: z.string(),
+  model: z.string().trim().optional(),
 });
 
 export const pickupSuggestionDraftSchema = z.object({
@@ -58,10 +59,12 @@ export const pickupAssignmentSuggestionSchema = z.object({
 export const pickupSuggestionRequestSchema = z.object({
   draft: pickupSuggestionDraftSchema,
   constraints: pickupSuggestionConstraintsSchema.nullable().optional(),
+  model: z.string().trim().optional(),
 });
 
 export const applyPickupSuggestionRequestSchema = z.object({
   draft: pickupSuggestionDraftSchema,
   constraints: pickupSuggestionConstraintsSchema.nullable().optional(),
   suggestion: pickupAssignmentSuggestionSchema,
+  model: z.string().trim().optional(),
 });

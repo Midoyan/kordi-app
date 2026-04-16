@@ -12,6 +12,7 @@ import { defaultProjectDays, type ProjectDay } from "@/lib/project-days";
 import { defaultProjects, type Project } from "@/lib/projects";
 
 const SHELL_STATE_STORAGE_KEY = "kordi.shell-state";
+const NAVBAR_DEBUG_STORAGE_KEY = "kordi.dev.show-navbar";
 
 type StoredShellState = {
   activeOrganizationId?: string;
@@ -61,7 +62,7 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
   const [activeDayIdsByProject, setActiveDayIdsByProject] = React.useState<Record<string, string>>(
     {},
   );
-  const [showNavbar, setShowNavbar] = React.useState(true);
+  const [showNavbar, setShowNavbar] = React.useState(false);
 
   React.useEffect(() => {
     const storedShellState = window.localStorage.getItem(SHELL_STATE_STORAGE_KEY);
@@ -92,12 +93,15 @@ export function OrganizationProvider({ children }: { children: React.ReactNode }
           setActiveDayIdsByProject(parsedShellState.activeDayIdsByProject);
         }
 
-        if (typeof parsedShellState.showNavbar === "boolean") {
-          setShowNavbar(parsedShellState.showNavbar);
-        }
       } catch {
         window.localStorage.removeItem(SHELL_STATE_STORAGE_KEY);
       }
+    }
+
+    // Preview builds default to presentation mode. A developer can still
+    // opt back into the top bar by manually setting this localStorage flag.
+    if (window.localStorage.getItem(NAVBAR_DEBUG_STORAGE_KEY) === "true") {
+      setShowNavbar(true);
     }
   }, []);
 

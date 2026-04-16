@@ -10,6 +10,10 @@ import { Textarea } from "@/components/ui/textarea";
 import type { DispatchAssistantQuestionResponse } from "@/lib/ai/dispatch/types";
 import { upsertPersonInPeopleCache } from "@/lib/people";
 import { primeTransportPlanCache } from "@/lib/transport-plan-client-cache";
+import {
+  hasStoredPreviewOpenAiKey,
+  readStoredPreviewOpenAiModel,
+} from "@/lib/preview-ai-settings";
 import { cn } from "@/lib/utils";
 
 const starterQuestions = [
@@ -141,6 +145,7 @@ export function DispatchAssistantCard() {
     setActionNotice(null);
 
     try {
+      const modelOverride = hasStoredPreviewOpenAiKey() ? readStoredPreviewOpenAiModel() : undefined;
       const response = await fetch("/api/ai/dispatch", {
         method: "POST",
         headers: {
@@ -148,6 +153,7 @@ export function DispatchAssistantCard() {
         },
         body: JSON.stringify({
           question: trimmedQuestion,
+          model: modelOverride,
         }),
       });
       const payload = (await response.json().catch(() => null)) as
@@ -188,6 +194,7 @@ export function DispatchAssistantCard() {
     setActionNotice(null);
 
     try {
+      const modelOverride = hasStoredPreviewOpenAiKey() ? readStoredPreviewOpenAiModel() : undefined;
       const response = await fetch("/api/ai/pickup-suggestion", {
         method: "PUT",
         headers: {
@@ -197,6 +204,7 @@ export function DispatchAssistantCard() {
           draft: nextAction.draft,
           constraints: nextAction.constraints,
           suggestion: nextAction.suggestion,
+          model: modelOverride,
         }),
       });
       const payload = (await response.json().catch(() => null)) as

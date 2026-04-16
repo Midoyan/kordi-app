@@ -6,7 +6,6 @@ import {
   EllipsisVertical,
   LogOut,
   Settings2,
-  UserRound,
 } from "lucide-react";
 
 import { createClient } from "@/lib/client";
@@ -16,7 +15,6 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -105,20 +103,12 @@ export function SidebarUserNav({ user }: SidebarUserNavProps) {
 
             <DropdownMenuSeparator />
 
-            <DropdownMenuGroup>
-              <DropdownMenuItem asChild>
-                <Link href="/settings">
-                  <UserRound />
-                  Account
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href="/settings">
-                  <Settings2 />
-                  Workspace settings
-                </Link>
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
+            <DropdownMenuItem asChild>
+              <Link href="/settings">
+                <Settings2 />
+                Settings
+              </Link>
+            </DropdownMenuItem>
 
             <DropdownMenuSeparator />
 

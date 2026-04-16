@@ -16,7 +16,7 @@ import {
 } from "@/lib/ai/dispatch/transport";
 import { normalizeSearchText } from "@/lib/ai/dispatch/utils";
 
-export function createDispatchTools() {
+export function createDispatchTools(modelOverride?: string | null) {
   return {
     get_transport_overview: tool({
       description: "Summarize the live transport plan.",
@@ -67,7 +67,8 @@ export function createDispatchTools() {
         role: z.string().optional().default(""),
         constraints: pickupSuggestionConstraintsSchema.optional(),
       }),
-      execute: async ({ constraints, ...draft }) => suggestPickupAssignment(draft, constraints),
+      execute: async ({ constraints, ...draft }) =>
+        suggestPickupAssignment(draft, constraints, modelOverride),
     }),
   };
 }

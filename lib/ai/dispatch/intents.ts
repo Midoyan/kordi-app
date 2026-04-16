@@ -117,7 +117,7 @@ function normalizeDispatchIntent(intent: DispatchIntent): DispatchIntent {
   };
 }
 
-export async function extractDispatchIntent(question: string) {
+export async function extractDispatchIntent(question: string, modelOverride?: string | null) {
   const trimmedQuestion = question.trim();
 
   if (!trimmedQuestion) {
@@ -125,7 +125,7 @@ export async function extractDispatchIntent(question: string) {
   }
 
   const result = await generateObject({
-    model: getDispatchModel(),
+    model: getDispatchModel(modelOverride),
     schema: dispatchIntentSchema,
     schemaName: "dispatch_intent",
     schemaDescription:

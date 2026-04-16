@@ -63,6 +63,10 @@ import type {
   PickupSuggestionDraft,
 } from "@/lib/ai/dispatch/types";
 import { primeTransportPlanCache } from "@/lib/transport-plan-client-cache";
+import {
+  hasStoredPreviewOpenAiKey,
+  readStoredPreviewOpenAiModel,
+} from "@/lib/preview-ai-settings";
 import { parseVCardPayload } from "@/lib/vcard";
 import { cn } from "@/lib/utils";
 
@@ -815,6 +819,7 @@ export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[
     setAssignmentSuggestionError(null);
 
     try {
+      const modelOverride = hasStoredPreviewOpenAiKey() ? readStoredPreviewOpenAiModel() : undefined;
       const response = await fetch("/api/ai/pickup-suggestion", {
         method: "POST",
         headers: {
@@ -822,6 +827,7 @@ export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[
         },
         body: JSON.stringify({
           draft: toPickupSuggestionDraft(editorDraft),
+          model: modelOverride,
         }),
       });
       const payload = (await response.json().catch(() => null)) as
@@ -858,6 +864,7 @@ export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[
     setAssignmentSuggestionError(null);
 
     try {
+      const modelOverride = hasStoredPreviewOpenAiKey() ? readStoredPreviewOpenAiModel() : undefined;
       const response = await fetch("/api/ai/pickup-suggestion", {
         method: "PUT",
         headers: {
@@ -866,6 +873,7 @@ export function PeopleSection({ initialPeople }: { initialPeople?: PersonRecord[
         body: JSON.stringify({
           draft: toPickupSuggestionDraft(editorDraft),
           suggestion: assignmentSuggestion,
+          model: modelOverride,
         }),
       });
       const payload = (await response.json().catch(() => null)) as

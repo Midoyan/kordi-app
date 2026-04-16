@@ -1,7 +1,9 @@
+import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
 import { LogoutButton } from '@/components/auth/logout-button'
 import { createClient } from '@/lib/server'
+import { Button } from '@/components/ui/button'
 
 export default async function ProtectedPage() {
   const supabase = await createClient()
@@ -16,6 +18,9 @@ export default async function ProtectedPage() {
       <p>
         Hello <span>{data.claims.email}</span>
       </p>
+      <Button render={<Link href="/dashboard" />} nativeButton={false} variant="outline">
+        Go to dashboard
+      </Button>
       <LogoutButton />
     </div>
   )

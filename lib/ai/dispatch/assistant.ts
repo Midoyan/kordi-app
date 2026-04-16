@@ -155,8 +155,9 @@ async function resolvePickupSuggestionWithFallbacks(
     role: string;
   },
   requestedConstraints: PickupSuggestionConstraints | null | undefined,
+  modelOverride?: string | null,
 ) {
-  const strictSuggestion = await suggestPickupAssignment(draft, requestedConstraints).catch(() => null);
+  const strictSuggestion = await suggestPickupAssignment(draft, requestedConstraints, modelOverride).catch(() => null);
 
   if (strictSuggestion) {
     const strictAction = buildPickupSuggestionAction(draft, strictSuggestion, requestedConstraints);
@@ -172,14 +173,14 @@ async function resolvePickupSuggestionWithFallbacks(
   }
 
   const relaxedConstraints = buildRelaxedPickupConstraints(requestedConstraints);
-  const relaxedSuggestion = await suggestPickupAssignment(draft, relaxedConstraints).catch(() => null);
+  const relaxedSuggestion = await suggestPickupAssignment(draft, relaxedConstraints, modelOverride).catch(() => null);
   const preferredVanConstraints = normalizePickupSuggestionConstraints({
     ...requestedConstraints,
     latestArrivalIsRequired: false,
     requirePreferredVan: true,
   });
   const forcedPreferredVanSuggestion = preferredVanConstraints.preferredVan
-    ? await suggestPickupAssignment(draft, preferredVanConstraints).catch(() => null)
+    ? await suggestPickupAssignment(draft, preferredVanConstraints, modelOverride).catch(() => null)
     : null;
 
   if (
@@ -218,7 +219,7 @@ async function resolvePickupSuggestionWithFallbacks(
 
 type PickupSuggestionResolution = Awaited<ReturnType<typeof resolvePickupSuggestionWithFallbacks>>;
 
-export async function answerDispatchQuestion(question: string) {
+export async function answerDispatchQuestion(question: string, modelOverride?: string | null) {
   const requestId = createRequestId();
   const startedAt = Date.now();
   const trimmedQuestion = question.trim();
@@ -233,7 +234,7 @@ export async function answerDispatchQuestion(question: string) {
 
   const currentUser = await getCurrentUser().catch(() => null);
   const intentStartedAt = Date.now();
-  const extractedIntent = await extractDispatchIntent(trimmedQuestion).catch(() => null);
+  const extractedIntent = await extractDispatchIntent(trimmedQuestion, modelOverride).catch(() => null);
   const intentDraft = buildPickupSuggestionDraftFromIntent(extractedIntent);
   const intentConstraints = buildPickupSuggestionConstraintsFromIntent(extractedIntent);
   const rawParsedDraftFromQuestion = intentDraft ?? extractPickupSuggestionDraftFromQuestion(trimmedQuestion);
@@ -325,7 +326,11 @@ export async function answerDispatchQuestion(question: string) {
           }
         }
 
-        const directResolution = await resolvePickupSuggestionWithFallbacks(directDraft, intentConstraints);
+        const directResolution = await resolvePickupSuggestionWithFallbacks(
+          directDraft,
+          intentConstraints,
+          modelOverride,
+        );
 
         if (directResolution) {
           dispatchDebugLog("assistant.direct-suggestion", {
@@ -375,7 +380,11 @@ export async function answerDispatchQuestion(question: string) {
           }
         }
 
-        const parsedResolution = await resolvePickupSuggestionWithFallbacks(parsedDraftFromQuestion, intentConstraints);
+        const parsedResolution = await resolvePickupSuggestionWithFallbacks(
+          parsedDraftFromQuestion,
+          intentConstraints,
+          modelOverride,
+        );
 
         if (parsedResolution) {
           dispatchDebugLog("assistant.parsed-draft-suggestion", {
@@ -412,7 +421,7 @@ export async function answerDispatchQuestion(question: string) {
   });
 
   const result = await generateText({
-    model: getDispatchModel(),
+    model: getDispatchModel(modelOverride),
     system: [
       "You are the Kordi dispatch assistant.",
       "Answer using the app's live transport data.",
@@ -426,7 +435,7 @@ export async function answerDispatchQuestion(question: string) {
     prompt: trimmedQuestion,
     stopWhen: stepCountIs(5),
     temperature: 0,
-    tools: createDispatchTools(),
+    tools: createDispatchTools(modelOverride),
   });
 
   dispatchDebugLog("assistant.model-response", {
@@ -491,6 +500,7 @@ export async function answerDispatchQuestion(question: string) {
       ? await resolvePickupSuggestionWithFallbacks(
           buildPickupSuggestionDraftFromPerson(personDraftFromToolResults),
           intentConstraints,
+          modelOverride,
         )
           .then((result) => result ?? null)
           .catch(() => null)
@@ -500,6 +510,7 @@ export async function answerDispatchQuestion(question: string) {
       ? await resolvePickupSuggestionWithFallbacks(
           buildPickupSuggestionDraftFromPerson(personDraftFromDatabase),
           intentConstraints,
+          modelOverride,
         )
           .then((result) => result ?? null)
           .catch(() => null)

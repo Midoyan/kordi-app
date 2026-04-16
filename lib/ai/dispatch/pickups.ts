@@ -166,6 +166,7 @@ function getRecommendationKey(
 async function maybeGeneratePickupExplanation(
   suggestion: PickupAssignmentSuggestion,
   alternatives: PickupAssignmentSuggestion[],
+  modelOverride?: string | null,
 ) {
   if (!process.env.OPENAI_API_KEY) {
     return {
@@ -176,7 +177,7 @@ async function maybeGeneratePickupExplanation(
 
   try {
     const result = await generateText({
-      model: getDispatchModel(),
+      model: getDispatchModel(modelOverride),
       system:
         "You are an operations copilot for a transport scheduling app. Explain the single best pickup assignment in 2-3 short sentences and give exactly 3 concise bullet-style reasons separated by newline characters. Stay concrete and operational.",
       prompt: JSON.stringify({
@@ -545,6 +546,7 @@ async function findPickupAssignmentCandidates(
 export async function suggestPickupAssignment(
   draftInput: PickupSuggestionDraft,
   constraintsInput?: PickupSuggestionConstraints | null,
+  modelOverride?: string | null,
 ) {
   const { canonicalDraft, constraints, candidates } = await findPickupAssignmentCandidates(draftInput, constraintsInput);
 
@@ -561,6 +563,7 @@ export async function suggestPickupAssignment(
   const explanation = await maybeGeneratePickupExplanation(
     bestSuggestion,
     candidates.slice(1, 4).map((candidate) => candidate.suggestion),
+    modelOverride,
   );
 
   const finalizedSuggestion = {
@@ -626,6 +629,7 @@ export async function applyPickupSuggestion(
   draftInput: PickupSuggestionDraft,
   constraintsInput: PickupSuggestionConstraints | null | undefined,
   suggestion: PickupAssignmentSuggestion,
+  modelOverride?: string | null,
 ) {
   const draft = normalizePickupSuggestionDraft(draftInput);
   const constraints = normalizePickupSuggestionConstraints(constraintsInput);
@@ -655,7 +659,7 @@ export async function applyPickupSuggestion(
     throw new Error(validationError);
   }
 
-  const freshSuggestion = await suggestPickupAssignment(canonicalDraft, constraints);
+  const freshSuggestion = await suggestPickupAssignment(canonicalDraft, constraints, modelOverride);
 
   if (!freshSuggestion) {
     dispatchDebugLog("pickup.apply.no-fresh-suggestion", {
