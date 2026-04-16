@@ -1,0 +1,285 @@
+import "server-only"
+
+import { createClient } from "@/lib/server"
+// The transport plan is nested enough that explicit projections help avoid accidental payload growth.
+import { DRIVE_PLAN_SELECT } from "@/lib/supabase-selects"
+import {
+  getTravelTypeLabel,
+  normalizeTravelType,
+  type TravelType,
+} from "@/lib/travels"
+
+type RawCrewMember = {
+  id: string
+  full_name: string
+  phone: string | null
+  home_address: string | null
+}
+
+type RawTripPassenger = {
+  crew_members: RawCrewMember | null
+}
+
+type RawTrip = {
+  id: string
+  travel_id: string
+  pickup_address: string | null
+  pickup_time: string | null
+  trip_title: string | null
+  stop_duration_sec: number | null
+  traffic_buffer_sec: number | null
+  notes: string | null
+  created_at: string
+  trip_passengers?: RawTripPassenger[] | null
+}
+
+type RawVan = {
+  id: string
+  label: string | null
+  plate_number: string | null
+  crew_member_id?: string | null
+  seat_capacity: number | null
+  vehicle_type: string | null
+  notes: string | null
+  is_active: boolean | null
+  created_at: string
+  crew_members?: RawCrewMember | null
+}
+
+type RawLocation = {
+  id: string
+  label: string | null
+  location_type: string | null
+  address: string | null
+  access_notes: string | null
+  created_at: string | null
+}
+
+type RawTravel = {
+  id: string
+  van_id: string | null
+  travel_type: TravelType | string | null
+  location_id: string | null
+  scheduled_time: string | null
+  sort_order: number | null
+  notes: string | null
+  created_at: string
+  vans?: RawVan | null
+  location?: RawLocation | null
+  trips?: RawTrip[] | null
+}
+
+export type StopPickupPassenger = {
+  id: string
+  name: string
+  phone: string | null
+  address: string
+}
+
+export type StopPickupPassengerOption = {
+  id: string
+  name: string
+  detail: string
+  phone: string | null
+  address: string
+}
+
+export type DriveStop = {
+  id: string
+  driveId: string
+  stopTitle: string
+  pickupAddress: string
+  pickupTime: string | null
+  pickupTimeLabel: string
+  stopDurationSec: number | null
+  trafficBufferSec: number | null
+  notes: string | null
+  createdAt: string
+  stopPickupPassengers: StopPickupPassenger[]
+}
+
+export type Drive = {
+  id: string
+  vanId: string | null
+  driverCrewId: string | null
+  travelType: TravelType
+  locationId: string
+  scheduledTime: string | null
+  scheduledTimeLabel: string
+  sortOrder: number
+  label: string
+  startLocation: string
+  startTime: string | null
+  startTimeLabel: string
+  destinationAddress: string
+  notes: string | null
+  createdAt: string
+  van: RawVan | null
+  driver: StopPickupPassenger | null
+  location: {
+    id: string
+    name: string
+    type: string
+    address: string
+    notes: string
+    createdAt: string | null
+  } | null
+  stops: DriveStop[]
+}
+
+export type TransportPlan = {
+  drives: Drive[]
+  stopPickupPassengerOptions: StopPickupPassengerOption[]
+}
+
+function formatDatabaseTime(value: string | null | undefined) {
+  if (!value) {
+    return ""
+  }
+
+  const match = value.match(/(?:^|T)(\d{2}):(\d{2})/)
+  return match ? `${match[1]}:${match[2]}` : value
+}
+
+function normalizePassenger(person: RawCrewMember | null | undefined): StopPickupPassenger | null {
+  if (!person) {
+    return null
+  }
+
+  return {
+    id: person.id,
+    name: person.full_name,
+    phone: person.phone,
+    address: person.home_address ?? "",
+  }
+}
+
+function compareDriveStops(first: DriveStop, second: DriveStop) {
+  if (first.pickupTimeLabel && second.pickupTimeLabel) {
+    return first.pickupTimeLabel.localeCompare(second.pickupTimeLabel)
+  }
+
+  if (first.pickupTimeLabel) {
+    return -1
+  }
+
+  if (second.pickupTimeLabel) {
+    return 1
+  }
+
+  return first.createdAt.localeCompare(second.createdAt)
+}
+
+export function mapTravelToDrive(travel: RawTravel, index = 0): Drive {
+  const driver = normalizePassenger(travel.vans?.crew_members)
+  const travelType = normalizeTravelType(travel.travel_type)
+  const location = travel.location
+    ? {
+        id: travel.location.id,
+        name: travel.location.label?.trim() || "Untitled location",
+        type: travel.location.location_type?.trim() || "Other",
+        address: travel.location.address?.trim() || "",
+        notes: travel.location.access_notes?.trim() || "",
+        createdAt: travel.location.created_at,
+      }
+    : null
+  const scheduledTimeLabel = formatDatabaseTime(travel.scheduled_time)
+  const commonLocationAddress = location?.address || ""
+  const stops =
+    travel.trips?.map((trip, stopIndex) => {
+      const stopPickupPassengers =
+        trip.trip_passengers
+          ?.map((entry) => normalizePassenger(entry.crew_members))
+          .filter((person): person is StopPickupPassenger => Boolean(person)) ?? []
+
+      return {
+        id: trip.id,
+        driveId: travel.id,
+        stopTitle: trip.trip_title?.trim() || `Stop ${stopIndex + 1}`,
+        pickupAddress: trip.pickup_address ?? "",
+        pickupTime: trip.pickup_time,
+        pickupTimeLabel: formatDatabaseTime(trip.pickup_time),
+        stopDurationSec: trip.stop_duration_sec,
+        trafficBufferSec: trip.traffic_buffer_sec,
+        notes: trip.notes,
+        createdAt: trip.created_at,
+        stopPickupPassengers,
+      }
+    }) ?? []
+
+  const label =
+    `${getTravelTypeLabel(travelType)} · ${location?.name || `Location ${index + 1}`}`
+
+  return {
+    id: travel.id,
+    vanId: travel.van_id,
+    driverCrewId: travel.vans?.crew_member_id ?? null,
+    travelType,
+    locationId: location?.id || travel.location_id?.trim() || "",
+    scheduledTime: travel.scheduled_time,
+    scheduledTimeLabel,
+    sortOrder: travel.sort_order ?? index,
+    label,
+    startLocation: travelType === "dropoff" ? commonLocationAddress : "",
+    startTime: travel.scheduled_time,
+    startTimeLabel: scheduledTimeLabel,
+    destinationAddress: travelType === "pickup" ? commonLocationAddress : "",
+    notes: travel.notes,
+    createdAt: travel.created_at,
+    van: travel.vans ?? null,
+    driver,
+    location,
+    stops: stops.toSorted(compareDriveStops),
+  }
+}
+
+export async function getDrivePlan() {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from("travels2")
+    .select(DRIVE_PLAN_SELECT)
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true })
+
+  if (error) {
+    throw error
+  }
+
+  return (data ?? []).map((travel, index) => mapTravelToDrive(travel as unknown as RawTravel, index))
+}
+
+export async function getStopPickupPassengerOptions() {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from("crew_members")
+    .select("id, full_name, phone, home_address")
+    .order("created_at", { ascending: false })
+
+  if (error) {
+    throw error
+  }
+
+  return (
+    data?.map((crewMember) => ({
+      id: crewMember.id,
+      name: crewMember.full_name,
+      detail: crewMember.phone?.trim() || "Crew member",
+      phone: crewMember.phone?.trim() || null,
+      address: crewMember.home_address?.trim() || "",
+    })) ?? []
+  )
+}
+
+export async function getTransportPlan(): Promise<TransportPlan> {
+  const [drives, stopPickupPassengerOptions] = await Promise.all([
+    getDrivePlan(),
+    getStopPickupPassengerOptions(),
+  ])
+
+  return {
+    drives,
+    stopPickupPassengerOptions,
+  }
+}

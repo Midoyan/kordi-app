@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  outputFileTracingIncludes: {
+    '/api/pdf-report': ['./node_modules/@formepdf/core/pkg/*.wasm'],
+  },
 };
 
 export default nextConfig;

@@ -1,0 +1,519 @@
+"use client"
+
+import * as React from "react"
+import {
+  Download,
+  PencilLine,
+  Plus,
+} from "lucide-react"
+
+import { getTravelTypeLabel } from "@/lib/travels"
+import { DriveEditorSheet } from "@/components/drive-editor-sheet"
+import { ScheduleSection } from "@/components/schedule-section"
+import {
+  getDriveCardKey,
+  useDriveEditorState,
+} from "@/components/schedule-view/use-drive-editor"
+import { useTransportPlanState } from "@/components/schedule-view/use-transport-plan"
+import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import type { Drive } from "@/lib/drive-plan"
+import { defaultColumnVisibility } from "@/components/schedule-section/types"
+import type { VisibilityState } from "@tanstack/react-table"
+
+function getDriveSortMinutes(drive: Drive) {
+  const source = drive.scheduledTime?.trim() || drive.scheduledTimeLabel.trim()
+  const match = source.match(/(?:^|T)(\d{2}):(\d{2})/)
+
+  if (!match) {
+    return null
+  }
+
+  return Number(match[1]) * 60 + Number(match[2])
+}
+
+function compareScheduleDrives(first: Drive, second: Drive) {
+  const firstMinutes = getDriveSortMinutes(first)
+  const secondMinutes = getDriveSortMinutes(second)
+
+  if (firstMinutes !== null && secondMinutes !== null && firstMinutes !== secondMinutes) {
+    return firstMinutes - secondMinutes
+  }
+
+  if (firstMinutes !== null) {
+    return -1
+  }
+
+  if (secondMinutes !== null) {
+    return 1
+  }
+
+  if (first.sortOrder !== second.sortOrder) {
+    return first.sortOrder - second.sortOrder
+  }
+
+  return first.createdAt.localeCompare(second.createdAt)
+}
+
+function SchedulePanel({
+  title,
+  description,
+  children,
+}: {
+  title: string
+  description?: string
+  children: React.ReactNode
+}) {
+  return (
+    <section className="rounded-xl border border-[#e3e3df] bg-white p-5 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.45)]">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-[15px] font-semibold text-[#1d1d1b]">{title}</h2>
+          {description ? (
+            <p className="mt-1 text-[13px] leading-6 text-[#6b6b67]">{description}</p>
+          ) : null}
+        </div>
+      </div>
+      <div className="mt-5">{children}</div>
+    </section>
+  )
+}
+
+function ScheduleSkeletonPanel() {
+  return (
+    <SchedulePanel title="Loading drive…" description="Fetching the latest drive and stop data.">
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="space-y-2">
+            <Skeleton className="h-5 w-36 bg-[#ecece8]" />
+            <Skeleton className="h-4 w-72 bg-[#f1f1ed]" />
+          </div>
+          <div className="flex gap-2">
+            <Skeleton className="h-9 w-36 bg-[#ecece8]" />
+            <Skeleton className="h-9 w-28 bg-[#ecece8]" />
+          </div>
+        </div>
+
+        <div className="overflow-hidden rounded-xl border border-[#ecece8]">
+          <div className="grid h-11 grid-cols-[40px_44px_1.2fr_1.5fr_0.7fr_1.4fr_0.7fr_56px] gap-3 border-b border-[#ecece8] bg-[#f7f7f4] px-3 py-3">
+            {Array.from({ length: 8 }).map((_, index) => (
+              <Skeleton key={index} className="h-4 bg-[#ecece8]" />
+            ))}
+          </div>
+          <div className="space-y-0">
+            {Array.from({ length: 4 }).map((_, rowIndex) => (
+              <div
+                key={rowIndex}
+                className="grid grid-cols-[40px_44px_1.2fr_1.5fr_0.7fr_1.4fr_0.7fr_56px] gap-3 border-b border-[#f0f0ec] px-3 py-4 last:border-b-0"
+              >
+                {Array.from({ length: 8 }).map((_, cellIndex) => (
+                  <Skeleton
+                    key={cellIndex}
+                    className={`h-4 bg-[#f1f1ed] ${cellIndex === 2 || cellIndex === 3 || cellIndex === 5 ? "w-full" : "w-10"}`}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </SchedulePanel>
+  )
+}
+
+export function ScheduleView({ initialTransportPlan }: { initialTransportPlan?: import("@/lib/drive-plan").TransportPlan | null }) {
+  const {
+    transportPlan,
+    isLoading,
+    error,
+    retryLoad,
+    refreshTransportPlan,
+    handleDriveUpdated,
+  } = useTransportPlanState(initialTransportPlan)
+  const drives = React.useMemo(
+    () => [...(transportPlan?.drives ?? [])].sort(compareScheduleDrives),
+    [transportPlan?.drives]
+  )
+  const stopPickupPassengerOptions = transportPlan?.stopPickupPassengerOptions ?? []
+  const {
+    activeDrive,
+    driveDraft,
+    driveEditorMode,
+    driveError,
+    deletingDriveId,
+    isSavingDrive,
+    isLoadingResources,
+    isSavingLocationDetails,
+    locationOptions,
+    openCreateDrive,
+    openEditDrive,
+    closeDriveEditor,
+    handleDriveSave,
+    handleDriveDelete,
+    handleCreateLocation,
+    handleUpdateLocation,
+    resourceErrorMessage,
+    setDriveDraft,
+    vehicleOptions,
+  } = useDriveEditorState({
+    drives,
+    refreshTransportPlan,
+  })
+  const [isExportingPdf, setIsExportingPdf] = React.useState(false)
+  const [exportError, setExportError] = React.useState<string | null>(null)
+  const [sharedColumnVisibility, setSharedColumnVisibility] = React.useState<VisibilityState>(
+    defaultColumnVisibility
+  )
+
+  const handlePdfExport = React.useCallback(async () => {
+    setIsExportingPdf(true)
+    setExportError(null)
+
+    try {
+      const response = await fetch("/api/pdf-report")
+
+      if (!response.ok) {
+        let message = "Unable to export the PDF report."
+
+        try {
+          const payload = (await response.json()) as { error?: string }
+          if (payload?.error) {
+            message = payload.error
+          }
+        } catch {
+          // Fall back to the default message when the error body is not JSON.
+        }
+
+        throw new Error(message)
+      }
+
+      const blob = await response.blob()
+      const downloadUrl = window.URL.createObjectURL(blob)
+      const link = document.createElement("a")
+
+      link.href = downloadUrl
+      link.download = "transport-plan.pdf"
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(downloadUrl)
+    } catch (error) {
+      setExportError(
+        error instanceof Error ? error.message : "Unable to export the PDF report."
+      )
+    } finally {
+      setIsExportingPdf(false)
+    }
+  }, [])
+
+  if (isLoading && !transportPlan) {
+    return (
+      <div className="grid gap-4">
+        <ScheduleSkeletonPanel />
+      </div>
+    )
+  }
+
+  if (error && !transportPlan) {
+    return (
+      <div className="grid gap-4">
+        <SchedulePanel title="Drives" description="The schedule could not be loaded right now.">
+          <div className="rounded-lg border border-[#f3d7d7] bg-[#fff7f7] px-4 py-4">
+            <p className="text-[13px] leading-6 text-[#9a4f4f]">{error}</p>
+            <div className="mt-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="border-[#dbdbd6] bg-white text-[#1d1d1b] hover:bg-[#f3f3ef]"
+                onClick={retryLoad}
+              >
+                Retry
+              </Button>
+            </div>
+          </div>
+        </SchedulePanel>
+      </div>
+    )
+  }
+
+  const driveCount = drives.length
+  const totalStopCount = drives.reduce((count, drive) => count + drive.stops.length, 0)
+
+  return (
+    <>
+      <div className="rounded-[30px] border border-[#e2e5dd] bg-[linear-gradient(180deg,rgba(248,249,244,0.98)_0%,rgba(242,244,237,0.98)_100%)] p-3 shadow-[0_24px_80px_-48px_rgba(15,23,42,0.32)] sm:p-4">
+        <div className="rounded-[24px] border border-[#e6e9e2] bg-white/78 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)] sm:p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="rounded-full border border-[#dbe1d3] bg-[#f7faf2] px-3 py-1 text-[12px] font-medium text-[#4f5d4b]">
+                {driveCount} drive{driveCount === 1 ? "" : "s"}
+              </div>
+              <div className="rounded-full border border-[#dbe1d3] bg-[#f7faf2] px-3 py-1 text-[12px] font-medium text-[#4f5d4b]">
+                {totalStopCount} stop{totalStopCount === 1 ? "" : "s"}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 border-[#d8ddd1] bg-white/92 px-4 text-[#1d1d1b] hover:bg-[#f4f7ef]"
+                disabled={isExportingPdf}
+                onClick={() => {
+                  void handlePdfExport()
+                }}
+              >
+                <Download className="size-4" />
+                {isExportingPdf ? "Exporting..." : "Export PDF"}
+              </Button>
+              <Button
+                type="button"
+                className="h-9 bg-[#1f3523] px-4 text-white hover:bg-[#29472d]"
+                disabled={isSavingDrive}
+                onClick={() => openCreateDrive()}
+              >
+                <Plus className="size-4" />
+                Add drive
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {error && transportPlan ? (
+          <div className="mt-4 rounded-[18px] border border-[#f3d7d7] bg-[#fff7f7] px-4 py-3">
+            <p className="text-[13px] leading-6 text-[#9a4f4f]">{error}</p>
+          </div>
+        ) : null}
+
+        {exportError ? (
+          <div className="mt-4 rounded-[18px] border border-[#f3d7d7] bg-[#fff7f7] px-4 py-3">
+            <p className="text-[13px] leading-6 text-[#9a4f4f]">{exportError}</p>
+          </div>
+        ) : null}
+
+        {transportPlan && transportPlan.drives.length === 0 ? (
+          <div className="mt-4 rounded-[24px] border border-dashed border-[#d8ddd1] bg-white/84 px-6 py-10 text-center shadow-[0_18px_50px_-40px_rgba(15,23,42,0.25)]">
+            <p className="text-[11px] font-semibold tracking-[0.16em] text-[#75816f] uppercase">
+              No drives yet
+            </p>
+            <h3 className="mt-3 text-[22px] font-semibold tracking-tight text-[#1d1d1b] text-balance">
+              Create a drive, then add stops inside it.
+            </h3>
+            <div className="mt-5">
+              <Button
+                type="button"
+                className="h-9 bg-[#1f3523] px-4 text-white hover:bg-[#29472d]"
+                onClick={() => openCreateDrive()}
+              >
+                <Plus className="size-4" />
+                Add first drive
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-4 grid gap-5">
+            {drives.map((drive) => {
+              const vanSummary =
+                drive.van?.label?.trim() ||
+                drive.van?.plate_number?.trim() ||
+                "No van assigned"
+              const travelTypeLabel = getTravelTypeLabel(drive.travelType)
+              const locationTitle =
+                drive.location?.name?.trim() ||
+                drive.location?.address?.split(",")[0]?.trim() ||
+                drive.destinationAddress?.split(",")[0]?.trim() ||
+                drive.startLocation?.split(",")[0]?.trim() ||
+                "Set location"
+              const commonLocation =
+                drive.location?.address ||
+                drive.location?.name ||
+                drive.destinationAddress ||
+                drive.startLocation ||
+                "Set location"
+              const scheduledTimeLabel = drive.scheduledTimeLabel || "Unset"
+              const driveNotes = drive.notes?.trim() || ""
+              const shouldShowLocationTooltip =
+                commonLocation.trim().toLowerCase() !== locationTitle.trim().toLowerCase()
+              const vanDriver =
+                drive.driver?.name?.trim() ||
+                drive.van?.crew_members?.full_name?.trim() ||
+                "No driver assigned"
+              const vanPlate = drive.van?.plate_number?.trim() || "No plate"
+              const vanSeats =
+                typeof drive.van?.seat_capacity === "number" && Number.isFinite(drive.van.seat_capacity)
+                  ? `${drive.van.seat_capacity} seats`
+                  : "Seats unknown"
+
+              return (
+                <article
+                  key={getDriveCardKey(drive)}
+                  className="rounded-[15px] border border-[#dde2d7] bg-white p-4 shadow-[0_24px_35px_-44px_rgba(15,23,42,0.3)] sm:p-5"
+                >
+                          <ScheduleSection
+                            drive={drive}
+                            stopPickupPassengerOptions={stopPickupPassengerOptions}
+                            onDriveUpdated={handleDriveUpdated}
+                            sharedColumnVisibility={sharedColumnVisibility}
+                            onSharedColumnVisibilityChange={setSharedColumnVisibility}
+                            renderHeaderLeading={({ finalArrivalTime }) => {
+                      const resolvedTimeLabel = finalArrivalTime || scheduledTimeLabel
+
+                      return (
+                        <div className="flex min-w-0 flex-wrap items-center gap-0.5 text-[22px] font-semibold tracking-tight text-[#1d1d1b]">
+                          <span className="pr-1">{travelTypeLabel}</span>
+                          <span className="text-[#9aa493]">·</span>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger
+                                delay={300}
+                                render={
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    className="px-1 text-[22px] font-semibold"
+                                    onClick={() => openEditDrive(drive)}
+                                  >
+                                    <span className="truncate px-1">
+                                      {locationTitle}
+                                    </span>
+                                  </Button>
+                                }
+                              />
+                              {shouldShowLocationTooltip ? (
+                                <TooltipContent side="bottom" align="start">
+                                  {commonLocation}
+                                </TooltipContent>
+                              ) : null}
+                            </Tooltip>
+                          </TooltipProvider>
+                          <span className="text-[#9aa493]">·</span>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger
+                                delay={300}
+                                render={
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    className="px-1 text-[22px] font-semibold"
+                                    onClick={() => openEditDrive(drive)}
+                                  >
+                                    <span className="truncate">
+                                      {resolvedTimeLabel}
+                                    </span>
+                                  </Button>
+                                }
+                              />
+                              <TooltipContent side="bottom" align="start">
+                                {drive.travelType === "pickup" ? "Arrive by" : "Depart at"}{" "}
+                                {resolvedTimeLabel}
+                              </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                        <span className="text-[#9aa493]">·</span>
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger
+                              delay={300}
+                              render={
+                                <span className="px-1 text-[#9aa493]">
+                                  {vanSummary}
+                                </span>
+                              }
+                            />
+                            <TooltipContent
+                              side="bottom"
+                              align="start"
+                              className="flex flex-col items-start gap-0.5 rounded-lg px-3 py-2"
+                            >
+                              <span className="text-[12px] font-medium text-background">
+                                {vanDriver}
+                              </span>
+                              <span className="text-[11px] text-background/80">
+                                {vanPlate} · {vanSeats}
+                              </span>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
+                    )
+                  }}
+                    renderFooter={() =>
+                      driveNotes ? (
+                        <div className="max-w-2xl rounded-2xl border border-[#e7dfbf] bg-[linear-gradient(180deg,#fffdf4_0%,#faf5de_100%)] px-3.5 py-3 text-left shadow-[0_10px_24px_-22px_rgba(120,96,38,0.35)]">
+                          <div className="flex items-start gap-3">
+                            <p className="shrink-0 pt-0.5 text-[10px] font-semibold tracking-[0.14em] text-[#9a8853] uppercase">
+                              Note
+                            </p>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[12px] leading-5 text-[#6f6442]">
+                                {driveNotes}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ) : null
+                    }
+                    renderHeaderActions={() => (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger
+                            delay={300}
+                            render={
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="kordi-btn-no-bordi"
+                                onClick={() => openEditDrive(drive)}
+                                disabled={deletingDriveId === drive.id}
+                              >
+                                <PencilLine className="size-4" />
+                              </Button>
+                            }
+                          />
+                          <TooltipContent>Edit Drive</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
+                  />
+
+                </article>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      <DriveEditorSheet
+        draft={driveDraft}
+        mode={driveEditorMode}
+        open={driveEditorMode !== null}
+        locationOptions={locationOptions}
+        vehicleOptions={vehicleOptions}
+        errorMessage={driveError}
+        resourceErrorMessage={resourceErrorMessage}
+        isSaving={isSavingDrive}
+        isSavingLocationDetails={isSavingLocationDetails}
+        isDeleting={activeDrive !== null && deletingDriveId === activeDrive.id}
+        isLoadingResources={isLoadingResources}
+        onClose={closeDriveEditor}
+        onCreateLocation={handleCreateLocation}
+        onUpdateLocation={handleUpdateLocation}
+        onDelete={
+          activeDrive
+            ? () => {
+                void handleDriveDelete(activeDrive)
+              }
+            : undefined
+        }
+        onSave={handleDriveSave}
+        setDraft={setDriveDraft}
+      />
+    </>
+  )
+}

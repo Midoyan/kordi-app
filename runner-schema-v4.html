@@ -1,0 +1,1020 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Runner — Schema v4 · This Week</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #080808; --bg2: #0e0e0e; --bg3: #141414; --surface: #1a1a1a;
+    --border: #222; --border2: #2a2a2a; --text: #e0e0e0; --muted: #666;
+    --subtle: #333; --core: #1D9E75; --core-bg: #0a1f18; --core-dim: #0F6E56;
+    --support: #378ADD; --support-bg: #0a1220; --support-dim: #185FA5;
+    --future: #444441; --future-bg: #111;
+    --pk: #FAC775; --pk-bg: #2a1f0a; --fk: #85B7EB; --fk-bg: #0a1828;
+    --accent: #e8734a; --week: #9B6FD4; --week-bg: #160d24; --week-dim: #6B4A9E;
+  }
+  body { background: var(--bg); color: var(--text); font-family: 'JetBrains Mono','Fira Code','Cascadia Code',monospace; min-height: 100vh; overflow-x: hidden; }
+
+  .topbar { position: sticky; top: 0; z-index: 100; background: var(--bg); border-bottom: 1px solid var(--border); padding: 14px 28px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .topbar-left { display: flex; flex-direction: column; gap: 2px; }
+  .topbar-eyebrow { font-size: 9px; letter-spacing: 3px; color: var(--muted); }
+  .topbar-title { font-size: 16px; font-weight: 800; letter-spacing: -0.3px; color: var(--text); }
+  .topbar-right { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .legend { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  .leg { display: flex; align-items: center; gap: 5px; font-size: 9px; letter-spacing: .5px; color: var(--muted); }
+  .leg-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+  .view-toggle { display: flex; gap: 6px; }
+  .vtbtn { padding: 6px 13px; font-size: 9px; letter-spacing: 1.5px; font-family: inherit; cursor: pointer; border-radius: 5px; border: 1px solid var(--border2); background: transparent; color: var(--muted); font-weight: 400; transition: all .15s; }
+  .vtbtn.active { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 700; }
+
+  .week-banner { background: var(--week-bg); border-bottom: 1px solid #2a1a44; padding: 8px 28px; display: flex; align-items: center; gap: 10px; font-size: 9px; letter-spacing: 1.5px; color: var(--week-dim); }
+  .week-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--week); flex-shrink: 0; }
+  .week-label { color: var(--week); font-weight: 700; }
+
+  .infobar { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 12px 28px; display: none; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+  .infobar.visible { display: flex; }
+  .info-section { display: flex; flex-direction: column; gap: 4px; min-width: 120px; }
+  .info-label { font-size: 8px; letter-spacing: 2px; color: var(--muted); }
+  .info-value { font-size: 13px; font-weight: 700; }
+  .info-note { font-size: 10px; color: var(--muted); line-height: 1.6; max-width: 480px; }
+  .info-relations { display: flex; flex-wrap: wrap; gap: 5px; }
+  .rel-pill { padding: 3px 9px; border-radius: 4px; font-size: 9px; cursor: pointer; background: var(--bg3); border: 1px solid var(--border2); color: var(--muted); transition: all .12s; display: flex; align-items: center; gap: 4px; }
+  .rel-pill:hover { border-color: var(--accent); color: var(--accent); }
+  .rel-dir { color: var(--subtle); }
+  .clear-btn { padding: 4px 10px; background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 4px; cursor: pointer; font-size: 9px; font-family: inherit; margin-left: auto; align-self: flex-start; transition: all .12s; }
+  .clear-btn:hover { border-color: var(--muted); color: var(--text); }
+
+  .diagram-view { overflow: auto; padding: 28px; }
+  .diagram-grid { display: grid; gap: 20px; width: max-content; }
+
+  .tcard { border-radius: 8px; border: 1px solid var(--border); overflow: hidden; cursor: pointer; transition: border-color .15s, opacity .2s; background: var(--bg2); position: relative; width: 280px; }
+  .tcard::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+  .tcard.core { background: var(--core-bg); }
+  .tcard.core::before { background: var(--core); }
+  .tcard.core.active, .tcard.core:hover { border-color: var(--core); }
+  .tcard.support { background: var(--support-bg); }
+  .tcard.support::before { background: var(--support); }
+  .tcard.support.active, .tcard.support:hover { border-color: var(--support); }
+  .tcard.future { background: var(--future-bg); opacity: .4; }
+  .tcard.future::before { background: var(--future); }
+  .tcard.future:hover { opacity: .6; border-color: var(--future); }
+  .tcard.thisweek { background: var(--week-bg); }
+  .tcard.thisweek::before { background: var(--week); }
+  .tcard.thisweek.active, .tcard.thisweek:hover { border-color: var(--week); }
+  .tcard.dimmed { opacity: .1 !important; pointer-events: none; }
+  .tcard.active { opacity: 1 !important; }
+
+  .tcard-head { padding: 10px 12px 8px; display: flex; align-items: flex-start; justify-content: space-between; border-bottom: 1px solid var(--border); gap: 6px; }
+  .tcard-name-wrap { display: flex; flex-direction: column; gap: 2px; }
+  .tcard-name { font-size: 11px; font-weight: 800; letter-spacing: .2px; }
+  .tcard-alias { font-size: 8px; color: var(--muted); font-style: italic; }
+  .tcard.core .tcard-name { color: var(--core); }
+  .tcard.support .tcard-name { color: var(--support); }
+  .tcard.future .tcard-name { color: var(--future); }
+  .tcard.thisweek .tcard-name { color: var(--week); }
+
+  .tcard-badge { font-size: 8px; letter-spacing: .8px; padding: 2px 7px; border-radius: 3px; font-weight: 700; flex-shrink: 0; }
+  .tcard.core .tcard-badge { background: #0F6E5622; color: var(--core-dim); border: 1px solid #0F6E5644; }
+  .tcard.support .tcard-badge { background: #185FA522; color: var(--support-dim); border: 1px solid #185FA544; }
+  .tcard.future .tcard-badge { background: #22222222; color: var(--muted); border: 1px solid var(--border); }
+  .tcard.thisweek .tcard-badge { background: #2a1a4433; color: var(--week-dim); border: 1px solid #9B6FD444; }
+
+  .tcard-fields { padding: 6px 0 8px; }
+  .field-row { display: flex; align-items: center; gap: 7px; padding: 3px 12px; font-size: 10px; transition: background .08s; }
+  .field-row:hover { background: rgba(255,255,255,.03); }
+  .field-row.future-field { opacity: .35; }
+  .field-key { width: 20px; height: 14px; display: flex; align-items: center; justify-content: center; border-radius: 2px; font-size: 8px; font-weight: 700; flex-shrink: 0; }
+  .field-key.pk { background: var(--pk-bg); color: var(--pk); border: 1px solid #FAC77533; }
+  .field-key.fk { background: var(--fk-bg); color: var(--fk); border: 1px solid #85B7EB33; }
+  .field-key.sp { background: transparent; border: none; }
+  .field-name { flex: 1; color: var(--text); }
+  .field-name.pk-name { color: var(--pk); }
+  .field-name.fk-name { color: var(--fk); }
+  .field-type { color: var(--subtle); font-size: 9px; }
+  .field-note { color: var(--muted); font-size: 9px; font-style: italic; }
+  .field-divider { height: 1px; background: var(--border); margin: 4px 12px; }
+
+  .relations-footer { margin: 0 28px 28px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .rel-footer-head { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 8px 14px; display: flex; align-items: center; gap: 10px; }
+  .rel-footer-title { font-size: 9px; letter-spacing: 2px; color: var(--muted); }
+  .rel-count { font-size: 9px; color: var(--subtle); }
+  .rel-rows { display: flex; flex-direction: column; }
+  .rel-row { display: flex; align-items: center; gap: 10px; padding: 6px 14px; font-size: 10px; border-bottom: 1px solid var(--border); transition: background .1s; }
+  .rel-row:last-child { border-bottom: none; }
+  .rel-row:hover { background: rgba(255,255,255,.02); cursor: pointer; }
+  .rel-row.future-rel { opacity: .35; }
+  .rel-from { font-weight: 700; color: var(--accent); min-width: 200px; }
+  .rel-arrow { color: var(--subtle); font-size: 9px; }
+  .rel-to { font-weight: 700; color: var(--text); min-width: 200px; }
+  .rel-desc { color: var(--muted); font-size: 9px; flex: 1; }
+  .rel-tag { font-size: 8px; padding: 1px 6px; border-radius: 3px; background: var(--bg3); border: 1px solid var(--border2); color: var(--subtle); flex-shrink: 0; }
+
+  .text-view { display: none; padding: 0; }
+  .text-view.visible { display: block; }
+  .text-view pre { padding: 32px 28px; font-size: 11px; line-height: 1.85; color: #888; white-space: pre-wrap; font-family: inherit; }
+
+  .guide-view { display: none; }
+  .guide-view.visible { display: block; }
+  .guide-body { padding: 28px; max-width: 900px; }
+
+  .guide-section { margin-bottom: 24px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .guide-section.week { border-color: #2a1a44; }
+  .guide-section-head { padding: 10px 16px; background: var(--bg2); border-bottom: 1px solid var(--border); font-size: 9px; letter-spacing: 2px; color: var(--muted); }
+  .guide-section.week .guide-section-head { background: var(--week-bg); border-bottom-color: #2a1a44; color: var(--week); }
+  .guide-section.green .guide-section-head { background: var(--core-bg); border-bottom-color: #0F6E5633; color: var(--core); }
+  .guide-inner { padding: 16px; }
+
+  .change-row { font-size: 10px; line-height: 1.8; color: var(--muted); margin-bottom: 10px; }
+  .change-row:last-child { margin-bottom: 0; }
+  .change-tag { display: inline-block; font-size: 8px; padding: 1px 6px; border-radius: 3px; font-weight: 700; margin-right: 4px; vertical-align: middle; }
+  .tag-new { background: #0a2010; border: 1px solid #1D9E7555; color: var(--core); }
+  .tag-kept { background: #10161f; border: 1px solid #85B7EB44; color: var(--fk); }
+  .tag-renamed { background: #1a1000; border: 1px solid #FAC77533; color: var(--pk); }
+  .tag-moved { background: #0a1220; border: 1px solid #378ADD33; color: var(--support); }
+  .tag-removed { background: #200a0a; border: 1px solid #e8734a33; color: var(--accent); }
+
+  .table-block { margin-bottom: 20px; }
+  .table-block:last-child { margin-bottom: 0; }
+  .table-block-name { font-size: 11px; font-weight: 700; color: var(--week); margin-bottom: 3px; }
+  .table-block-intent { font-size: 9px; color: var(--week-dim); font-style: italic; border-left: 2px solid #2a1a44; padding-left: 8px; margin-bottom: 6px; }
+  .code-block { font-size: 10px; background: #040404; border: 1px solid #1a1a1a; border-radius: 4px; padding: 12px; color: #999; line-height: 1.7; white-space: pre-wrap; font-family: inherit; }
+  .code-note { font-size: 9px; color: var(--muted); margin-top: 6px; line-height: 1.6; }
+
+  .page-footer { border-top: 1px solid var(--border); padding: 10px 28px; display: flex; justify-content: space-between; font-size: 9px; color: var(--subtle); letter-spacing: .5px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="topbar-eyebrow">RUNNER · SCHEMA v4 · CURRENT BACKEND SHAPE</div>
+    <div class="topbar-title">Data Relation Map</div>
+  </div>
+  <div class="topbar-right">
+    <div class="legend">
+      <div class="leg"><div class="leg-dot" style="background:#9B6FD4"></div>Planned</div>
+      <div class="leg"><div class="leg-dot" style="background:#1D9E75"></div>Transport core</div>
+      <div class="leg"><div class="leg-dot" style="background:#378ADD"></div>Support</div>
+      <div class="leg"><div class="leg-dot" style="background:#444"></div>Later / optional</div>
+      <div class="leg"><div class="leg-dot" style="background:#FAC775;border-radius:50%"></div>PK</div>
+      <div class="leg"><div class="leg-dot" style="background:#85B7EB;border-radius:50%"></div>FK</div>
+    </div>
+    <div class="view-toggle">
+      <button class="vtbtn active" onclick="setView('diagram', event)">DIAGRAM</button>
+      <button class="vtbtn" onclick="setView('text', event)">TEXT</button>
+      <button class="vtbtn" onclick="setView('guide', event)">DEV GUIDE</button>
+    </div>
+  </div>
+</div>
+
+<div class="week-banner">
+  <div class="week-dot"></div>
+  <span class="week-label">FOCUS:</span>
+  <span>planned production structure plus the live transport contract the app is actually using today</span>
+</div>
+
+<div class="infobar" id="infobar">
+  <div class="info-section">
+    <div class="info-label">TABLE</div>
+    <div class="info-value" id="info-name">—</div>
+    <div style="margin-top:4px" id="info-badge"></div>
+  </div>
+  <div class="info-section" style="flex:1;max-width:500px">
+    <div class="info-label">NOTE</div>
+    <div class="info-note" id="info-note">—</div>
+  </div>
+  <div class="info-section">
+    <div class="info-label">LINKED TABLES</div>
+    <div class="info-relations" id="info-relations"></div>
+  </div>
+  <button class="clear-btn" onclick="clearSelection()">✕ CLEAR</button>
+</div>
+
+<div class="diagram-view" id="diagram-view">
+  <div class="diagram-grid" id="diagram-grid"></div>
+  <div class="relations-footer" id="relations-footer"></div>
+</div>
+
+<div class="text-view" id="text-view">
+  <pre id="text-content"></pre>
+</div>
+
+<div class="guide-view" id="guide-view">
+<div class="guide-body">
+
+  <div style="margin-bottom:28px">
+    <div style="font-size:9px;letter-spacing:3px;color:var(--muted);margin-bottom:6px">RUNNER · SCHEMA v4 · DEVELOPER GUIDE</div>
+    <div style="font-size:20px;font-weight:800;color:var(--text);margin-bottom:6px">What changed &amp; why</div>
+  </div>
+
+  <div class="guide-section green">
+    <div class="guide-section-head">BACKEND NOTE</div>
+    <div class="guide-inner" style="font-size:10px;color:var(--muted);line-height:1.8">
+      <div><strong style="color:var(--text)">Live app today:</strong> <code style="color:#aaa">travels2</code>, <code style="color:#aaa">trips</code>, <code style="color:#aaa">trip_passengers</code>, <code style="color:#aaa">vans</code>, <code style="color:#aaa">locations</code>, <code style="color:#aaa">crew_members</code>.</div>
+      <div><strong style="color:var(--text)">Near-term schema direction:</strong> <code style="color:#aaa">organisations</code>, <code style="color:#aaa">projects</code>, <code style="color:#aaa">shoot_days</code>, <code style="color:#aaa">day_crew</code>, later <code style="color:#aaa">sheet_documents</code>.</div>
+      <div>Phase labels in this doc are only rough sequencing for a two-person team. They are not meant as strict rollout boundaries.</div>
+    </div>
+  </div>
+
+  <div class="guide-section">
+    <div class="guide-section-head">BACKEND CHECKLIST</div>
+    <div class="guide-inner" style="font-size:10px;color:var(--muted);line-height:1.8">
+      <div>1. Treat <code style="color:#aaa">travels2</code> as the live source of truth for runs.</div>
+      <div>2. Add <code style="color:#aaa">project_id</code> to <code style="color:#aaa">travels2</code> for direct project scoping.</div>
+      <div>3. Add <code style="color:#aaa">shoot_day_id</code> to <code style="color:#aaa">travels2</code> for day linkage.</div>
+      <div>4. Keep <code style="color:#aaa">trips</code> scoped by <code style="color:#aaa">travel_id</code> only; do not add duplicate <code style="color:#aaa">project_id</code> or <code style="color:#aaa">shoot_day_id</code> there unless a real query/perf problem appears.</div>
+      <div>5. Keep <code style="color:#aaa">location_id + travel_type</code> semantics as the live contract until the app actually writes separate endpoint columns.</div>
+    </div>
+  </div>
+
+  <!-- CHANGELOG -->
+  <div class="guide-section">
+    <div class="guide-section-head">CHANGELOG — v3 → v4</div>
+    <div class="guide-inner">
+      <div class="change-row"><span class="change-tag tag-removed">REMOVED</span><strong style="color:var(--text)">transport_notifications</strong> — Deleted entirely. The notification layer (SMS/push per pickup) needs a comms infrastructure that doesn't exist yet. Will return in a future phase once transport is stable and in use.</div>
+      <div class="change-row"><span class="change-tag tag-removed">REMOVED</span><strong style="color:var(--text)">driver_checkins</strong> — Deleted entirely. Real-time driver GPS is Phase 3. Requires mobile, Supabase Realtime, and opt-in location flow. Don't model what you're not building yet.</div>
+      <div class="change-row"><span class="change-tag tag-kept">KEPT</span><strong style="color:var(--text)">shoot_days</strong> — Keeping the existing table name for now to avoid unnecessary migrations. UI copy can still say "Day 2", but DB/code stay on <code style="color:#aaa">shoot_days</code> and <code style="color:#aaa">shoot_day_id</code>.</div>
+      <div class="change-row"><span class="change-tag tag-renamed">RENAMED</span><strong style="color:var(--text)">call_sheets → sheet_documents</strong> — Keep the better name in the doc, but treat it as later work rather than current backend contract.</div>
+      <div class="change-row"><span class="change-tag tag-renamed">RENAMED</span><strong style="color:var(--text)">call_sheet_crew → day_crew</strong> — Keep crew attached to the shoot day, not to a document. This is still the intended direction.</div>
+      <div class="change-row"><span class="change-tag tag-moved">MOVED TO FUTURE</span><strong style="color:var(--text)">sheet_documents, departments</strong> — Keep these visible for orientation, but they are not part of the live app contract.</div>
+      <div class="change-row"><span class="change-tag tag-new">NEW</span><strong style="color:var(--text)">organisations</strong> — Top of every hierarchy. Phase 1: any authenticated user sees all orgs and all data (open by design). Phase 2: add <code style="color:#aaa">org_members</code> and tighten RLS — single policy swap, no migration.</div>
+      <div class="change-row"><span class="change-tag tag-new">NEW</span><strong style="color:var(--text)">projects</strong> — A named production under an org. "Britain's Got Talent" is a project. Has a <code style="color:#aaa">client</code> field (the broadcaster/brand) separate from the org (the production company).</div>
+      <div class="change-row"><span class="change-tag tag-new">NEW</span><strong style="color:var(--text)">day_crew</strong> — Keep this in the document as the intended day-level crew table, but do not confuse it with the current transport runtime tables.</div>
+      <div class="change-row"><span class="change-tag tag-new">NEW</span><strong style="color:var(--text)">shoot_days.project_id</strong> — The existing <code style="color:#aaa">shoot_days</code> table now links directly to <code style="color:#aaa">projects</code> so transport planning hangs off the production day, not off any document.</div>
+      <div class="change-row"><span class="change-tag tag-new">NEW</span><strong style="color:var(--text)">project-scoped vans</strong> — Product direction stays the same: treat vans as rentals by default and use past projects only as suggestions. The live DB table is still leaner than that direction today.</div>
+    </div>
+  </div>
+
+  <!-- NEW TABLES -->
+  <div class="guide-section week">
+    <div class="guide-section-head">PRODUCTION STRUCTURE — PLANNED DIRECTION</div>
+    <div class="guide-inner">
+
+      <div class="table-block">
+        <div class="table-block-name">organisations</div>
+        <div class="table-block-intent">Top-level tenant. Phase 1 = open read/write for any authenticated user. Phase 2 = invite-only via org_members.</div>
+        <div class="code-block">CREATE TABLE organisations (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name        text NOT NULL,
+  slug        text UNIQUE NOT NULL,  -- url-safe: "bbc-studios", "meisel-film"
+  created_at  timestamptz DEFAULT now()
+);
+
+ALTER TABLE organisations ENABLE ROW LEVEL SECURITY;
+
+-- Phase 1: open — any authed user can CRUD
+CREATE POLICY "authed_all" ON organisations
+  FOR ALL USING (auth.role() = 'authenticated')
+  WITH CHECK (auth.role() = 'authenticated');</div>
+        <div class="code-note"><strong style="color:var(--text)">Phase 2 migration:</strong> add <code style="color:#aaa">org_members(org_id, profile_id, status)</code> and replace the policy with <code style="color:#aaa">auth.uid() IN (SELECT profile_id FROM org_members WHERE org_id = organisations.id AND status = 'active')</code>. No data migration needed.</div>
+      </div>
+
+      <div class="table-block">
+        <div class="table-block-name">projects</div>
+        <div class="table-block-intent">A named production under an org. "Britain's Got Talent" is a project. The org is the production company; the client is the broadcaster or brand they're working for.</div>
+        <div class="code-block">CREATE TABLE projects (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id      uuid NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
+  name        text NOT NULL,           -- "Britain's Got Talent"
+  client      text,                    -- NULL — "BBC"
+  status      text DEFAULT 'active',   -- active | wrapped | archived
+  created_at  timestamptz DEFAULT now()
+);
+
+CREATE INDEX ON projects (org_id);
+
+ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "authed_all" ON projects
+  FOR ALL USING (auth.role() = 'authenticated')
+  WITH CHECK (auth.role() = 'authenticated');</div>
+      </div>
+
+      <div class="table-block">
+        <div class="table-block-name">shoot_days</div>
+        <div class="table-block-intent">One calendar day of a production. This is still the intended place to anchor day-level planning, even though the current app transport runtime is not wired to it yet.</div>
+        <div class="code-block">CREATE TABLE shoot_days (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id       uuid NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
+  project_id   uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  shoot_date   date NOT NULL,
+  day_number   int,               -- NULL ok for single-day jobs; "Day 2" = 2
+  title        text,              -- NULL — optional: "Berlin Exteriors"
+  status       text DEFAULT 'draft',  -- draft | locked | wrapped
+  created_at   timestamptz DEFAULT now()
+);
+
+CREATE INDEX ON shoot_days (project_id);
+CREATE INDEX ON shoot_days (org_id);
+
+ALTER TABLE shoot_days ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "authed_all" ON shoot_days
+  FOR ALL USING (auth.role() = 'authenticated')
+  WITH CHECK (auth.role() = 'authenticated');</div>
+        <div class="code-note"><strong style="color:var(--text)">Migration note:</strong> Keep the existing <code style="color:#aaa">shoot_days</code> table name. Add <code style="color:#aaa">project_id</code> (NOT NULL after backfill). The live app transport tables are still separate and need an explicit link later.</div>
+      </div>
+
+      <div class="table-block">
+        <div class="table-block-name">day_crew</div>
+        <div class="table-block-intent">Crew work 12h shifts on a shoot day, not on a document. Keep this as the intended planning table for call times and transport grouping.</div>
+        <div class="code-block">CREATE TABLE day_crew (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id          uuid NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
+  shoot_day_id    uuid NOT NULL REFERENCES shoot_days(id) ON DELETE CASCADE,
+  crew_member_id  uuid NOT NULL REFERENCES crew_members(id) ON DELETE CASCADE,
+  call_time       timetz NOT NULL,
+  role_title      text,
+  transport_note  text,
+  location_id     uuid REFERENCES locations(id) ON DELETE SET NULL,
+  created_at      timestamptz DEFAULT now()
+);
+
+CREATE INDEX ON day_crew (shoot_day_id);
+CREATE INDEX ON day_crew (crew_member_id);
+
+ALTER TABLE day_crew ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "authed_all" ON day_crew
+  FOR ALL USING (auth.role() = 'authenticated')
+  WITH CHECK (auth.role() = 'authenticated');</div>
+        <div class="code-note">Keep this day-level even if <code style="color:#aaa">sheet_documents</code> arrive later. One crew member should still have one call time per shoot day.</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- LIVE TRANSPORT -->
+  <div class="guide-section">
+    <div class="guide-section-head">LIVE TRANSPORT CONTRACT — CURRENT APP</div>
+    <div class="guide-inner" style="display:flex;flex-direction:column;gap:12px">
+      <div class="change-row"><strong style="color:var(--text)">travels2</strong> — Live table used by the app today. Current payload is <code style="color:#aaa">van_id</code>, <code style="color:#aaa">travel_type</code>, <code style="color:#aaa">location_id</code>, <code style="color:#aaa">scheduled_time</code>, <code style="color:#aaa">sort_order</code>, <code style="color:#aaa">notes</code>. Near-term additions should be <code style="color:#aaa">project_id</code> and <code style="color:#aaa">shoot_day_id</code>. No persisted <code style="color:#aaa">start_location</code>, <code style="color:#aaa">start_time</code>, <code style="color:#aaa">destination_id</code>, or <code style="color:#aaa">driver_crew_id</code> yet.</div>
+      <div class="change-row"><strong style="color:var(--text)">travel_type + location_id</strong> — <code style="color:#aaa">pickup</code> means the chosen location is the final destination. <code style="color:#aaa">dropoff</code> means the chosen location is the start point.</div>
+      <div class="change-row"><strong style="color:var(--text)">scheduled_time</strong> — Semantics depend on type: pickup = "arrive by", dropoff = "depart at". The UI enforces arrival time for pickups only.</div>
+      <div class="change-row"><strong style="color:var(--text)">vans, locations, crew_members</strong> — The live app currently uses lean standalone tables. Project/org/day scoping is still product direction, not the active DB contract.</div>
+    </div>
+  </div>
+
+  <div class="guide-section">
+    <div class="guide-section-head">LOCATION + TYPE SEMANTICS</div>
+    <div class="guide-inner">
+      <div class="code-block">travels2 row
+  travel_type   = 'pickup'
+  location_id   = Heathrow T5
+  scheduled_time = 08:30
+  meaning       = arrive at Heathrow T5 by 08:30
+
+travels2 row
+  travel_type   = 'dropoff'
+  location_id   = Broadcast Centre
+  scheduled_time = 18:15
+  meaning       = depart from Broadcast Centre at 18:15</div>
+      <div class="code-note">This is why the live app can derive <code style="color:#aaa">destinationAddress</code> for pickups and <code style="color:#aaa">startLocation</code> for dropoffs without storing separate DB columns.</div>
+    </div>
+  </div>
+
+  <div class="guide-section">
+    <div class="guide-section-head">CURRENT TO LATER CLEANUP</div>
+    <div class="guide-inner">
+      <div class="code-block">Current live shape
+  travels2.location_id + travels2.travel_type
+
+Later normalization if needed
+  project_id       -- direct project scoping on the run
+  shoot_day_id     -- explicit day linkage
+  driver_crew_id   -- explicit assigned driver
+
+Trips stay simple
+  travel_id only
+  no duplicate project_id / shoot_day_id for now
+
+Rule:
+  do not document these later columns as live until the app reads/writes them.</div>
+    </div>
+  </div>
+
+  <!-- TARGET QUERY -->
+  <div class="guide-section green">
+    <div class="guide-section-head">QUERY STATUS</div>
+    <div class="guide-inner">
+      <div style="font-size:9px;color:var(--muted);margin-bottom:10px">The full sentence query is still the design goal, not the current live backend query, because <code style="color:#aaa">travels2</code> is not yet linked to <code style="color:#aaa">shoot_days</code> / <code style="color:#aaa">projects</code>.</div>
+      <div class="code-block">Live app query today
+  travels2
+    → vans via van_id
+    → locations via location_id
+    → trips via travel_id
+    → trip_passengers via trip_id
+
+Desired query later
+  organisations
+    → projects
+    → shoot_days
+    → travels2
+    → trips</div>
+    </div>
+  </div>
+
+  <!-- HIERARCHY -->
+  <div class="guide-section">
+    <div class="guide-section-head">FULL HIERARCHY — v4</div>
+      <div class="guide-inner">
+      <div class="code-block">organisations
+  └── projects
+        └── shoot_days
+              ├── day_crew       (crew call times for transport grouping)
+              └── sheet_documents  (later)
+
+LIVE APP TODAY:
+  vans
+    └── travels2
+          ├── trips
+          │     └── trip_passengers
+          └── location_id → locations
+
+  crew_members
+    └── trip_passengers
+
+LATER IF NEEDED:
+  projects   ──→ vans
+  projects   ──→ travels2
+  shoot_days ──→ travels2
+  org        ──→ departments ──→ crew_members</div>
+    </div>
+  </div>
+
+  <!-- NAMING -->
+  <div class="guide-section">
+    <div class="guide-section-head">NAMING CONVENTIONS</div>
+    <div class="guide-inner" style="font-size:10px;color:var(--muted);line-height:1.9">
+      <div><strong style="color:var(--text)">DB / Code:</strong> &nbsp;<code style="color:#aaa">shoot_days</code> &nbsp;<code style="color:#aaa">travels2</code> &nbsp;<code style="color:#aaa">trips</code> &nbsp;<code style="color:#aaa">day_crew</code> &nbsp;<code style="color:#aaa">sheet_documents</code></div>
+      <div><strong style="color:var(--text)">UI labels:</strong> &nbsp;"Day" &nbsp;"Run" &nbsp;"Stop" &nbsp;"Crew" &nbsp;"Call Sheet"</div>
+      <div style="margin-top:8px;color:var(--muted)">"Run" is what a 1st AD calls a travel on set. Never use it in code or column names — code always uses <code style="color:#aaa">travel</code>. The split is intentional and documented.</div>
+      <div style="margin-top:8px;padding:8px;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:4px;color:var(--muted)"><strong style="color:var(--text)">Phase 1 auth rule (applies to ALL tables):</strong> Any <code style="color:#aaa">authenticated</code> Supabase user has full CRUD on everything. This is intentional — ship fast, gate later. The RLS structure is already positioned for Phase 2 tightening with a single policy swap per table. No data migration needed when that time comes.</div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<div class="page-footer">
+  <span>Click any table to highlight relations · GUIDE tab has migration notes</span>
+  <span id="footer-count">— tables · — relations</span>
+</div>
+
+<script>
+const TABLES = {
+  organisations: {
+    tier: 'thisweek', badge: 'PLANNED',
+    note: 'Top-level tenant. Everything belongs to an org. Phase 1: any authenticated user has full CRUD — open by design. Phase 2 will add org_members for invite-only scoping. Single RLS policy swap, no data migration needed.',
+    fields: [
+      { key: 'pk', name: 'id', type: 'uuid' },
+      { key: 'sp', name: 'name', type: 'text', note: 'e.g. "BBC Studios"' },
+      { key: 'sp', name: 'slug', type: 'text', note: 'UNIQUE — "bbc-studios"' },
+      { key: 'sp', name: 'created_at', type: 'timestamptz' },
+    ],
+    col: 0, row: 0,
+  },
+  projects: {
+    tier: 'thisweek', badge: 'PLANNED',
+    note: 'Planned production grouping under an org. "Britain\'s Got Talent S12" is a project. This is part of the intended hierarchy, but not yet the live transport contract.',
+    fields: [
+      { key: 'pk', name: 'id', type: 'uuid' },
+      { key: 'fk', name: 'org_id', type: 'uuid', note: '→ organisations', fkTo: 'organisations' },
+      { key: 'sp', name: 'name', type: 'text', note: '"Britain\'s Got Talent"' },
+      { key: 'sp', name: 'client', type: 'text', note: 'NULL — "BBC"' },
+      { key: 'sp', name: 'status', type: 'text', note: 'active|wrapped|archived' },
+      { key: 'sp', name: 'created_at', type: 'timestamptz' },
+    ],
+    col: 1, row: 0,
+  },
+  shoot_days: {
+    tier: 'thisweek', badge: 'PLANNED',
+    note: 'One calendar day of a production. Keep the existing shoot_days naming. This is still the intended planning anchor, but live transport rows are not linked here yet.',
+    fields: [
+      { key: 'pk', name: 'id', type: 'uuid' },
+      { key: 'fk', name: 'org_id', type: 'uuid', note: '→ organisations', fkTo: 'organisations' },
+      { key: 'fk', name: 'project_id', type: 'uuid', note: '→ projects', fkTo: 'projects' },
+      { key: 'sp', name: 'shoot_date', type: 'date' },
+      { key: 'sp', name: 'day_number', type: 'int', note: 'NULL ok — "Day 2" = 2' },
+      { key: 'sp', name: 'title', type: 'text', note: 'NULL — "Berlin Exteriors"' },
+      { key: 'sp', name: 'status', type: 'text', note: 'draft|locked|wrapped' },
+      { key: 'sp', name: 'created_at', type: 'timestamptz' },
+    ],
+    col: 2, row: 0,
+  },
+
+  vans: {
+    tier: 'core', badge: 'LIVE APP',
+    note: 'Live vehicle table used by the app today. Product direction is still project-scoped rentals by default, but the current DB shape is the lean standalone version below.',
+    fields: [
+      { key: 'pk', name: 'id', type: 'uuid' },
+      { key: 'sp', name: 'label', type: 'text', note: '"Van 1 – Ford Transit"' },
+      { key: 'sp', name: 'plate_number', type: 'text', note: 'NULL' },
+      { key: 'sp', name: 'seat_capacity', type: 'int', note: 'NULL' },
+      { key: 'sp', name: 'vehicle_type', type: 'enum', note: 'van|car|shuttle|suv' },
+      { key: 'fk', name: 'crew_member_id', type: 'uuid', note: '→ crew_members, NULL', fkTo: 'crew_members' },
+      { key: 'sp', name: 'notes', type: 'text', note: 'NULL' },
+      { key: 'sp', name: 'is_active', type: 'bool', note: 'default true' },
+      { key: 'sp', name: 'created_at', type: 'timestamptz' },
+    ],
+    col: 0, row: 1,
+  },
+  travels2: {
+    tier: 'core', badge: 'LIVE APP',
+    note: 'Live run table used by the app today. location_id changes meaning based on travel_type: pickup = final destination, dropoff = start point',
+    fields: [
+      { key: 'pk', name: 'id', type: 'uuid' },
+      { key: 'fk', name: 'van_id', type: 'uuid', note: '→ vans', fkTo: 'vans' },
+      { key: 'sp', name: 'travel_type', type: 'enum', note: 'pickup|dropoff' },
+      { key: 'fk', name: 'location_id', type: 'uuid', note: '→ locations; meaning depends on travel_type', fkTo: 'locations' },
+      { key: 'sp', name: 'scheduled_time', type: 'timestamptz', note: 'pickup = arrive by, dropoff = depart at' },
+      { key: 'sp', name: 'sort_order', type: 'int', note: 'UI ordering' },
+      { key: 'sp', name: 'notes', type: 'text', note: 'NULL' },
+      { key: 'sp', name: 'created_at', type: 'timestamptz' },
+      { divider: true },
+      { key: 'fk', name: 'project_id', type: 'uuid', note: 'planned next → projects', future: true, fkTo: 'projects' },
+      { key: 'fk', name: 'shoot_day_id', type: 'uuid', note: 'planned later → shoot_days', future: true, fkTo: 'shoot_days' },
+      { key: 'fk', name: 'driver_crew_id', type: 'uuid', note: 'planned later → crew_members', future: true, fkTo: 'crew_members' },
+    ],
+    col: 1, row: 1,
+  },
+  trips: {
+    tier: 'core', badge: 'TRANSPORT',
+    note: 'One pickup stop within a travel. Route = ORDER BY pickup_time ASC. Use trip_passengers junction — no uuid[] arrays. trip_title is a custom stop label. UI label: "Stop".',
+    fields: [
+      { key: 'pk', name: 'id', type: 'uuid' },
+      { key: 'fk', name: 'travel_id', type: 'uuid', note: '→ travels2', fkTo: 'travels2' },
+      { key: 'sp', name: 'pickup_address', type: 'text' },
+      { key: 'sp', name: 'pickup_time', type: 'timetz', note: 'ASC = route order' },
+      { key: 'sp', name: 'trip_title', type: 'text', note: 'NULL — "Hotel pickup"' },
+      { key: 'sp', name: 'stop_duration_sec', type: 'int', note: 'NULL' },
+      { key: 'sp', name: 'traffic_buffer_sec', type: 'int', note: 'NULL' },
+      { key: 'sp', name: 'notes', type: 'text', note: 'NULL' },
+      { key: 'sp', name: 'created_at', type: 'timestamptz' },
+      { divider: true },
+      { key: 'sp', name: 'pickup_lat / pickup_lng', type: 'float8', note: 'Mapbox phase', future: true },
+    ],
+    col: 2, row: 1,
+  },
+  trip_passengers: {
+    tier: 'core', badge: 'JUNCTION',
+    note: 'One crew member boarding at one stop. Full FK integrity — no uuid[] arrays. Reverse lookup trivial: "which stop is Maria on?" Future: add boarded_at, no_show metadata without touching trips.',
+    fields: [
+      { key: 'pk', name: 'id', type: 'uuid' },
+      { key: 'fk', name: 'trip_id', type: 'uuid', note: '→ trips', fkTo: 'trips' },
+      { key: 'fk', name: 'crew_member_id', type: 'uuid', note: '→ crew_members', fkTo: 'crew_members' },
+      { key: 'sp', name: 'created_at', type: 'timestamptz' },
+      { divider: true },
+      { key: 'sp', name: 'boarded_at', type: 'timestamptz', note: 'NULL — future', future: true },
+      { key: 'sp', name: 'no_show', type: 'bool', note: 'NULL — future', future: true },
+    ],
+    col: 3, row: 1,
+  },
+
+  crew_members: {
+    tier: 'support', badge: 'LIVE APP',
+    note: 'Live crew roster used by the app today. home_address is the default pickup suggestion. More structure can be layered later if needed.',
+    fields: [
+      { key: 'pk', name: 'id', type: 'uuid' },
+      { key: 'sp', name: 'full_name', type: 'text' },
+      { key: 'sp', name: 'phone', type: 'text', note: 'E.164, NULL' },
+      { key: 'sp', name: 'home_address', type: 'text', note: 'NULL — default pickup' },
+      { key: 'sp', name: 'created_at', type: 'timestamptz' },
+      { divider: true },
+      { key: 'fk', name: 'department_id', type: 'uuid', note: 'possible later → departments', future: true, fkTo: 'departments' },
+      { key: 'sp', name: 'default_role_title', type: 'text', note: 'possible later', future: true },
+    ],
+    col: 0, row: 2,
+  },
+  locations: {
+    tier: 'support', badge: 'LIVE APP',
+    note: 'Live locations table used by the app today. travels2.location_id points here, but the meaning of that link depends on travel_type.',
+    fields: [
+      { key: 'pk', name: 'id', type: 'uuid' },
+      { key: 'sp', name: 'label', type: 'text', note: '"Main Set – Warehouse A"' },
+      { key: 'sp', name: 'address', type: 'text' },
+      { key: 'sp', name: 'location_type', type: 'enum', note: 'Pickup point|Venue|Hotel|Airport|Other' },
+      { key: 'sp', name: 'access_notes', type: 'text', note: 'NULL' },
+      { key: 'sp', name: 'created_at', type: 'timestamptz' },
+      { divider: true },
+      { key: 'fk', name: 'shoot_day_id', type: 'uuid', note: 'planned later → shoot_days', future: true, fkTo: 'shoot_days' },
+      { key: 'sp', name: 'lat / lng', type: 'float8', note: 'Mapbox phase', future: true },
+    ],
+    col: 1, row: 2,
+  },
+
+  sheet_documents: {
+    tier: 'future', badge: 'LATER', alias: 'ex. call_sheets',
+    note: 'Later document layer. One shoot day can have multiple documents (original call sheet + revised + advanced schedule).',
+    fields: [
+      { key: 'pk', name: 'id', type: 'uuid' },
+      { key: 'fk', name: 'org_id', type: 'uuid', note: '→ organisations', fkTo: 'organisations' },
+      { key: 'fk', name: 'shoot_day_id', type: 'uuid', note: '→ shoot_days', fkTo: 'shoot_days' },
+      { key: 'sp', name: 'doc_type', type: 'enum', note: 'call_sheet|adv_schedule|other' },
+      { key: 'sp', name: 'status', type: 'enum', note: 'draft|published|locked' },
+      { key: 'sp', name: 'version', type: 'int', note: 'default 1' },
+      { key: 'sp', name: 'general_call_time', type: 'timetz', note: 'NULL' },
+    ],
+    col: 2, row: 2,
+  },
+  day_crew: {
+    tier: 'thisweek', badge: 'PLANNED', alias: 'ex. call_sheet_crew',
+    note: 'Planned day-level crew table. Crew work 12h shifts on a shoot day, not on a document.',
+    fields: [
+      { key: 'pk', name: 'id', type: 'uuid' },
+      { key: 'fk', name: 'org_id', type: 'uuid', note: '→ organisations', fkTo: 'organisations' },
+      { key: 'fk', name: 'shoot_day_id', type: 'uuid', note: '→ shoot_days', fkTo: 'shoot_days' },
+      { key: 'fk', name: 'crew_member_id', type: 'uuid', note: '→ crew_members', fkTo: 'crew_members' },
+      { key: 'sp', name: 'call_time', type: 'timetz', note: 'drives transport grouping' },
+      { key: 'sp', name: 'role_title', type: 'text', note: 'per-day override' },
+      { key: 'sp', name: 'transport_note', type: 'text', note: 'NULL — "own car"' },
+      { key: 'fk', name: 'location_id', type: 'uuid', note: '→ locations, NULL', fkTo: 'locations' },
+      { key: 'sp', name: 'created_at', type: 'timestamptz' },
+    ],
+    col: 3, row: 2,
+  },
+  departments: {
+    tier: 'future', badge: 'LATER',
+    note: 'Optional later department list for grouping and filtering.',
+    fields: [
+      { key: 'pk', name: 'id', type: 'uuid' },
+      { key: 'fk', name: 'org_id', type: 'uuid', note: '→ organisations', fkTo: 'organisations' },
+      { key: 'sp', name: 'name', type: 'text', note: '"Camera", "G&E"' },
+      { key: 'sp', name: 'color_hex', type: 'text', note: 'NULL' },
+      { key: 'sp', name: 'sort_order', type: 'int' },
+    ],
+    col: 0, row: 3,
+  },
+};
+
+const RELATIONS = [
+  { from: 'organisations', to: 'projects',     card: '1 → N', desc: 'org runs many productions' },
+  { from: 'projects',      to: 'shoot_days',   card: '1 → N', desc: '"Britain\'s Got Talent" → Day 1, Day 2…' },
+  { from: 'vans',          to: 'travels2',     card: '1 → N', desc: 'vehicle assigned to live runs' },
+  { from: 'locations',     to: 'travels2',     card: '1 → N', desc: 'linked location; meaning depends on travel_type' },
+  { from: 'travels2',      to: 'trips',        card: '1 → N', desc: 'one run, many pickup stops' },
+  { from: 'trips',         to: 'trip_passengers', card: '1 → N', desc: 'passengers boarding at this stop' },
+  { from: 'crew_members',  to: 'trip_passengers', card: '1 → N', desc: 'crew member as passenger' },
+  { from: 'crew_members',  to: 'vans',         card: '→',     desc: 'optional assigned driver on the vehicle record' },
+  { from: 'shoot_days',    to: 'day_crew',     card: '1 → N', desc: 'crew per day, not per doc' },
+  { from: 'projects',      to: 'travels2',     card: '1 → N', desc: 'planned direct project scoping for runs', future: true },
+  { from: 'shoot_days',    to: 'travels2',     card: '1 → N', desc: 'planned day linkage for runs', future: true },
+  { from: 'projects',      to: 'vans',         card: '1 → N', desc: 'planned project-scoped vehicles', future: true },
+  { from: 'shoot_days',    to: 'locations',    card: '1 → N', desc: 'planned day-scoped locations', future: true },
+  { from: 'shoot_days',    to: 'sheet_documents', card: '1 → N', desc: 'one day, many docs', future: true },
+  { from: 'departments',   to: 'crew_members', card: '1 → N', desc: 'optional crew grouping', future: true },
+];
+
+const TEXT_SCHEMA = `══════════════════════════════════════════════════════════════════════
+  RUNNER — SCHEMA v4 · CURRENT SHAPE
+  planned: organisations → projects → shoot_days
+  live: vans / locations / crew_members → travels2 → trips
+══════════════════════════════════════════════════════════════════════
+
+GOAL
+──────────────
+Build enough to resolve:
+"Pickup for 2 people from London City Airport is happening on Day 2
+ of Britain's Got Talent by BBC"
+
+→ organisations WHERE name = 'Meisel Film'  (the production co)
+→ projects WHERE name ILIKE '%Britain%Got Talent%' AND client = 'BBC'
+Desired later:
+→ shoot_days WHERE project_id = ... AND day_number = 2
+→ travels2 WHERE shoot_day_id = ...
+→ trips WHERE travel_id = ...
+
+Live app today:
+→ travels2 WHERE van_id / location_id / travel_type / scheduled_time ...
+→ trips WHERE travel_id = ...
+
+══════════════════════════════════════════════════════════════════════
+CHANGES FROM v3
+══════════════════════════════════════════════════════════════════════
+
+REMOVED ENTIRELY:
+  transport_notifications  — too far future
+  driver_checkins          — too far future
+
+RENAMED:
+  call_sheets      → sheet_documents
+  call_sheet_crew  → day_crew
+
+KEPT:
+  shoot_days       (stays as-is to avoid extra migrations)
+
+LIVE TRANSPORT CONTRACT:
+  travels2.van_id
+  travels2.travel_type       (pickup|dropoff)
+  travels2.location_id       (meaning depends on travel_type)
+  travels2.scheduled_time    (pickup = arrive by, dropoff = depart at)
+  travels2.sort_order
+  travels2.notes
+
+NOT LIVE YET:
+  travels2.project_id
+  travels2.shoot_day_id
+  travels2.driver_crew_id
+
+══════════════════════════════════════════════════════════════════════
+TABLE DEFINITIONS — PLANNED PRODUCTION STRUCTURE
+══════════════════════════════════════════════════════════════════════
+
+── organisations ─────────────────────────────────────────────────────
+  id          uuid     PK
+  name        text     NOT NULL
+  slug        text     UNIQUE NOT NULL — "bbc-studios"
+  created_at  timestamptz
+
+  Phase 1 RLS: FOR ALL USING (auth.role() = 'authenticated')
+  Phase 2 RLS: auth.uid() IN (SELECT profile_id FROM org_members
+               WHERE org_id = id AND status = 'active')
+
+── projects ──────────────────────────────────────────────────────────
+  id          uuid     PK
+  org_id      uuid     FK → organisations  NOT NULL
+  name        text     NOT NULL — "Britain's Got Talent"
+  client      text     NULL — "BBC" (commissioning broadcaster/brand)
+  status      text     active|wrapped|archived
+  created_at  timestamptz
+
+── shoot_days ────────────────────────────────────────────────────────
+  id           uuid    PK
+  org_id       uuid    FK → organisations  NOT NULL
+  project_id   uuid    FK → projects       NOT NULL
+  shoot_date   date    NOT NULL
+  day_number   int     NULL ok — "Day 2" = 2
+  title        text    NULL — "Berlin Exteriors"
+  status       text    draft|locked|wrapped
+  created_at   timestamptz
+
+══════════════════════════════════════════════════════════════════════
+TABLE DEFINITIONS — LIVE TRANSPORT CONTRACT
+══════════════════════════════════════════════════════════════════════
+
+── vans ──────────────────────────────────────────────────────────────
+  id              uuid   PK
+  label           text
+  plate_number    text   NULL
+  seat_capacity   int    NULL
+  vehicle_type    enum   van|car|shuttle|suv
+  crew_member_id  uuid   FK → crew_members  NULL
+  notes           text   NULL
+  is_active       bool   default true
+  created_at      timestamptz
+
+── travels2 ──────────────────────────────────────────────────────────
+  id              uuid   PK
+  van_id          uuid   FK → vans
+  travel_type     enum   pickup|dropoff
+  location_id     uuid   FK → locations  ← meaning depends on travel_type
+  scheduled_time  timestamptz
+  sort_order      int
+  notes           text   NULL
+  created_at      timestamptz
+
+  NOT LIVE YET: project_id, shoot_day_id, driver_crew_id
+
+── trips ─────────────────────────────────────────────────────────────
+  id                 uuid  PK
+  travel_id          uuid  FK → travels2
+  pickup_address    text
+  pickup_time       timetz  ASC = route order
+  trip_title        text  NULL
+  stop_duration_sec int   NULL
+  traffic_buffer_sec int  NULL
+  notes             text  NULL
+  created_at        timestamptz
+
+  FUTURE: pickup_lat/lng float8
+
+── trip_passengers ───────────────────────────────────────────────────
+  id               uuid  PK
+  trip_id          uuid  FK → trips
+  crew_member_id   uuid  FK → crew_members
+  created_at       timestamptz
+
+  FUTURE: boarded_at timestamptz, no_show bool
+
+── crew_members ──────────────────────────────────────────────────────
+  id                 uuid  PK
+  full_name         text
+  phone             text  NULL (E.164)
+  home_address      text  NULL — default pickup suggestion
+  created_at        timestamptz
+
+  LATER: department_id, default_role_title
+
+── locations ─────────────────────────────────────────────────────────
+  id              uuid  PK
+  label           text
+  address         text
+  location_type   enum  Pickup point|Venue|Hotel|Airport|Other
+  access_notes    text  NULL
+  created_at      timestamptz
+
+  LATER: shoot_day_id, lat/lng
+
+── day_crew (ex. call_sheet_crew) ───────────────────────────────────
+  id                uuid  PK
+  org_id            uuid  FK → organisations
+  shoot_day_id      uuid  FK → shoot_days
+  crew_member_id    uuid  FK → crew_members
+  call_time         timetz
+  role_title        text
+  transport_note    text  NULL — "own car" = no pickup needed
+  location_id       uuid  FK → locations  NULL
+  created_at        timestamptz
+
+══════════════════════════════════════════════════════════════════════
+TABLE DEFINITIONS — LATER / OPTIONAL
+══════════════════════════════════════════════════════════════════════
+
+── sheet_documents (ex. call_sheets) ────────────────────────────────
+  id                uuid  PK
+  org_id            uuid  FK → organisations
+  shoot_day_id      uuid  FK → shoot_days
+  doc_type          enum  call_sheet|adv_schedule|other
+  status            enum  draft|published|locked
+  version           int   default 1
+  general_call_time timetz NULL
+  NOTE: 1 day can have N sheet_documents (no longer 1:1)
+
+── departments ───────────────────────────────────────────────────────
+  id          uuid  PK
+  org_id      uuid  FK → organisations
+  name        text
+  color_hex   text  NULL
+  sort_order  int
+
+══════════════════════════════════════════════════════════════════════
+RELATIONS
+══════════════════════════════════════════════════════════════════════
+organisations  1→N  projects
+projects       1→N  shoot_days         (planned)
+vans           1→N  travels2           (live)
+locations      1→N  travels2           (live; meaning depends on travel_type)
+travels2       1→N  trips              (live pickup stops)
+trips          1→N  trip_passengers    (who boards here — junction)
+crew_members   1→N  trip_passengers    (as passenger)
+shoot_days     1→N  day_crew
+
+LATER:
+projects       1→N  vans
+projects       1→N  travels2
+shoot_days     1→N  travels2
+shoot_days     1→N  locations
+shoot_days     1→N  sheet_documents
+departments    1→N  crew_members
+
+NAMING:
+  DB/code: shoot_days, travels2, trips, day_crew, sheet_documents
+  UI:      Day,  Run,     Stop,  Crew,     Call Sheet
+`;
+
+let selectedTable = null;
+
+function buildGrid() {
+  const grid = document.getElementById('diagram-grid');
+  grid.innerHTML = '';
+  const maxCol = Math.max(...Object.values(TABLES).map(t => t.col));
+  const maxRow = Math.max(...Object.values(TABLES).map(t => t.row));
+  grid.style.gridTemplateColumns = `repeat(${maxCol + 1}, 280px)`;
+  const slots = {};
+  Object.entries(TABLES).forEach(([key, t]) => { slots[`${t.col}-${t.row}`] = { key, t }; });
+  for (let row = 0; row <= maxRow; row++) {
+    for (let col = 0; col <= maxCol; col++) {
+      const slot = slots[`${col}-${row}`];
+      grid.appendChild(slot ? buildCard(slot.key, slot.t) : document.createElement('div'));
+    }
+  }
+}
+
+function buildCard(key, t) {
+  const card = document.createElement('div');
+  card.className = `tcard ${t.tier}`;
+  card.id = `card-${key}`;
+  card.onclick = () => selectTable(key);
+
+  const head = document.createElement('div');
+  head.className = 'tcard-head';
+
+  const nameWrap = document.createElement('div');
+  nameWrap.className = 'tcard-name-wrap';
+  nameWrap.innerHTML = `<span class="tcard-name">${key}</span>${t.alias ? `<span class="tcard-alias">${t.alias}</span>` : ''}`;
+  head.appendChild(nameWrap);
+
+  const badge = document.createElement('span');
+  badge.className = 'tcard-badge';
+  badge.textContent = t.badge;
+  head.appendChild(badge);
+  card.appendChild(head);
+
+  const fields = document.createElement('div');
+  fields.className = 'tcard-fields';
+  t.fields.forEach(f => {
+    if (f.divider) { const d = document.createElement('div'); d.className = 'field-divider'; fields.appendChild(d); return; }
+    const row = document.createElement('div');
+    row.className = `field-row${f.future ? ' future-field' : ''}`;
+    const keyEl = document.createElement('span');
+    keyEl.className = `field-key ${f.key}`;
+    keyEl.textContent = f.key === 'pk' ? 'PK' : f.key === 'fk' ? 'FK' : '';
+    row.appendChild(keyEl);
+    const nameEl = document.createElement('span');
+    nameEl.className = `field-name${f.key === 'pk' ? ' pk-name' : f.key === 'fk' ? ' fk-name' : ''}`;
+    nameEl.textContent = f.name;
+    row.appendChild(nameEl);
+    const typeEl = document.createElement('span');
+    typeEl.className = 'field-type';
+    typeEl.textContent = f.type;
+    row.appendChild(typeEl);
+    if (f.note) { const noteEl = document.createElement('span'); noteEl.className = 'field-note'; noteEl.textContent = f.note; row.appendChild(noteEl); }
+    fields.appendChild(row);
+  });
+  card.appendChild(fields);
+  return card;
+}
+
+function buildRelations() {
+  const footer = document.getElementById('relations-footer');
+  footer.innerHTML = `<div class="rel-footer-head"><span class="rel-footer-title">RELATIONS</span><span class="rel-count">${RELATIONS.length} total</span></div><div class="rel-rows" id="rel-rows"></div>`;
+  const rows = document.getElementById('rel-rows');
+  RELATIONS.forEach(r => {
+    const row = document.createElement('div');
+    row.className = `rel-row${r.future ? ' future-rel' : ''}`;
+    row.onclick = () => { if (!r.future) selectTable(r.from); };
+    row.innerHTML = `<span class="rel-from">${r.from}</span><span class="rel-arrow">──${r.card}──▶</span><span class="rel-to">${r.to}</span><span class="rel-desc">${r.desc}</span>${r.future ? '<span class="rel-tag">FUTURE</span>' : ''}`;
+    rows.appendChild(row);
+  });
+}
+
+function selectTable(key) {
+  selectedTable = selectedTable === key ? null : key;
+  renderSelection();
+}
+
+function clearSelection() {
+  selectedTable = null;
+  renderSelection();
+}
+
+function renderSelection() {
+  const infobar = document.getElementById('infobar');
+  const allCards = document.querySelectorAll('.tcard');
+  if (!selectedTable) {
+    infobar.classList.remove('visible');
+    allCards.forEach(c => c.classList.remove('active', 'dimmed'));
+    return;
+  }
+  const t = TABLES[selectedTable];
+  const related = new Set([selectedTable]);
+  RELATIONS.forEach(r => {
+    if (r.from === selectedTable) related.add(r.to);
+    if (r.to === selectedTable) related.add(r.from);
+  });
+  allCards.forEach(c => {
+    const cardKey = c.id.replace('card-', '');
+    if (related.has(cardKey)) { c.classList.add('active'); c.classList.remove('dimmed'); }
+    else { c.classList.add('dimmed'); c.classList.remove('active'); }
+  });
+  const tierColors = { core: '#1D9E75', support: '#378ADD', future: '#444441', thisweek: '#9B6FD4' };
+  const nameEl = document.getElementById('info-name');
+  nameEl.textContent = selectedTable;
+  nameEl.style.color = tierColors[t.tier];
+  document.getElementById('info-badge').innerHTML = `<span class="tcard-badge ${t.tier}" style="display:inline-block">${t.badge}</span>`;
+  document.getElementById('info-note').textContent = t.note;
+  const relsEl = document.getElementById('info-relations');
+  relsEl.innerHTML = '';
+  RELATIONS.filter(r => r.from === selectedTable || r.to === selectedTable).forEach(r => {
+    const other = r.from === selectedTable ? r.to : r.from;
+    const dir = r.from === selectedTable ? '→' : '←';
+    const pill = document.createElement('div');
+    pill.className = 'rel-pill';
+    pill.innerHTML = `<span class="rel-dir">${dir}</span>${other}<span style="color:#333;font-size:8px">${r.card}</span>`;
+    pill.onclick = () => selectTable(other);
+    relsEl.appendChild(pill);
+  });
+  infobar.classList.add('visible');
+}
+
+function setView(v, e) {
+  document.querySelectorAll('.vtbtn').forEach(b => b.classList.remove('active'));
+  if (e && e.target) e.target.classList.add('active');
+  document.getElementById('diagram-view').style.display = 'none';
+  document.getElementById('text-view').classList.remove('visible');
+  document.getElementById('guide-view').classList.remove('visible');
+  if (v === 'diagram') {
+    document.getElementById('diagram-view').style.display = 'block';
+  } else if (v === 'text') {
+    document.getElementById('text-view').classList.add('visible');
+    document.getElementById('text-content').textContent = TEXT_SCHEMA;
+  } else if (v === 'guide') {
+    document.getElementById('guide-view').classList.add('visible');
+  }
+}
+
+buildGrid();
+buildRelations();
+document.getElementById('footer-count').textContent = `${Object.keys(TABLES).length} tables · ${RELATIONS.length} relations`;
+</script>
+</body>
+</html>
